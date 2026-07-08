@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Optical Amplifier Panel</title>
+
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <header class="top-bar">
+        <h1>Optical Amplifier Control Panel</h1>
+        <div id="connection-status" class="status status-error">DISCONNECTED</div>
+    </header>
+
+    <nav class="tabs">
+        <button class="tab-button active" data-tab="dashboard">Panel główny</button>
+        <button class="tab-button" data-tab="monitors">Monitory</button>
+    </nav>
+
+    <main>
+        <section id="dashboard" class="tab-content active">
+            <div class="dashboard-grid">
+
+                <div class="amplifier-panel">
+                    <div class="amp-wrapper">
+                        <img src="/static/img/amplifier.svg" class="amp-image" alt="Wzmacniacz optyczny">
+
+                        <div class="port-value port-a-in">
+                            <span class="label">Port A IN</span>
+                            <span id="p-a-in" class="value">-- dBm</span>
+                        </div>
+
+                        <div class="port-value port-a-out">
+                            <span class="label">Port A OUT</span>
+                            <span id="p-a-out" class="value">-- dBm</span>
+                        </div>
+
+                        <div class="port-value port-b-out">
+                            <span class="label">Port B OUT</span>
+                            <span id="p-b-out" class="value">-- dBm</span>
+                        </div>
+
+                        <div class="port-value port-b-in">
+                            <span class="label">Port B IN</span>
+                            <span id="p-b-in" class="value">-- dBm</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="info-panel">
+                    <div class="card">
+                        <h2>Wzmocnienie rzeczywiste</h2>
+                        <div id="gain-actual" class="big-value">-- dB</div>
+                    </div>
+
+                    <div class="card">
+                        <h2>Wzmocnienie zadane</h2>
+                        <div class="gain-control">
+                            <input id="gain-set-input" type="number" step="0.1" value="15.0">
+                            <button id="set-gain-button">Ustaw</button>
+                        </div>
+                        <div class="small-info">
+                            Aktualnie zadane: <span id="gain-set">-- dB</span>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <h2>Delta gain</h2>
+                        <div id="gain-delta" class="medium-value">-- dB</div>
+                    </div>
+
+                    <div class="card">
+                        <h2>Temperatura</h2>
+                        <div id="temperature" class="medium-value">-- °C</div>
+                    </div>
+
+                    <div class="card">
+                        <h2>Ostatni odczyt</h2>
+                        <div id="last-update" class="medium-value">--</div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+        <section id="monitors" class="tab-content">
+            <div class="monitors-header">
+                <h2>Monitory</h2>
+
+                <div class="range-buttons">
+                    <button class="range-button active" data-range="5m">5 min</button>
+                    <button class="range-button" data-range="1h">1 h</button>
+                    <button class="range-button" data-range="24h">24 h</button>
+                    <button class="range-button" data-range="7d">7 dni</button>
+                    <button class="range-button" data-range="30d">30 dni</button>
+                    <button class="range-button" data-range="all">Wszystko</button>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <h3>Moce portów</h3>
+                    <canvas id="power-chart"></canvas>
+                </div>
+
+                <div class="chart-card">
+                    <h3>Wzmocnienie</h3>
+                    <canvas id="gain-chart"></canvas>
+                </div>
+
+                <div class="chart-card">
+                    <h3>Delta gain</h3>
+                    <canvas id="delta-chart"></canvas>
+                </div>
+
+                <div class="chart-card">
+                    <h3>Temperatura</h3>
+                    <canvas id="temperature-chart"></canvas>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <script src="/static/js/dashboard.js"></script>
+    <script src="/static/js/monitors.js"></script>
+</body>
+</html>
