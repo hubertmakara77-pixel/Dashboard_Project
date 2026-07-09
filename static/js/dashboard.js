@@ -10,6 +10,8 @@ let deltaChart = null;
 let temperatureChart = null;
 let gainInputEdited = false;
 let currentUser = null;
+let selectedStart = null;
+let selectedEnd = null;
 
 function formatDbm(value) {
     if (value === null || value === undefined) return "-- dBm";
@@ -34,6 +36,39 @@ function formatTime(value) {
 function formatPlainNumber(value, digits = 2) {
     if (value === null || value === undefined || value === "") return "--";
     return Number(value).toFixed(digits);
+}
+
+function localDateTimeToIso(value) {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toISOString();
+}
+
+function buildHistoryQuery() {
+    const params = new URLSearchParams({ range: selectedRange });
+
+    if (selectedStart) {
+        params.set("start", selectedStart);
+    }
+
+    if (selectedEnd) {
+        params.set("end", selectedEnd);
+    }
+
+    return params.toString();
+}
+
+function syncCustomRangeInputs(sourceContainer) {
+    const startValue = sourceContainer.querySelector(".custom-start-input")?.value || "";
+    const endValue = sourceContainer.querySelector(".custom-end-input")?.value || "";
+
+    document.querySelectorAll(".custom-start-input").forEach(input => {
+        input.value = startValue;
+    });
+    document.querySelectorAll(".custom-end-input").forEach(input => {
+        input.value = endValue;
+    });
 }
 
 function escapeHtml(value) {
@@ -226,7 +261,6 @@ async function saveSettings() {
 
         warnLimits[field][side] = valueOrNull(input);
     });
-    warnLimits.temperature = { min: null, max: null };
 
     if (gainInputEdited && gainValueText !== "") {
         const gainResponse = await fetch("/api/set_gain", {
@@ -268,10 +302,10 @@ async function updateDashboard() {
         const json = await response.json();
         const data = json.data || {};
 
-        setTextIfExists("p-a-in", formatDbm(data.p_a_in));
-        setTextIfExists("p-a-out", formatDbm(data.p_a_out));
-        setTextIfExists("p-b-in", formatDbm(data.p_b_in));
-        setTextIfExists("p-b-out", formatDbm(data.p_b_out));
+        setTextIfExists("PiA", formatDbm(data.PiA));
+        setTextIfExists("PoA", formatDbm(data.PoA));
+        setTextIfExists("PiB", formatDbm(data.PiB));
+        setTextIfExists("PoB", formatDbm(data.PoB));
         setTextIfExists("gain-actual", formatDb(data.gain_actual));
         setTextIfExists("gain-delta", formatDb(data.gain_delta));
         setTextIfExists("temperature", formatTemperature(data.temperature));
@@ -559,7 +593,7 @@ async function updateStatisticsTable() {
     if (!currentUser) return;
 
     try {
-        const response = await fetch("/api/history?range=" + selectedRange);
+        const response = await fetch("/api/history?" + buildHistoryQuery());
         handleAuthResponse(response);
         if (!response.ok) throw new Error("HTTP error " + response.status);
         const json = await response.json();
@@ -568,16 +602,21 @@ async function updateStatisticsTable() {
         const source = document.getElementById("statistics-source");
 
         if (source) {
-            source.textContent = `${points.length} samples, ${json.range}`;
+            const rangeText = selectedStart || selectedEnd ? "custom range" : json.range;
+            source.textContent = `${points.length} samples, ${rangeText}`;
         }
 
         if (!body) return;
 
         const fields = [
-            ["p_a_in", "Port A IN", "dBm"],
-            ["p_a_out", "Port A OUT", "dBm"],
-            ["p_b_in", "Port B IN", "dBm"],
-            ["p_b_out", "Port B OUT", "dBm"],
+            ["PiA", "PiA", "dBm"],
+            ["PoA", "PoA", "dBm"],
+            ["PiB", "PiB", "dBm"],
+            ["PoB", "PoB", "dBm"],
+            ["G", "G", ""],
+            ["SG", "SG", ""],
+            ["PP", "PP", ""],
+            ["SPP", "SPP", ""],
             ["gain_set", "Gain Setpoint", "dB"],
             ["gain_actual", "Actual Gain", "dB"],
             ["gain_delta", "Gain Delta", "dB"],
@@ -599,10 +638,10 @@ async function updateStatisticsTable() {
             return `
                 <tr>
                     <td>${label}</td>
-                    <td>${formatPlainNumber(stats.min)} ${unit}</td>
-                    <td>${formatPlainNumber(stats.max)} ${unit}</td>
-                    <td>${formatPlainNumber(stats.average)} ${unit}</td>
-                    <td>${formatPlainNumber(stats.maxDelta)} ${unit}</td>
+                    <td>${formatPlainNumber(stats.min)}${unit ? " " + unit : ""}</td>
+                    <td>${formatPlainNumber(stats.max)}${unit ? " " + unit : ""}</td>
+                    <td>${formatPlainNumber(stats.average)}${unit ? " " + unit : ""}</td>
+                    <td>${formatPlainNumber(stats.maxDelta)}${unit ? " " + unit : ""}</td>
                 </tr>
             `;
         }).join("");
@@ -642,7 +681,7 @@ async function updateOverviewCharts() {
     if (!currentUser) return;
 
     try {
-        const response = await fetch("/api/history?range=" + selectedRange);
+        const response = await fetch("/api/history?" + buildHistoryQuery());
         handleAuthResponse(response);
         if (!response.ok) throw new Error("HTTP error " + response.status);
         const json = await response.json();
@@ -652,10 +691,10 @@ async function updateOverviewCharts() {
         powerChart = createOrUpdateChart(
             powerChart, "power-chart", labels,
             [
-                { label: "Port A IN", data: getValues(points, "p_a_in") },
-                { label: "Port A OUT", data: getValues(points, "p_a_out") },
-                { label: "Port B IN", data: getValues(points, "p_b_in") },
-                { label: "Port B OUT", data: getValues(points, "p_b_out") }
+                { label: "PiA", data: getValues(points, "PiA") },
+                { label: "PoA", data: getValues(points, "PoA") },
+                { label: "PiB", data: getValues(points, "PiB") },
+                { label: "PoB", data: getValues(points, "PoB") }
             ],
             "Power [dBm]"
         );
@@ -689,10 +728,34 @@ function setupRangeButtons() {
     document.querySelectorAll(".range-button").forEach(button => {
         button.addEventListener("click", () => {
             selectedRange = button.dataset.range;
+            selectedStart = null;
+            selectedEnd = null;
             document.querySelectorAll(".range-button").forEach(item => item.classList.remove("active"));
-            button.classList.add("active");
+            document.querySelectorAll(`.range-button[data-range="${selectedRange}"]`).forEach(item => item.classList.add("active"));
             updateOverviewCharts();
             updateStatisticsTable();
+        });
+    });
+
+    document.querySelectorAll(".apply-custom-range-button").forEach(button => {
+        button.addEventListener("click", () => {
+            const container = button.closest(".monitors-header");
+            selectedStart = localDateTimeToIso(container.querySelector(".custom-start-input").value);
+            selectedEnd = localDateTimeToIso(container.querySelector(".custom-end-input").value);
+            syncCustomRangeInputs(container);
+            document.querySelectorAll(".range-button").forEach(item => item.classList.remove("active"));
+            updateOverviewCharts();
+            updateStatisticsTable();
+        });
+    });
+
+    document.querySelectorAll(".export-csv-button").forEach(button => {
+        button.addEventListener("click", () => {
+            const container = button.closest(".monitors-header");
+            selectedStart = localDateTimeToIso(container.querySelector(".custom-start-input").value) || selectedStart;
+            selectedEnd = localDateTimeToIso(container.querySelector(".custom-end-input").value) || selectedEnd;
+            syncCustomRangeInputs(container);
+            window.location.href = "/api/history/export.csv?" + buildHistoryQuery();
         });
     });
 }
@@ -707,6 +770,7 @@ if (gainSetInput) {
 function setupAuth() {
     const loginForm = document.getElementById("login-form");
     const logoutButton = document.getElementById("logout-button");
+    const auditLogButton = document.getElementById("download-audit-log-button");
 
     if (loginForm) {
         loginForm.addEventListener("submit", async event => {
@@ -731,6 +795,13 @@ function setupAuth() {
     if (logoutButton) {
         logoutButton.addEventListener("click", async () => {
             await logout();
+        });
+    }
+
+    if (auditLogButton) {
+        auditLogButton.addEventListener("click", () => {
+            if (!isAdministrator()) return;
+            window.location.href = "/api/audit/export.log";
         });
     }
 }

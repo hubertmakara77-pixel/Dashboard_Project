@@ -10,7 +10,15 @@ import state
 import syslog_service
 
 
-MEASUREMENT_FIELDS = {"p_a_in", "p_a_out", "p_b_in", "p_b_out"}
+MEASUREMENT_FIELDS = {"PiA", "PiB", "PoA", "PoB"}
+FIELD_LABELS = {
+    "PiA": "PiA",
+    "PiB": "PiB",
+    "PoA": "PoA",
+    "PoB": "PoB",
+    "temperature": "Temperature",
+    "gain_actual": "Gain actual",
+}
 
 
 def write_gain_command(ser, gain_set: float) -> None:
@@ -20,12 +28,15 @@ def write_gain_command(ser, gain_set: float) -> None:
 
 
 def enrich_data(data: dict) -> dict:
+    if "gain_set" not in data:
+        data["gain_set"] = state.last_known_gain_set
+
     if "gain_actual" not in data:
-        required = ["p_a_in", "p_a_out", "p_b_in", "p_b_out"]
+        required = ["PiA", "PoA", "PiB", "PoB"]
 
         if all(key in data for key in required):
-            gain_a = data["p_a_out"] - data["p_a_in"]
-            gain_b = data["p_b_out"] - data["p_b_in"]
+            gain_a = data["PoA"] - data["PiA"]
+            gain_b = data["PoB"] - data["PiB"]
             data["gain_actual"] = (gain_a + gain_b) / 2.0
 
     if "gain_delta" not in data:
@@ -53,7 +64,7 @@ def build_limit_errors(data: dict, now: str) -> list:
                 "time": now,
                 "field": "gain_actual",
                 "kind": "gain_tolerance",
-                "label": "Gain actual",
+                "label": FIELD_LABELS["gain_actual"],
                 "value": float(data.get("gain_actual", 0)),
                 "target": float(data.get("gain_set", state.last_known_gain_set)),
                 "delta": delta,
@@ -75,7 +86,7 @@ def build_limit_errors(data: dict, now: str) -> list:
                 "time": now,
                 "field": field,
                 "kind": "min",
-                "label": field,
+                "label": FIELD_LABELS.get(field, field),
                 "value": value,
                 "target": float(min_value),
                 "delta": delta,
@@ -89,7 +100,7 @@ def build_limit_errors(data: dict, now: str) -> list:
                 "time": now,
                 "field": field,
                 "kind": "max",
-                "label": field,
+                "label": FIELD_LABELS.get(field, field),
                 "value": value,
                 "target": float(max_value),
                 "delta": delta,

@@ -12,11 +12,10 @@ import config
 DEFAULT_DASHBOARD_SETTINGS = {
     "gain_tolerance": 0.25,
     "warn_limits": {
-        "p_a_in": {"min": None, "max": None},
-        "p_a_out": {"min": None, "max": None},
-        "p_b_in": {"min": None, "max": None},
-        "p_b_out": {"min": None, "max": None},
-        "temperature": {"min": None, "max": None},
+        "PiA": {"min": None, "max": None},
+        "PoA": {"min": None, "max": None},
+        "PiB": {"min": None, "max": None},
+        "PoB": {"min": None, "max": None},
     },
 }
 
