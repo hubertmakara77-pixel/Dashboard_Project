@@ -19,12 +19,12 @@ def init_influx():
     global query_api
 
     if not config.INFLUX_ENABLED:
-        print("InfluxDB wyłączony w config.py")
+        print("InfluxDB disabled in config.py")
         return
 
     if influxdb_client is None:
-        print("Brak biblioteki influxdb-client")
-        print("Zainstaluj: py -3.14 -m pip install influxdb-client")
+        print("Missing influxdb-client library")
+        print("Install it with: py -3.14 -m pip install influxdb-client")
         return
 
     client = influxdb_client.InfluxDBClient(
@@ -39,7 +39,7 @@ def init_influx():
 
     query_api = client.query_api()
 
-    print("Połączono z InfluxDB")
+    print("Connected to InfluxDB")
 
 
 def write_measurement(data: dict):

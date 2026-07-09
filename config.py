@@ -14,3 +14,11 @@ MEASUREMENT_NAME = "optical_amp_status"
 SETPOINT_MEASUREMENT_NAME = "optical_amp_setpoint"
 
 HISTORY_MEMORY_LIMIT = 10000
+
+PERSISTED_STATE_FILE = "persisted_state.json"
+
+SYSLOG_ENABLED = True
+SYSLOG_HOST = "127.0.0.1"
+SYSLOG_PORT = 514
+SYSLOG_APP_NAME = "amp-dashboard"
+SYSLOG_FACILITY = 16
