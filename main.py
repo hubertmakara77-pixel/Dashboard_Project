@@ -1,5 +1,6 @@
 import contextlib
 import datetime
+import secrets
 import threading
 
 import fastapi
@@ -21,6 +22,11 @@ class GainSetRequest(pydantic.BaseModel):
 class DashboardSettingsRequest(pydantic.BaseModel):
     gain_tolerance: float | None = None
     warn_limits: dict[str, dict[str, float | None]] | None = None
+
+
+class LoginRequest(pydantic.BaseModel):
+    username: str
+    password: str
 
 
 class AccessUserCreateRequest(pydantic.BaseModel):
@@ -51,6 +57,58 @@ def normalize_username(username: str) -> str:
         raise fastapi.HTTPException(status_code=400, detail="Username is required")
 
     return value
+
+
+def count_active_administrators() -> int:
+    return sum(
+        1
+        for user in state.access_users
+        if user["role"] == "Administrator" and user["active"]
+    )
+
+
+def user_has_role(user: dict, allowed_roles: set[str]) -> bool:
+    return user["role"] in allowed_roles
+
+
+def create_session(username: str) -> str:
+    token = secrets.token_urlsafe(32)
+    state.auth_sessions[token] = {
+        "username": username,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    return token
+
+
+def get_current_user(session_token: str | None = fastapi.Cookie(default=None)) -> dict:
+    if not session_token:
+        raise fastapi.HTTPException(status_code=401, detail="Not authenticated")
+
+    with state.state_lock:
+        session = state.auth_sessions.get(session_token)
+
+        if session is None:
+            raise fastapi.HTTPException(status_code=401, detail="Not authenticated")
+
+        user = find_access_user(session["username"])
+
+        if user is None or not user["active"]:
+            state.auth_sessions.pop(session_token, None)
+            raise fastapi.HTTPException(status_code=401, detail="Not authenticated")
+
+        return state.access_user_public(user)
+
+
+def require_roles(*allowed_roles: str):
+    allowed = set(allowed_roles)
+
+    def dependency(current_user: dict = fastapi.Depends(get_current_user)) -> dict:
+        if not user_has_role(current_user, allowed):
+            raise fastapi.HTTPException(status_code=403, detail="Not allowed")
+
+        return current_user
+
+    return dependency
 
 
 def parse_memory_range(range_value: str):
@@ -138,7 +196,7 @@ def home(request: starlette.requests.Request):
 
 
 @app.get("/api/latest")
-def latest():
+def latest(_current_user: dict = fastapi.Depends(require_roles("Administrator", "Operator", "Viewer"))):
     with state.state_lock:
         return {
             "connected": state.serial_connected,
@@ -151,7 +209,7 @@ def latest():
 
 
 @app.get("/api/status")
-def status():
+def status(_current_user: dict = fastapi.Depends(require_roles("Administrator", "Operator", "Viewer"))):
     with state.state_lock:
         return {
             "device": config.DEVICE_NAME,
@@ -163,13 +221,63 @@ def status():
 
 
 @app.get("/api/settings")
-def get_settings():
+def get_settings(_current_user: dict = fastapi.Depends(require_roles("Administrator", "Operator", "Viewer"))):
     with state.state_lock:
         return state.dashboard_settings
 
 
+@app.post("/api/auth/login")
+def login(request: LoginRequest, response: fastapi.Response):
+    username = normalize_username(request.username)
+
+    with state.state_lock:
+        user = find_access_user(username)
+
+        if (
+            user is None
+            or not user["active"]
+            or not state.verify_password(request.password, user["password_hash"], user["password_salt"])
+        ):
+            raise fastapi.HTTPException(status_code=401, detail="Invalid username or password")
+
+        token = create_session(username)
+        public_user = state.access_user_public(user)
+
+    response.set_cookie(
+        key="session_token",
+        value=token,
+        httponly=True,
+        samesite="strict",
+        max_age=60 * 60 * 12,
+    )
+
+    return {
+        "user": public_user
+    }
+
+
+@app.get("/api/auth/me")
+def auth_me(current_user: dict = fastapi.Depends(get_current_user)):
+    return {
+        "user": current_user
+    }
+
+
+@app.post("/api/auth/logout")
+def logout(response: fastapi.Response, session_token: str | None = fastapi.Cookie(default=None)):
+    with state.state_lock:
+        if session_token:
+            state.auth_sessions.pop(session_token, None)
+
+    response.delete_cookie("session_token")
+
+    return {
+        "status": "ok"
+    }
+
+
 @app.get("/api/access/users")
-def get_access_users():
+def get_access_users(_current_user: dict = fastapi.Depends(require_roles("Administrator"))):
     with state.state_lock:
         return {
             "users": [state.access_user_public(user) for user in state.access_users]
@@ -177,7 +285,10 @@ def get_access_users():
 
 
 @app.post("/api/access/users")
-def create_access_user(request: AccessUserCreateRequest):
+def create_access_user(
+    request: AccessUserCreateRequest,
+    _current_user: dict = fastapi.Depends(require_roles("Administrator")),
+):
     username = normalize_username(request.username)
 
     if not request.password:
@@ -202,7 +313,11 @@ def create_access_user(request: AccessUserCreateRequest):
 
 
 @app.put("/api/access/users/{username}")
-def update_access_user(username: str, request: AccessUserUpdateRequest):
+def update_access_user(
+    username: str,
+    request: AccessUserUpdateRequest,
+    _current_user: dict = fastapi.Depends(require_roles("Administrator")),
+):
     username = normalize_username(username)
 
     with state.state_lock:
@@ -211,11 +326,21 @@ def update_access_user(username: str, request: AccessUserUpdateRequest):
         if user is None:
             raise fastapi.HTTPException(status_code=404, detail="User not found")
 
+        next_role = request.role.strip() if request.role is not None else user["role"]
+        next_active = bool(request.active) if request.active is not None else bool(user["active"])
+
+        if user["role"] == "Administrator" and user["active"]:
+            if (next_role != "Administrator" or not next_active) and count_active_administrators() <= 1:
+                raise fastapi.HTTPException(
+                    status_code=400,
+                    detail="At least one active administrator is required"
+                )
+
         if request.role is not None:
-            user["role"] = request.role.strip() or "Operator"
+            user["role"] = next_role or "Operator"
 
         if request.active is not None:
-            user["active"] = bool(request.active)
+            user["active"] = next_active
 
         if request.password:
             user["password_hash"], user["password_salt"] = state.hash_password(request.password)
@@ -226,7 +351,10 @@ def update_access_user(username: str, request: AccessUserUpdateRequest):
 
 
 @app.delete("/api/access/users/{username}")
-def delete_access_user(username: str):
+def delete_access_user(
+    username: str,
+    _current_user: dict = fastapi.Depends(require_roles("Administrator")),
+):
     username = normalize_username(username)
 
     with state.state_lock:
@@ -238,6 +366,12 @@ def delete_access_user(username: str):
         if len(state.access_users) == 1:
             raise fastapi.HTTPException(status_code=400, detail="At least one user is required")
 
+        if user["role"] == "Administrator" and user["active"] and count_active_administrators() <= 1:
+            raise fastapi.HTTPException(
+                status_code=400,
+                detail="At least one active administrator is required"
+            )
+
         state.access_users.remove(user)
         state.save_persisted_access_users()
 
@@ -247,7 +381,10 @@ def delete_access_user(username: str):
 
 
 @app.post("/api/settings")
-def update_settings(request: DashboardSettingsRequest):
+def update_settings(
+    request: DashboardSettingsRequest,
+    _current_user: dict = fastapi.Depends(require_roles("Administrator", "Operator")),
+):
     with state.state_lock:
         if request.gain_tolerance is not None:
             state.dashboard_settings["gain_tolerance"] = float(request.gain_tolerance)
@@ -268,7 +405,7 @@ def update_settings(request: DashboardSettingsRequest):
 
 
 @app.get("/api/errors")
-def get_errors():
+def get_errors(_current_user: dict = fastapi.Depends(require_roles("Administrator", "Operator", "Viewer"))):
     with state.state_lock:
         return {
             "errors": list(state.error_buffer)
@@ -276,7 +413,7 @@ def get_errors():
 
 
 @app.post("/api/errors/clear")
-def clear_errors():
+def clear_errors(_current_user: dict = fastapi.Depends(require_roles("Administrator", "Operator"))):
     with state.state_lock:
         state.error_buffer.clear()
 
@@ -286,7 +423,10 @@ def clear_errors():
 
 
 @app.get("/api/history")
-def history(range: str = "5m"):
+def history(
+    range: str = "5m",
+    _current_user: dict = fastapi.Depends(require_roles("Administrator", "Operator", "Viewer")),
+):
     influx_points = influx_service.query_history_from_influx(range)
 
     if influx_points is not None:
@@ -306,7 +446,10 @@ def history(range: str = "5m"):
 
 
 @app.post("/api/set_gain")
-def set_gain(request: GainSetRequest):
+def set_gain(
+    request: GainSetRequest,
+    _current_user: dict = fastapi.Depends(require_roles("Administrator", "Operator")),
+):
     try:
         serial_reader.send_gain_set(request.gain_set)
     except RuntimeError as e:

@@ -9,6 +9,7 @@ let gainChart = null;
 let deltaChart = null;
 let temperatureChart = null;
 let gainInputEdited = false;
+let currentUser = null;
 
 function formatDbm(value) {
     if (value === null || value === undefined) return "-- dBm";
@@ -60,9 +61,74 @@ function setTextIfExists(id, value) {
     if (element) element.textContent = value;
 }
 
+function handleAuthResponse(response) {
+    if (response.status === 401) {
+        currentUser = null;
+        showLogin();
+        throw new Error("Not authenticated");
+    }
+
+    if (response.status === 403) {
+        throw new Error("Not allowed");
+    }
+}
+
+function isAdministrator() {
+    return currentUser && currentUser.role === "Administrator";
+}
+
+function canOperate() {
+    return currentUser && (currentUser.role === "Administrator" || currentUser.role === "Operator");
+}
+
+function setActiveTab(tabName) {
+    const targetLink = document.querySelector(`.nav-link[data-tab="${tabName}"]`);
+    if (!targetLink) return;
+
+    navLinks.forEach(item => item.classList.remove("active"));
+    targetLink.classList.add("active");
+
+    tabPanels.forEach(panel => {
+        panel.classList.toggle("active", panel.dataset.tab === tabName);
+    });
+
+    currentTitle.textContent = targetLink.dataset.title;
+}
+
+function applyRoleUi() {
+    document.querySelectorAll("[data-admin-only]").forEach(element => {
+        element.hidden = !isAdministrator();
+    });
+
+    document.querySelectorAll("[data-operator-control]").forEach(element => {
+        element.disabled = !canOperate();
+    });
+
+    if (currentUser) {
+        setTextIfExists("current-user-label", `${currentUser.username} (${currentUser.role})`);
+    }
+
+    const accessTab = document.querySelector('.tab-panel[data-tab="access-control"]');
+    if (accessTab && accessTab.classList.contains("active") && !isAdministrator()) {
+        setActiveTab("standard-view");
+    }
+}
+
+function showLogin() {
+    document.getElementById("login-screen").classList.remove("app-hidden");
+    document.getElementById("app-layout").classList.add("app-hidden");
+}
+
+function showApp() {
+    document.getElementById("login-screen").classList.add("app-hidden");
+    document.getElementById("app-layout").classList.remove("app-hidden");
+}
+
 navLinks.forEach(link => {
     link.addEventListener("click", () => {
         const targetTab = link.dataset.tab;
+
+        if (targetTab === "access-control" && !isAdministrator()) return;
 
         navLinks.forEach(item => item.classList.remove("active"));
         link.classList.add("active");
@@ -81,9 +147,51 @@ navLinks.forEach(link => {
 });
 
 async function loadSettings() {
+    if (!currentUser) return;
+
     const response = await fetch("/api/settings");
+    handleAuthResponse(response);
     dashboardSettings = await response.json();
     updateSettingsForm();
+}
+
+async function checkAuth() {
+    const response = await fetch("/api/auth/me");
+
+    if (!response.ok) {
+        currentUser = null;
+        showLogin();
+        return false;
+    }
+
+    const json = await response.json();
+    currentUser = json.user;
+    applyRoleUi();
+    showApp();
+    return true;
+}
+
+async function login(username, password) {
+    const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password })
+    });
+
+    if (!response.ok) {
+        throw new Error("Invalid username or password");
+    }
+
+    const json = await response.json();
+    currentUser = json.user;
+    applyRoleUi();
+    showApp();
+}
+
+async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    currentUser = null;
+    showLogin();
 }
 
 function updateSettingsForm() {
@@ -102,6 +210,8 @@ function updateSettingsForm() {
 }
 
 async function saveSettings() {
+    if (!canOperate()) return;
+
     const warnLimits = {};
     const gainInput = document.getElementById("gain-set-input");
     const gainValueText = gainInput.value.trim();
@@ -124,6 +234,7 @@ async function saveSettings() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ gain_set: Number(gainValueText) })
         });
+        handleAuthResponse(gainResponse);
 
         if (!gainResponse.ok) {
             throw new Error("Could not set gain_set");
@@ -141,14 +252,18 @@ async function saveSettings() {
             warn_limits: warnLimits
         })
     });
+    handleAuthResponse(response);
 
     dashboardSettings = await response.json();
     updateSettingsForm();
 }
 
 async function updateDashboard() {
+    if (!currentUser) return;
+
     try {
         const response = await fetch("/api/latest");
+        handleAuthResponse(response);
         if (!response.ok) throw new Error("HTTP error " + response.status);
         const json = await response.json();
         const data = json.data || {};
@@ -188,8 +303,11 @@ async function updateDashboard() {
 }
 
 async function updateWarningsTable() {
+    if (!currentUser) return;
+
     try {
         const response = await fetch("/api/errors");
+        handleAuthResponse(response);
         if (!response.ok) throw new Error("HTTP error " + response.status);
         const json = await response.json();
         const warnings = json.errors || [];
@@ -238,15 +356,20 @@ function setupSettingsButtons() {
 
     if (clearButton) {
         clearButton.addEventListener("click", async () => {
-            await fetch("/api/errors/clear", { method: "POST" });
+            if (!canOperate()) return;
+            const response = await fetch("/api/errors/clear", { method: "POST" });
+            handleAuthResponse(response);
             await updateWarningsTable();
         });
     }
 }
 
 async function loadAccessUsers() {
+    if (!isAdministrator()) return;
+
     try {
         const response = await fetch("/api/access/users");
+        handleAuthResponse(response);
         if (!response.ok) throw new Error("HTTP error " + response.status);
         const json = await response.json();
         const users = json.users || [];
@@ -320,6 +443,7 @@ function setupAccessControl() {
     if (form) {
         form.addEventListener("submit", async event => {
             event.preventDefault();
+            if (!isAdministrator()) return;
 
             const usernameInput = document.getElementById("access-username-input");
             const passwordInput = document.getElementById("access-password-input");
@@ -337,6 +461,7 @@ function setupAccessControl() {
                         active: activeInput.checked
                     })
                 });
+                handleAuthResponse(response);
 
                 if (!response.ok) throw new Error("Could not add user");
 
@@ -358,12 +483,15 @@ function setupAccessControl() {
             const username = row.dataset.username;
 
             if (event.target.matches("[data-access-save]")) {
+                if (!isAdministrator()) return;
+
                 try {
                     const response = await fetch(`/api/access/users/${encodeURIComponent(username)}`, {
                         method: "PUT",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify(getAccessRowPayload(row))
                     });
+                    handleAuthResponse(response);
 
                     if (!response.ok) throw new Error("Could not update user");
 
@@ -375,12 +503,15 @@ function setupAccessControl() {
             }
 
             if (event.target.matches("[data-access-delete]")) {
+                if (!isAdministrator()) return;
+
                 if (!confirm(`Delete user "${username}"?`)) return;
 
                 try {
                     const response = await fetch(`/api/access/users/${encodeURIComponent(username)}`, {
                         method: "DELETE"
                     });
+                    handleAuthResponse(response);
 
                     if (!response.ok) throw new Error("Could not delete user");
 
@@ -425,8 +556,11 @@ function calculateStats(points, field) {
 }
 
 async function updateStatisticsTable() {
+    if (!currentUser) return;
+
     try {
         const response = await fetch("/api/history?range=" + selectedRange);
+        handleAuthResponse(response);
         if (!response.ok) throw new Error("HTTP error " + response.status);
         const json = await response.json();
         const points = json.points || [];
@@ -505,8 +639,12 @@ function createOrUpdateChart(existingChart, canvasId, labels, datasets, yLabel) 
 }
 
 async function updateOverviewCharts() {
+    if (!currentUser) return;
+
     try {
         const response = await fetch("/api/history?range=" + selectedRange);
+        handleAuthResponse(response);
+        if (!response.ok) throw new Error("HTTP error " + response.status);
         const json = await response.json();
         const points = json.points || [];
         const labels = getLabels(points);
@@ -566,19 +704,64 @@ if (gainSetInput) {
     });
 }
 
+function setupAuth() {
+    const loginForm = document.getElementById("login-form");
+    const logoutButton = document.getElementById("logout-button");
+
+    if (loginForm) {
+        loginForm.addEventListener("submit", async event => {
+            event.preventDefault();
+
+            const error = document.getElementById("login-error");
+            const username = document.getElementById("login-username").value.trim();
+            const password = document.getElementById("login-password").value;
+
+            error.textContent = "";
+
+            try {
+                await login(username, password);
+                loginForm.reset();
+                await startDataRefresh();
+            } catch {
+                error.textContent = "Invalid username or password";
+            }
+        });
+    }
+
+    if (logoutButton) {
+        logoutButton.addEventListener("click", async () => {
+            await logout();
+        });
+    }
+}
+
+async function startDataRefresh() {
+    await loadSettings();
+    await updateDashboard();
+    await updateWarningsTable();
+    await updateStatisticsTable();
+
+    if (isAdministrator()) {
+        await loadAccessUsers();
+    }
+}
+
 setupSettingsButtons();
 setupRangeButtons();
 setupAccessControl();
+setupAuth();
 
-loadSettings();
-updateDashboard();
-updateWarningsTable();
-updateStatisticsTable();
-loadAccessUsers();
+checkAuth().then(isAuthenticated => {
+    if (isAuthenticated) {
+        startDataRefresh();
+    }
+});
 
 setInterval(updateDashboard, 1000);
 setInterval(updateWarningsTable, 3000);
 setInterval(() => {
+    if (!currentUser) return;
+
     const overviewTab = document.querySelector('.tab-panel[data-tab="overview"]');
     if (overviewTab && overviewTab.classList.contains("active")) {
         updateOverviewCharts();

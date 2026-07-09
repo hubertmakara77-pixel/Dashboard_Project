@@ -10,6 +10,65 @@ body {
     color: #edf3ef;
 }
 
+.app-hidden {
+    display: none !important;
+}
+
+.login-screen {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: #0c1110;
+}
+
+.login-panel {
+    width: min(100%, 360px);
+    display: grid;
+    gap: 16px;
+    background: #101816;
+    border: 1px solid #20352d;
+    border-radius: 8px;
+    padding: 24px;
+}
+
+.login-panel h1 {
+    font-size: 24px;
+    margin-bottom: 4px;
+}
+
+.login-panel label {
+    display: grid;
+    gap: 7px;
+    color: #a9b9b2;
+    font-weight: 700;
+}
+
+.login-panel input {
+    width: 100%;
+    padding: 9px;
+    background: #121b18;
+    color: #edf3ef;
+    border: 1px solid #3d5149;
+    border-radius: 6px;
+}
+
+.login-panel button {
+    padding: 9px 14px;
+    background: rgb(0, 106, 60);
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 700;
+}
+
+.login-error {
+    min-height: 18px;
+    color: #ff8f8f;
+    font-size: 14px;
+}
+
 button,
 input,
 select {
@@ -80,11 +139,35 @@ select {
     border-bottom: 1px solid #20352d;
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    gap: 18px;
 }
 
 .topbar h1 {
     font-size: 22px;
     font-weight: 650;
+}
+
+.user-menu {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: #b9c6c0;
+    font-size: 14px;
+}
+
+.user-menu button {
+    padding: 7px 11px;
+    background: transparent;
+    color: #dfe8e3;
+    border: 1px solid #3d5149;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.user-menu button:hover {
+    border-color: #57c08a;
+    color: #ffffff;
 }
 
 .status-bar {

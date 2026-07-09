@@ -48,6 +48,18 @@ def hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
     return base64.b64encode(digest).decode("ascii"), salt
 
 
+def verify_password(password: str, password_hash: str, password_salt: str) -> bool:
+    if not password_hash or not password_salt:
+        return False
+
+    try:
+        expected_hash, _ = hash_password(password, password_salt)
+    except (ValueError, TypeError):
+        return False
+
+    return secrets.compare_digest(expected_hash, password_hash)
+
+
 DEFAULT_ACCESS_USERS[0]["password_hash"], DEFAULT_ACCESS_USERS[0]["password_salt"] = hash_password("admin")
 
 
@@ -167,6 +179,7 @@ stop_event = threading.Event()
 history_buffer = collections.deque(maxlen=config.HISTORY_MEMORY_LIMIT)
 error_buffer = collections.deque(maxlen=500)
 active_warning_keys = set()
+auth_sessions = {}
 
 dashboard_settings = merge_dashboard_settings(persisted_state.get("dashboard_settings"))
 access_users = merge_access_users(persisted_state.get("access_users"))
