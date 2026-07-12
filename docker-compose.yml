@@ -1,52 +1,18 @@
 services:
-  app:
-    build: .
-    container_name: amp-dashboard
-    profiles:
-      - dashboard
-    restart: unless-stopped
-    environment:
-      SERIAL_PORT: ${SERIAL_PORT:-/dev/ttyACM0}
-      SERIAL_BAUDRATE: ${SERIAL_BAUDRATE:-9600}
-      DEVICE_NAME: ${DEVICE_NAME:-optical_amp_1}
-      HISTORY_MEMORY_LIMIT: ${HISTORY_MEMORY_LIMIT:-10000}
-      PERSISTED_STATE_FILE: ${PERSISTED_STATE_FILE:-/app/data/persisted_state.json}
-      INFLUX_ENABLED: ${INFLUX_ENABLED:-true}
-      INFLUX_URL: ${INFLUX_URL:-http://influxdb:8086}
-      INFLUX_TOKEN: ${INFLUX_TOKEN:-my-super-token}
-      INFLUX_ORG: ${INFLUX_ORG:-agh}
-      INFLUX_BUCKET: ${INFLUX_BUCKET:-sensors}
-      MEASUREMENT_NAME: ${MEASUREMENT_NAME:-optical_amp_status}
-      SETPOINT_MEASUREMENT_NAME: ${SETPOINT_MEASUREMENT_NAME:-optical_amp_setpoint}
-      SYSLOG_ENABLED: ${SYSLOG_ENABLED:-true}
-      SYSLOG_HOST: ${SYSLOG_HOST:-host.docker.internal}
-      SYSLOG_PORT: ${SYSLOG_PORT:-514}
-      SYSLOG_APP_NAME: ${SYSLOG_APP_NAME:-amp-dashboard}
-      SYSLOG_FACILITY: ${SYSLOG_FACILITY:-16}
-      AUDIT_LOG_FILE: ${AUDIT_LOG_FILE:-/app/data/audit.log}
-    ports:
-      - "8000:8000"
-    devices:
-      - "${SERIAL_DEVICE:-/dev/ttyACM0}:${SERIAL_PORT:-/dev/ttyACM0}"
-    volumes:
-      - ./data:/app/data
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      - influxdb
-
   influxdb:
     image: influxdb:2.7
     container_name: influxdb2
-    restart: unless-stopped
     ports:
       - "8086:8086"
     volumes:
-      - ./data/influxdb2:/var/lib/influxdb2
+      - influxdb2-data:/var/lib/influxdb2
     environment:
       DOCKER_INFLUXDB_INIT_MODE: setup
-      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUX_INIT_USERNAME:-admin}
-      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUX_INIT_PASSWORD:-admin12345}
-      DOCKER_INFLUXDB_INIT_ORG: ${INFLUX_ORG:-agh}
-      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUX_BUCKET:-sensors}
-      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUX_TOKEN:-my-super-token}
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: admin12345
+      DOCKER_INFLUXDB_INIT_ORG: agh
+      DOCKER_INFLUXDB_INIT_BUCKET: sensors
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: my-super-token
+
+volumes:
+  influxdb2-data:
