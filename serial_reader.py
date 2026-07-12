@@ -1,6 +1,5 @@
 import datetime
 import time
-import snmp_service
 
 import serial
 
@@ -8,10 +7,19 @@ import config
 import influx_service
 import parser
 import state
+import snmp_service
 import syslog_service
 
 
-MEASUREMENT_FIELDS = {"p_a_in", "p_a_out", "p_b_in", "p_b_out"}
+MEASUREMENT_FIELDS = {"PiA", "PiB", "PoA", "PoB"}
+FIELD_LABELS = {
+    "PiA": "PiA",
+    "PiB": "PiB",
+    "PoA": "PoA",
+    "PoB": "PoB",
+    "temperature": "Temperature",
+    "gain_actual": "Gain actual",
+}
 
 
 def write_gain_command(ser, gain_set: float) -> None:
@@ -21,12 +29,15 @@ def write_gain_command(ser, gain_set: float) -> None:
 
 
 def enrich_data(data: dict) -> dict:
+    if "gain_set" not in data:
+        data["gain_set"] = state.last_known_gain_set
+
     if "gain_actual" not in data:
-        required = ["p_a_in", "p_a_out", "p_b_in", "p_b_out"]
+        required = ["PiA", "PoA", "PiB", "PoB"]
 
         if all(key in data for key in required):
-            gain_a = data["p_a_out"] - data["p_a_in"]
-            gain_b = data["p_b_out"] - data["p_b_in"]
+            gain_a = data["PoA"] - data["PiA"]
+            gain_b = data["PoB"] - data["PiB"]
             data["gain_actual"] = (gain_a + gain_b) / 2.0
 
     if "gain_delta" not in data:
@@ -54,7 +65,7 @@ def build_limit_errors(data: dict, now: str) -> list:
                 "time": now,
                 "field": "gain_actual",
                 "kind": "gain_tolerance",
-                "label": "Gain actual",
+                "label": FIELD_LABELS["gain_actual"],
                 "value": float(data.get("gain_actual", 0)),
                 "target": float(data.get("gain_set", state.last_known_gain_set)),
                 "delta": delta,
@@ -76,7 +87,7 @@ def build_limit_errors(data: dict, now: str) -> list:
                 "time": now,
                 "field": field,
                 "kind": "min",
-                "label": field,
+                "label": FIELD_LABELS.get(field, field),
                 "value": value,
                 "target": float(min_value),
                 "delta": delta,
@@ -90,7 +101,7 @@ def build_limit_errors(data: dict, now: str) -> list:
                 "time": now,
                 "field": field,
                 "kind": "max",
-                "label": field,
+                "label": FIELD_LABELS.get(field, field),
                 "value": value,
                 "target": float(max_value),
                 "delta": delta,
@@ -202,21 +213,14 @@ def serial_reader_loop():
 
                 state.active_warning_keys = current_warning_keys
 
-            try:
-                influx_service.write_measurement(data)
-            except Exception as e:
-                print("InfluxDB write failed:", e)
+            influx_service.write_measurement(data)
 
             for error in syslog_warnings:
-                try:
-                    syslog_service.send_warning(format_syslog_warning(error))
-                except Exception as e:
-                    print("Syslog send failed:", e)
-
+                syslog_service.send_warning(format_syslog_warning(error))
                 try:
                     snmp_service.send_trap(error)
-                except Exception as e:
-                    print("SNMP trap send failed:", e)
+                except Exception as exc:
+                    print("SNMP trap send failed:", exc)
 
             print("Reading:", data)
 
@@ -252,7 +256,4 @@ def send_gain_set(gain_set: float):
         state.last_known_gain_set = float(gain_set)
         state.save_persisted_gain_set(state.last_known_gain_set)
 
-    try:
-        influx_service.write_setpoint(gain_set)
-    except Exception as e:
-        print("InfluxDB write_setpoint failed:", e)
+    influx_service.write_setpoint(gain_set)

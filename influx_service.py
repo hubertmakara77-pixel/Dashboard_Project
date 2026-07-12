@@ -125,21 +125,33 @@ def get_flux_range(range_value: str) -> str:
     return "-5m"
 
 
-def query_history_from_influx(range_value: str):
+def get_flux_range_clause(range_value: str, start: str | None = None, end: str | None = None) -> str:
+    if start:
+        stop_clause = f', stop: time(v: "{end}")' if end else ""
+        return f'|> range(start: time(v: "{start}"){stop_clause})'
+
+    return f"|> range(start: {get_flux_range(range_value)})"
+
+
+def query_history_from_influx(range_value: str, start: str | None = None, end: str | None = None):
     if not config.INFLUX_ENABLED:
         return None
 
     if query_api is None:
         return None
 
-    flux_range = get_flux_range(range_value)
+    flux_range_clause = get_flux_range_clause(range_value, start, end)
     window = get_window_for_range(range_value)
 
     fields = [
-        "p_a_in",
-        "p_a_out",
-        "p_b_in",
-        "p_b_out",
+        "PiA",
+        "PoA",
+        "PiB",
+        "PoB",
+        "G",
+        "SG",
+        "PP",
+        "SPP",
         "gain_set",
         "gain_actual",
         "gain_delta",
@@ -153,7 +165,7 @@ def query_history_from_influx(range_value: str):
 
     query = f'''
 from(bucket: "{config.INFLUX_BUCKET}")
-  |> range(start: {flux_range})
+  {flux_range_clause}
   |> filter(fn: (r) => r._measurement == "{config.MEASUREMENT_NAME}")
   |> filter(fn: (r) => r.device == "{config.DEVICE_NAME}")
   |> filter(fn: (r) => {field_filter})
