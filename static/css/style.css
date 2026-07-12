@@ -608,6 +608,16 @@ select {
     border-bottom: 0;
 }
 
+.limit-wide-row input {
+    grid-column: 2 / 4;
+}
+
+.limit-wide-row {
+    margin: 0;
+    color: #dfe8e3;
+    font-weight: 650;
+}
+
 .limit-row span {
     color: #dfe8e3;
     font-weight: 650;

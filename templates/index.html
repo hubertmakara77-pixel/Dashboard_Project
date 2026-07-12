@@ -135,24 +135,20 @@
                                 <button id="save-settings-button" type="button" data-operator-control>Save</button>
                             </div>
 
-                            <div class="control-block control-section">
-                                <h2>Gain Setpoint</h2>
-                                <div class="gain-control">
-                                    <input id="gain-set-input" type="number" step="0.1" placeholder="--" data-operator-control>
-                                </div>
-                            </div>
-
                             <div class="control-block control-section threshold-panel">
                                 <div class="section-title-row">
                                     <h2>Warning Thresholds</h2>
                                 </div>
 
-                                <label class="threshold-label threshold-inline">
-                                    <span>Max gain:</span>
-                                    <input id="gain-tolerance-input" type="number" step="0.01" min="0" value="0.25" data-operator-control>
-                                </label>
-
                                 <div class="limit-list">
+                                    <label class="limit-row limit-wide-row">
+                                        <span>Gain Setpoint:</span>
+                                        <input id="gain-set-input" type="number" step="0.1" placeholder="--" data-operator-control>
+                                    </label>
+                                    <label class="limit-row limit-wide-row">
+                                        <span>Max gain (delta):</span>
+                                        <input id="gain-tolerance-input" type="number" step="0.01" min="0" value="0.25" data-operator-control>
+                                    </label>
                                     <div class="limit-header">
                                         <span></span>
                                         <span>MIN</span>
