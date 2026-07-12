@@ -10,65 +10,6 @@ body {
     color: #edf3ef;
 }
 
-.app-hidden {
-    display: none !important;
-}
-
-.login-screen {
-    min-height: 100vh;
-    display: grid;
-    place-items: center;
-    padding: 24px;
-    background: #0c1110;
-}
-
-.login-panel {
-    width: min(100%, 360px);
-    display: grid;
-    gap: 16px;
-    background: #101816;
-    border: 1px solid #20352d;
-    border-radius: 8px;
-    padding: 24px;
-}
-
-.login-panel h1 {
-    font-size: 24px;
-    margin-bottom: 4px;
-}
-
-.login-panel label {
-    display: grid;
-    gap: 7px;
-    color: #a9b9b2;
-    font-weight: 700;
-}
-
-.login-panel input {
-    width: 100%;
-    padding: 9px;
-    background: #121b18;
-    color: #edf3ef;
-    border: 1px solid #3d5149;
-    border-radius: 6px;
-}
-
-.login-panel button {
-    padding: 9px 14px;
-    background: rgb(0, 106, 60);
-    color: #ffffff;
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    border-radius: 6px;
-    cursor: pointer;
-    font-weight: 700;
-}
-
-.login-error {
-    min-height: 18px;
-    color: #ff8f8f;
-    font-size: 14px;
-}
-
 button,
 input,
 select {
@@ -139,35 +80,11 @@ select {
     border-bottom: 1px solid #20352d;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 18px;
 }
 
 .topbar h1 {
     font-size: 22px;
     font-weight: 650;
-}
-
-.user-menu {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    color: #b9c6c0;
-    font-size: 14px;
-}
-
-.user-menu button {
-    padding: 7px 11px;
-    background: transparent;
-    color: #dfe8e3;
-    border: 1px solid #3d5149;
-    border-radius: 6px;
-    cursor: pointer;
-}
-
-.user-menu button:hover {
-    border-color: #57c08a;
-    color: #ffffff;
 }
 
 .status-bar {
@@ -449,8 +366,6 @@ select {
 }
 
 .monitors-header {
-    display: grid;
-    gap: 12px;
     margin-bottom: 20px;
 }
 
@@ -463,44 +378,6 @@ select {
 .range-button.active {
     background: rgb(0, 106, 60);
     border-color: rgba(255, 255, 255, 0.2);
-}
-
-.custom-range {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    align-items: end;
-}
-
-.custom-range label {
-    display: grid;
-    gap: 5px;
-    color: #a9b9b2;
-    font-size: 13px;
-    font-weight: 700;
-}
-
-.custom-range input {
-    padding: 8px;
-    min-width: 190px;
-    background: #121b18;
-    color: #edf3ef;
-    border: 1px solid #3d5149;
-    border-radius: 6px;
-}
-
-.custom-range button {
-    padding: 8px 14px;
-    background: transparent;
-    color: #dfe8e3;
-    border: 1px solid #3d5149;
-    border-radius: 6px;
-    cursor: pointer;
-}
-
-.custom-range button:hover {
-    border-color: #57c08a;
-    color: #ffffff;
 }
 
 .charts-grid {
@@ -675,21 +552,6 @@ select {
     top: 24px;
 }
 
-.audit-export-panel {
-    grid-column: 1;
-}
-
-.audit-export-panel p {
-    color: #a9b9b2;
-    font-size: 13px;
-    line-height: 1.45;
-}
-
-.access-grid > .data-panel {
-    grid-column: 2;
-    grid-row: 1 / span 2;
-}
-
 .form-field {
     display: grid;
     gap: 7px;
@@ -750,12 +612,6 @@ select {
     .charts-grid,
     .access-grid {
         grid-template-columns: 1fr;
-    }
-
-    .audit-export-panel,
-    .access-grid > .data-panel {
-        grid-column: 1;
-        grid-row: auto;
     }
 
     .standard-grid {

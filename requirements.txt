@@ -3,3 +3,6 @@ uvicorn
 pyserial
 jinja2
 influxdb-client
+pysnmp
+itsdangerous
+python-multipart

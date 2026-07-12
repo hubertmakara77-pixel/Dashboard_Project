@@ -12,10 +12,11 @@ import config
 DEFAULT_DASHBOARD_SETTINGS = {
     "gain_tolerance": 0.25,
     "warn_limits": {
-        "PiA": {"min": None, "max": None},
-        "PoA": {"min": None, "max": None},
-        "PiB": {"min": None, "max": None},
-        "PoB": {"min": None, "max": None},
+        "p_a_in": {"min": None, "max": None},
+        "p_a_out": {"min": None, "max": None},
+        "p_b_in": {"min": None, "max": None},
+        "p_b_out": {"min": None, "max": None},
+        "temperature": {"min": None, "max": None},
     },
 }
 
@@ -28,7 +29,13 @@ DEFAULT_ACCESS_USERS = [
         "password_salt": "",
     }
 ]
-
+DEFAULT_SNMP_SETTINGS = {
+    "enabled": False,
+    "port": 161,
+    "community": "public",
+    "trap_host": "127.0.0.1",
+    "trap_port": 162
+}
 
 def hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
     if salt is None:
@@ -47,19 +54,15 @@ def hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
     return base64.b64encode(digest).decode("ascii"), salt
 
 
-def verify_password(password: str, password_hash: str, password_salt: str) -> bool:
-    if not password_hash or not password_salt:
-        return False
-
-    try:
-        expected_hash, _ = hash_password(password, password_salt)
-    except (ValueError, TypeError):
-        return False
-
-    return secrets.compare_digest(expected_hash, password_hash)
-
-
 DEFAULT_ACCESS_USERS[0]["password_hash"], DEFAULT_ACCESS_USERS[0]["password_salt"] = hash_password("admin")
+
+
+def verify_password(user: dict, password: str) -> bool:
+    if not user.get("password_hash") or not user.get("password_salt"):
+        return False
+
+    expected_hash, _ = hash_password(password, salt=user["password_salt"])
+    return secrets.compare_digest(expected_hash, user["password_hash"])
 
 
 def load_persisted_state() -> dict:
@@ -144,6 +147,7 @@ def save_persisted_state() -> None:
         "last_known_gain_set": float(last_known_gain_set),
         "dashboard_settings": dashboard_settings,
         "access_users": access_users,
+        "snmp_settings": snmp_settings,
     }
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -163,6 +167,7 @@ def save_persisted_access_users() -> None:
 
 
 latest_data = {}
+latest_snmp_data = {}
 serial_connected = False
 serial_error = None
 last_update = None
@@ -178,7 +183,8 @@ stop_event = threading.Event()
 history_buffer = collections.deque(maxlen=config.HISTORY_MEMORY_LIMIT)
 error_buffer = collections.deque(maxlen=500)
 active_warning_keys = set()
-auth_sessions = {}
 
 dashboard_settings = merge_dashboard_settings(persisted_state.get("dashboard_settings"))
 access_users = merge_access_users(persisted_state.get("access_users"))
+
+snmp_settings = persisted_state.get("snmp_settings", DEFAULT_SNMP_SETTINGS.copy())
