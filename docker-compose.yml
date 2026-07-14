@@ -24,12 +24,14 @@ services:
       SYSLOG_APP_NAME: ${SYSLOG_APP_NAME:-amp-dashboard}
       SYSLOG_FACILITY: ${SYSLOG_FACILITY:-16}
       AUDIT_LOG_FILE: ${AUDIT_LOG_FILE:-/app/data/audit.log}
+      NETWORK_AGENT_SOCKET: /run/amp-dashboard/network-agent.sock
     ports:
       - "8000:8000"
     devices:
       - "${SERIAL_DEVICE:-/dev/ttyACM0}:${SERIAL_PORT:-/dev/ttyACM0}"
     volumes:
       - ./data:/app/data
+      - /run/amp-dashboard:/run/amp-dashboard
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

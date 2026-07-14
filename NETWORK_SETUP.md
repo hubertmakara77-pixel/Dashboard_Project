@@ -1,17 +1,39 @@
-# Network configuration on Debian
+# Host network configuration
 
-The Network Configuration tab reads interfaces with `ip` and manages IPv4 profiles through NetworkManager (`nmcli`). It supports DHCP and static addressing, gateway and DNS configuration.
+The dashboard container never executes `ip` or `nmcli` and does not receive
+privileged access. It communicates over the root-owned Unix socket
+`/run/amp-dashboard/network-agent.sock` with `amp-network-agent.service`, a
+small systemd service installed on the Linux host.
 
-## Requirements
+The agent validates interface names, IPv4 addresses, subnet, gateway and DNS,
+then invokes NetworkManager without a shell. Only Administrators may submit a
+change through the dashboard; all authenticated roles may read the state.
+
+## Debian / Raspberry Pi OS host
+
+The host must use NetworkManager for the interface that should be managed:
 
 ```bash
 sudo apt update
-sudo apt install iproute2 network-manager policykit-1
+sudo apt install iproute2 network-manager
 nmcli general status
+nmcli device status
 ```
 
-Do not enable NetworkManager remotely before checking whether `ifupdown` or `systemd-networkd` currently owns the interface; taking it over may disconnect SSH.
+Do not switch an existing remote server from `ifupdown`, Netplan or
+`systemd-networkd` to NetworkManager without local console access. Taking over
+the active interface may immediately disconnect SSH and the dashboard.
 
-Run the dashboard as a dedicated service account and grant only `org.freedesktop.NetworkManager.network-control` and `org.freedesktop.NetworkManager.settings.modify.system` through polkit. Avoid running the whole application as root.
+Run `install_raspberry_pi.sh` after NetworkManager is ready. The installer
+installs and enables both `amp-network-agent.service` and
+`amp-dashboard.service`.
 
-Changing the address of the interface used to open the panel can immediately disconnect the browser. Perform the first static-IP change with local access to the device.
+## Diagnostics
+
+```bash
+sudo systemctl status amp-network-agent.service
+sudo journalctl -u amp-network-agent.service -n 100
+ls -l /run/amp-dashboard/network-agent.sock
+docker compose --profile dashboard exec app python -c \
+  'import network_service; print(network_service.get_network_state())'
+```

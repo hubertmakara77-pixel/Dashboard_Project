@@ -344,7 +344,7 @@ def get_network_settings(
     try:
         return network_service.get_network_state()
     except network_service.NetworkError as exc:
-        raise fastapi.HTTPException(status_code=503, detail=str(exc)) from exc
+        raise fastapi.HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @app.post("/api/network")
@@ -356,7 +356,7 @@ def update_network_settings(
     try:
         result = network_service.apply_network_settings(settings.model_dump())
     except network_service.NetworkError as exc:
-        raise fastapi.HTTPException(status_code=400, detail=str(exc)) from exc
+        raise fastapi.HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
     audit_event(
         request,

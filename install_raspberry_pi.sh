@@ -14,64 +14,25 @@ fail() {
 }
 
 require_linux() {
-  [[ "$(uname -s)" == "Linux" ]] || fail "This installer requires Linux or WSL."
+  [[ "$(uname -s)" == "Linux" ]] || fail "This installer requires Linux."
 
   if ! command -v apt-get >/dev/null 2>&1; then
-    fail "This installer currently supports Debian, Ubuntu, Raspberry Pi OS and WSL distributions based on them."
+    fail "This installer supports Debian, Ubuntu and Raspberry Pi OS."
   fi
-}
-
-is_wsl() {
-  grep -qiE '(microsoft|wsl)' /proc/version 2>/dev/null
 }
 
 systemd_is_running() {
   [[ "$(ps -p 1 -o comm= 2>/dev/null | tr -d ' ')" == "systemd" ]]
 }
 
-enable_systemd_in_wsl() {
-  is_wsl || return 0
-  systemd_is_running && return 0
-
-  info "Enabling systemd in WSL"
-
-  if [[ ! -f /etc/wsl.conf ]]; then
-    printf '[boot]\nsystemd=true\n' | sudo tee /etc/wsl.conf >/dev/null
-  elif grep -q '^\[boot\]' /etc/wsl.conf; then
-    if grep -q '^systemd=' /etc/wsl.conf; then
-      sudo sed -i 's/^systemd=.*/systemd=true/' /etc/wsl.conf
-    else
-      sudo sed -i '/^\[boot\]/a systemd=true' /etc/wsl.conf
-    fi
-  else
-    printf '\n[boot]\nsystemd=true\n' | sudo tee -a /etc/wsl.conf >/dev/null
-  fi
-
-  cat <<'MESSAGE'
-
-Systemd has been enabled for this WSL distribution.
-
-Run the following command once in Windows PowerShell:
-
-  wsl --shutdown
-
-Then open WSL again and rerun:
-
-  cd ~/Dashboard_Project
-  bash install_raspberry_pi.sh
-MESSAGE
-  exit 0
-}
-
 install_system_packages() {
   info "Installing required system packages"
   sudo apt-get update
-  sudo apt-get install -y ca-certificates curl gnupg
+  sudo apt-get install -y ca-certificates curl gnupg iproute2
 }
 
 install_docker_engine() {
-  # A Docker Desktop integration may leave the CLI available in WSL without
-  # installing the Linux daemon. Check for dockerd, not only for docker.
+  # Check for the Linux daemon, not only for the Docker client.
   if ! command -v dockerd >/dev/null 2>&1; then
     info "Installing Docker Engine inside Linux"
     curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
@@ -130,6 +91,42 @@ prepare_environment_file() {
 start_dashboard() {
   info "Building and starting containers"
   sudo docker compose --profile dashboard up -d --build
+  sudo systemctl start amp-dashboard.service
+}
+
+install_network_agent_service() {
+  local python_path
+  python_path="$(command -v python3)"
+
+  info "Installing host network agent"
+  sudo install -D -m 0755 "${PROJECT_DIR}/network_agent.py" /usr/local/lib/amp-dashboard/network_agent.py
+  sudo tee /etc/systemd/system/amp-network-agent.service >/dev/null <<SERVICE
+[Unit]
+Description=Optical amplifier host network agent
+After=NetworkManager.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+RuntimeDirectory=amp-dashboard
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+ExecStart=${python_path} /usr/local/lib/amp-dashboard/network_agent.py --socket /run/amp-dashboard/network-agent.sock
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now amp-network-agent.service
 }
 
 install_dashboard_service() {
@@ -140,8 +137,8 @@ install_dashboard_service() {
   sudo tee /etc/systemd/system/amp-dashboard.service >/dev/null <<SERVICE
 [Unit]
 Description=Optical amplifier dashboard containers
-Requires=docker.service
-After=docker.service network-online.target
+Requires=docker.service amp-network-agent.service
+After=docker.service amp-network-agent.service network-online.target
 Wants=network-online.target
 
 [Service]
@@ -160,12 +157,8 @@ SERVICE
 
 print_summary() {
   local dashboard_address
-  if is_wsl; then
-    dashboard_address="localhost"
-  else
-    dashboard_address="$(hostname -I 2>/dev/null | awk '{print $1}')"
-    dashboard_address="${dashboard_address:-localhost}"
-  fi
+  dashboard_address="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  dashboard_address="${dashboard_address:-localhost}"
 
   cat <<SUMMARY
 
@@ -187,6 +180,7 @@ Useful commands:
   docker compose --profile dashboard restart app
   docker compose --profile dashboard down
   sudo systemctl status amp-dashboard.service
+  sudo systemctl status amp-network-agent.service
 
 If a serial adapter is connected later, rerun this installer so that .env is
 updated from /dev/null to /dev/ttyACM0 or /dev/ttyUSB0.
@@ -197,10 +191,11 @@ SUMMARY
 }
 
 require_linux
-enable_systemd_in_wsl
+systemd_is_running || fail "systemd must be running on the Linux server."
 install_system_packages
 install_docker_engine
 prepare_environment_file
+install_network_agent_service
 install_dashboard_service
 start_dashboard
 print_summary
