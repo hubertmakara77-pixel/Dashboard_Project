@@ -12,6 +12,7 @@ let gainInputEdited = false;
 let currentUser = null;
 let selectedStart = null;
 let selectedEnd = null;
+let latestNetwork = null;
 
 function formatDbm(value) {
     if (value === null || value === undefined) return "-- dBm";
@@ -179,7 +180,90 @@ navLinks.forEach(link => {
         if (targetTab === "warnings") updateWarningsTable();
         if (targetTab === "access-control") loadAccessUsers();
         if (targetTab === "snmp-settings") loadSnmpSettings();
+        if (targetTab === "network-settings") loadNetworkSettings();
     });
+});
+
+function selectedNetworkInterface() {
+    const name = document.getElementById("network-interface")?.value;
+    return latestNetwork?.interfaces?.find(item => item.name === name) || null;
+}
+
+function showNetworkMessage(message, isError = false) {
+    const element = document.getElementById("network-message");
+    if (!element) return;
+    element.textContent = message;
+    element.classList.toggle("error", isError);
+}
+
+function updateNetworkStaticFields() {
+    const form = document.getElementById("network-form");
+    const container = document.getElementById("network-static-fields");
+    if (!form || !container) return;
+    const isStatic = form.elements.mode.value === "static";
+    container.hidden = !isStatic;
+    container.querySelectorAll("input").forEach(input => {
+        input.required = isStatic && input.name !== "dns";
+    });
+}
+
+function fillNetworkForm(item) {
+    const form = document.getElementById("network-form");
+    if (!form) return;
+    form.elements.mode.value = item?.mode === "static" ? "static" : "dhcp";
+    form.elements.ip_address.value = item?.ip_address || "";
+    form.elements.netmask.value = item?.netmask || "";
+    form.elements.gateway.value = item?.gateway || "";
+    form.elements.dns.value = item?.dns?.join(", ") || "";
+    setTextIfExists("network-link-state", item?.state || "--");
+    setTextIfExists("network-current-ip", item?.ip_address || "None");
+    setTextIfExists("network-current-subnet", item?.netmask ? `${item.netmask} (/${item.prefix})` : "None");
+    setTextIfExists("network-current-gateway", item?.gateway || "None");
+    setTextIfExists("network-current-mode", item?.mode || "Unknown");
+    setTextIfExists("network-current-dns", item?.dns?.join(", ") || "None");
+    updateNetworkStaticFields();
+}
+
+async function loadNetworkSettings() {
+    showNetworkMessage("Loading network settings...");
+    try {
+        const response = await fetch("/api/network");
+        handleAuthResponse(response);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "Could not read network settings");
+        latestNetwork = data;
+        const select = document.getElementById("network-interface");
+        select.innerHTML = data.interfaces.map(item => `<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)} (${escapeHtml(item.mac || "no MAC")})</option>`).join("");
+        select.value = data.selected_interface || data.interfaces[0]?.name || "";
+        fillNetworkForm(selectedNetworkInterface());
+        document.getElementById("save-network-button").disabled = !data.supported || !isAdministrator();
+        showNetworkMessage(data.message || `Host: ${data.hostname}; backend: ${data.backend}`);
+    } catch (error) {
+        showNetworkMessage(error.message, true);
+    }
+}
+
+document.getElementById("network-interface")?.addEventListener("change", () => fillNetworkForm(selectedNetworkInterface()));
+document.getElementById("network-mode")?.addEventListener("change", updateNetworkStaticFields);
+document.getElementById("refresh-network-button")?.addEventListener("click", loadNetworkSettings);
+document.getElementById("network-form")?.addEventListener("submit", async event => {
+    event.preventDefault();
+    if (!isAdministrator()) return;
+    const form = event.currentTarget;
+    if (!confirm("Apply the new network settings? The connection may be interrupted.")) return;
+    const payload = Object.fromEntries(new FormData(form).entries());
+    showNetworkMessage("Applying settings...");
+    try {
+        const response = await fetch("/api/network", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        handleAuthResponse(response);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "Could not apply network settings");
+        latestNetwork = data;
+        fillNetworkForm(selectedNetworkInterface());
+        showNetworkMessage("Network settings applied.");
+    } catch (error) {
+        showNetworkMessage(error.message, true);
+    }
 });
 
 async function loadSettings() {

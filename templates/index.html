@@ -48,6 +48,7 @@
                 <div class="nav-group">
                     <span class="nav-group-title">Configuration</span>
                     <button type="button" class="nav-link" data-tab="snmp-settings" data-title="SNMP Settings" data-admin-only>SNMP Configuration</button>
+                    <button type="button" class="nav-link" data-tab="network-settings" data-title="Network Settings">Network Configuration</button>
                 </div>
             </nav>
         </aside>
@@ -364,6 +365,36 @@
                             <div class="table-header"><h2>SNMP Live Status</h2></div>
                             <div id="snmp-live-values" class="control-strip"><p>Waiting for SNMP data...</p></div>
                         </div>
+                    </div>
+                </section>
+
+                <section class="tab-panel" data-tab="network-settings">
+                    <div class="data-panel network-panel">
+                        <div class="settings-header">
+                            <h2>Network Configuration</h2>
+                            <button id="refresh-network-button" type="button">Refresh</button>
+                        </div>
+                        <div class="network-status-grid">
+                            <div><span>Status</span><strong id="network-link-state">--</strong></div>
+                            <div><span>IP address</span><strong id="network-current-ip">--</strong></div>
+                            <div><span>Subnet</span><strong id="network-current-subnet">--</strong></div>
+                            <div><span>Gateway</span><strong id="network-current-gateway">--</strong></div>
+                            <div><span>Mode</span><strong id="network-current-mode">--</strong></div>
+                            <div><span>DNS</span><strong id="network-current-dns">--</strong></div>
+                        </div>
+                        <p id="network-message" class="network-message" role="status"></p>
+                        <form id="network-form" class="network-form">
+                            <label>Interface<select name="interface" id="network-interface" required></select></label>
+                            <label>IPv4 mode<select name="mode" id="network-mode" required><option value="dhcp">Dynamic (DHCP)</option><option value="static">Static</option></select></label>
+                            <div id="network-static-fields" class="network-static-fields">
+                                <label>IP address<input name="ip_address" type="text" placeholder="192.168.1.20"></label>
+                                <label>Subnet mask<input name="netmask" type="text" placeholder="255.255.255.0"></label>
+                                <label>Default gateway<input name="gateway" type="text" placeholder="192.168.1.1"></label>
+                                <label>DNS servers<input name="dns" type="text" placeholder="1.1.1.1, 8.8.8.8"></label>
+                            </div>
+                            <p class="network-warning">Applying settings reloads the connection and may disconnect this panel.</p>
+                            <button id="save-network-button" type="submit" data-admin-only>Save network settings</button>
+                        </form>
                     </div>
                 </section>
             </main>

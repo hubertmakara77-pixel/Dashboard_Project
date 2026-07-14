@@ -14,6 +14,7 @@ import starlette.requests
 
 import config
 import influx_service
+import network_service
 import snmp_service
 import serial_reader
 import state
@@ -27,6 +28,15 @@ class GainSetRequest(pydantic.BaseModel):
 class DashboardSettingsRequest(pydantic.BaseModel):
     gain_tolerance: float | None = None
     warn_limits: dict[str, dict[str, float | None]] | None = None
+
+
+class NetworkSettingsRequest(pydantic.BaseModel):
+    interface: str
+    mode: str
+    ip_address: str = ""
+    netmask: str = ""
+    gateway: str = ""
+    dns: str = ""
 
 
 
@@ -325,6 +335,36 @@ def status(_current_user: dict = fastapi.Depends(require_roles("Administrator", 
 def get_settings(_current_user: dict = fastapi.Depends(require_roles("Administrator", "Operator", "Viewer"))):
     with state.state_lock:
         return state.dashboard_settings
+
+
+@app.get("/api/network")
+def get_network_settings(
+    _current_user: dict = fastapi.Depends(require_roles("Administrator", "Operator", "Viewer")),
+):
+    try:
+        return network_service.get_network_state()
+    except network_service.NetworkError as exc:
+        raise fastapi.HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/network")
+def update_network_settings(
+    settings: NetworkSettingsRequest,
+    request: starlette.requests.Request,
+    current_user: dict = fastapi.Depends(require_roles("Administrator")),
+):
+    try:
+        result = network_service.apply_network_settings(settings.model_dump())
+    except network_service.NetworkError as exc:
+        raise fastapi.HTTPException(status_code=400, detail=str(exc)) from exc
+
+    audit_event(
+        request,
+        "network_settings_updated",
+        current_user["username"],
+        f"interface={settings.interface}; mode={settings.mode}",
+    )
+    return result
 
 
 @app.post("/api/auth/login")
