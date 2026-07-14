@@ -2,6 +2,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ADMIN_PASSWORD_SUMMARY="existing account password unchanged"
 cd "$PROJECT_DIR"
 
 info() {
@@ -28,7 +29,7 @@ systemd_is_running() {
 install_system_packages() {
   info "Installing required system packages"
   sudo apt-get update
-  sudo apt-get install -y ca-certificates curl gnupg iproute2
+  sudo apt-get install -y ca-certificates curl gnupg iproute2 python3
 }
 
 install_docker_engine() {
@@ -68,6 +69,8 @@ detect_serial_device() {
 
 prepare_environment_file() {
   local serial_device
+  local influx_data_exists=false
+  local persisted_state_exists=false
   serial_device="$(detect_serial_device)"
 
   if [[ ! -f .env ]]; then
@@ -77,15 +80,75 @@ prepare_environment_file() {
     info "Updating serial device in existing .env"
   fi
 
-  sed -i "s#^SERIAL_DEVICE=.*#SERIAL_DEVICE=${serial_device}#" .env
-  sed -i "s#^SERIAL_PORT=.*#SERIAL_PORT=${serial_device}#" .env
+  set_env_value "SERIAL_DEVICE" "$serial_device"
+  set_env_value "SERIAL_PORT" "$serial_device"
+  if [[ -z "$(env_value SNMP_PORT)" ]]; then
+    set_env_value "SNMP_PORT" "1161"
+  fi
+
+  if [[ -d data/influxdb2 ]]; then
+    influx_data_exists=true
+  fi
+
+  if [[ -f data/persisted_state.json ]]; then
+    persisted_state_exists=true
+  fi
+
+  if [[ "$persisted_state_exists" == false ]]; then
+    ensure_random_secret "INITIAL_ADMIN_PASSWORD" 24 false
+    ADMIN_PASSWORD_SUMMARY="$(env_value INITIAL_ADMIN_PASSWORD)"
+  fi
+  ensure_random_secret "SNMP_COMMUNITY" 24 false
+  ensure_random_secret "INFLUX_TOKEN" 48 "$influx_data_exists"
+  ensure_random_secret "INFLUX_INIT_PASSWORD" 32 "$influx_data_exists"
+
   mkdir -p data
+  chmod 600 .env
 
   if [[ "$serial_device" == "/dev/null" ]]; then
     info "No serial adapter detected; starting dashboard without live serial data"
   else
     info "Using serial adapter ${serial_device}"
   fi
+}
+
+random_secret() {
+  local length="$1"
+  python3 -c "import secrets; print(secrets.token_urlsafe(${length}))"
+}
+
+env_value() {
+  local key="$1"
+  sed -n "s/^${key}=//p" .env | tail -n1
+}
+
+set_env_value() {
+  local key="$1"
+  local value="$2"
+  if grep -q "^${key}=" .env; then
+    sed -i "s#^${key}=.*#${key}=${value}#" .env
+  else
+    printf '%s=%s\n' "$key" "$value" >> .env
+  fi
+}
+
+ensure_random_secret() {
+  local key="$1"
+  local length="$2"
+  local preserve_existing_data="$3"
+  local current
+  current="$(env_value "$key")"
+
+  case "$current" in
+    ""|admin|admin12345|my-super-token|public|replace-with-a-random-*)
+      if [[ "$preserve_existing_data" == true ]]; then
+        info "WARNING: ${key} is insecure, but existing InfluxDB data prevents automatic rotation"
+        return
+      fi
+      current="$(random_secret "$length")"
+      set_env_value "$key" "$current"
+      ;;
+  esac
 }
 
 start_dashboard() {
@@ -168,11 +231,14 @@ Dashboard:
   http://${dashboard_address}:8000
 
 InfluxDB:
-  http://${dashboard_address}:8086
+  http://localhost:8086 (available only on the Linux server)
+
+SNMP:
+  UDP port $(env_value "SNMP_PORT")
 
 Default login:
   username: admin
-  password: admin
+  password: ${ADMIN_PASSWORD_SUMMARY}
 
 Useful commands:
   cd ${PROJECT_DIR}

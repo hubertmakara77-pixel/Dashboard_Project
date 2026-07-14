@@ -26,9 +26,16 @@ DEVICE_NAME = os.getenv("DEVICE_NAME", "optical_amp_1")
 INFLUX_ENABLED = _env_bool("INFLUX_ENABLED", True)
 
 INFLUX_URL = os.getenv("INFLUX_URL", "http://localhost:8086")
-INFLUX_TOKEN = os.getenv("INFLUX_TOKEN", "my-super-token")
+INFLUX_TOKEN = os.getenv("INFLUX_TOKEN", "")
 INFLUX_ORG = os.getenv("INFLUX_ORG", "agh")
 INFLUX_BUCKET = os.getenv("INFLUX_BUCKET", "sensors")
+
+INITIAL_ADMIN_PASSWORD = os.getenv("INITIAL_ADMIN_PASSWORD", "")
+LOGIN_MAX_ATTEMPTS = _env_int("LOGIN_MAX_ATTEMPTS", 5)
+LOGIN_WINDOW_SECONDS = _env_int("LOGIN_WINDOW_SECONDS", 300)
+SESSION_MAX_AGE_SECONDS = _env_int("SESSION_MAX_AGE_SECONDS", 60 * 60 * 12)
+SESSION_COOKIE_SECURE = _env_bool("SESSION_COOKIE_SECURE", False)
+TRUST_PROXY_HEADERS = _env_bool("TRUST_PROXY_HEADERS", False)
 
 MEASUREMENT_NAME = os.getenv("MEASUREMENT_NAME", "optical_amp_status")
 SETPOINT_MEASUREMENT_NAME = os.getenv(
@@ -47,3 +54,6 @@ SYSLOG_APP_NAME = os.getenv("SYSLOG_APP_NAME", "amp-dashboard")
 SYSLOG_FACILITY = _env_int("SYSLOG_FACILITY", 16)
 
 AUDIT_LOG_FILE = os.getenv("AUDIT_LOG_FILE", "logs/audit.log")
+
+SNMP_PORT = _env_int("SNMP_PORT", 1161)
+SNMP_COMMUNITY = os.getenv("SNMP_COMMUNITY", "")

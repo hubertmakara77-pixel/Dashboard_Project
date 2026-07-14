@@ -18,14 +18,14 @@ TRAP_OID = f"{OID_BASE_STR}.4.1"
 
 # Kompletna mapa OID -> pole z danych z Arduino.
 # .1.1.0        = status połączenia z portem szeregowym
-# .2.<n>.0      = pomiary wzmacniacza (zgodne z test_snmp.py: .2.1=p_a_in, .2.5=gain_actual)
+# .2.<n>.0      = amplifier measurements (see snmp_probe.py)
 STATUS_OID = f"{OID_BASE_STR}.1.1.0"
 
 FIELD_OID_MAP = {
-    f"{OID_BASE_STR}.2.1.0": "p_a_in",
-    f"{OID_BASE_STR}.2.2.0": "p_a_out",
-    f"{OID_BASE_STR}.2.3.0": "p_b_in",
-    f"{OID_BASE_STR}.2.4.0": "p_b_out",
+    f"{OID_BASE_STR}.2.1.0": "PiA",
+    f"{OID_BASE_STR}.2.2.0": "PoA",
+    f"{OID_BASE_STR}.2.3.0": "PiB",
+    f"{OID_BASE_STR}.2.4.0": "PoB",
     f"{OID_BASE_STR}.2.5.0": "gain_actual",
     f"{OID_BASE_STR}.2.6.0": "gain_set",
     f"{OID_BASE_STR}.2.7.0": "gain_delta",
@@ -200,7 +200,7 @@ def _snmp_agent_loop():
         try:
             snmpEngine = engine.SnmpEngine()
 
-            transport = udp.UdpTransport().openServerMode(("127.0.0.1", port))
+            transport = udp.UdpTransport().openServerMode(("0.0.0.0", port))
             snmp_config.addTransport(snmpEngine, udp.domainName + (1,), transport)
 
             snmp_config.addV1System(snmpEngine, "my-area", community)

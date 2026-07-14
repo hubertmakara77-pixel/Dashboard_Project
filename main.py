@@ -6,6 +6,7 @@ import io
 import pathlib
 import secrets
 import threading
+import typing
 
 import fastapi
 import fastapi.responses
@@ -57,13 +58,13 @@ class LoginRequest(pydantic.BaseModel):
 class AccessUserCreateRequest(pydantic.BaseModel):
     username: str
     password: str
-    role: str = "Operator"
+    role: typing.Literal["Administrator", "Operator", "Viewer"] = "Operator"
     active: bool = True
 
 
 class AccessUserUpdateRequest(pydantic.BaseModel):
     password: str | None = None
-    role: str | None = None
+    role: typing.Literal["Administrator", "Operator", "Viewer"] | None = None
     active: bool | None = None
 
 
@@ -84,6 +85,12 @@ def normalize_username(username: str) -> str:
     return value
 
 
+def validate_new_password(password: str) -> str:
+    if len(password) < 12:
+        raise fastapi.HTTPException(status_code=400, detail="Password must contain at least 12 characters")
+    return password
+
+
 def count_active_administrators() -> int:
     return sum(
         1
@@ -97,7 +104,7 @@ def user_has_role(user: dict, allowed_roles: set[str]) -> bool:
 
 
 def get_client_ip(request: starlette.requests.Request) -> str:
-    forwarded_for = request.headers.get("x-forwarded-for")
+    forwarded_for = request.headers.get("x-forwarded-for") if config.TRUST_PROXY_HEADERS else None
 
     if forwarded_for:
         return forwarded_for.split(",")[0].strip()
@@ -135,6 +142,11 @@ def get_current_user(session_token: str | None = fastapi.Cookie(default=None)) -
 
         if session is None:
             raise fastapi.HTTPException(status_code=401, detail="Not authenticated")
+
+        created_at = datetime.datetime.fromisoformat(session["created_at"])
+        if datetime.datetime.now(datetime.timezone.utc) - created_at > datetime.timedelta(seconds=config.SESSION_MAX_AGE_SECONDS):
+            state.auth_sessions.pop(session_token, None)
+            raise fastapi.HTTPException(status_code=401, detail="Session expired")
 
         user = find_access_user(session["username"])
 
@@ -175,6 +187,23 @@ def parse_iso_datetime(value: str | None):
         return parsed.replace(tzinfo=datetime.timezone.utc)
 
     return parsed.astimezone(datetime.timezone.utc)
+
+
+def normalize_history_request(range_value: str, start: str | None, end: str | None) -> tuple[str, str | None, str | None]:
+    if range_value not in {"5m", "1h", "24h", "7d", "30d", "all"}:
+        raise fastapi.HTTPException(status_code=400, detail="Invalid history range")
+    try:
+        start_value = parse_iso_datetime(start)
+        end_value = parse_iso_datetime(end)
+    except ValueError as exc:
+        raise fastapi.HTTPException(status_code=400, detail="Invalid history timestamp") from exc
+    if start_value and end_value and start_value >= end_value:
+        raise fastapi.HTTPException(status_code=400, detail="History start must be before end")
+    return (
+        range_value,
+        start_value.isoformat() if start_value else None,
+        end_value.isoformat() if end_value else None,
+    )
 
 
 def parse_memory_range(range_value: str):
@@ -386,8 +415,18 @@ def login(
     request: starlette.requests.Request,
 ):
     username = normalize_username(login_request.username)
+    client_ip = get_client_ip(request)
+    now = datetime.datetime.now(datetime.timezone.utc).timestamp()
 
     with state.state_lock:
+        failures = state.login_failures.setdefault(client_ip, [])
+        cutoff = now - config.LOGIN_WINDOW_SECONDS
+        failures[:] = [timestamp for timestamp in failures if timestamp >= cutoff]
+
+        if len(failures) >= config.LOGIN_MAX_ATTEMPTS:
+            audit_event(request, "login_rate_limited", username)
+            raise fastapi.HTTPException(status_code=429, detail="Too many login attempts. Try again later")
+
         user = find_access_user(username)
 
         if (
@@ -395,9 +434,11 @@ def login(
             or not user["active"]
             or not state.verify_password(login_request.password, user["password_hash"], user["password_salt"])
         ):
+            failures.append(now)
             audit_event(request, "login_failed", username, "invalid_credentials_or_inactive_user")
             raise fastapi.HTTPException(status_code=401, detail="Invalid username or password")
 
+        state.login_failures.pop(client_ip, None)
         token = create_session(username)
         public_user = state.access_user_public(user)
 
@@ -408,7 +449,8 @@ def login(
         value=token,
         httponly=True,
         samesite="strict",
-        max_age=60 * 60 * 12,
+        secure=config.SESSION_COOKIE_SECURE,
+        max_age=config.SESSION_MAX_AGE_SECONDS,
     )
 
     return {
@@ -488,6 +530,8 @@ def create_access_user(
     if not request.password:
         raise fastapi.HTTPException(status_code=400, detail="Password is required")
 
+    validate_new_password(request.password)
+
     with state.state_lock:
         if find_access_user(username) is not None:
             raise fastapi.HTTPException(status_code=409, detail="User already exists")
@@ -545,7 +589,7 @@ def update_access_user(
             user["active"] = next_active
 
         if request.password:
-            user["password_hash"], user["password_salt"] = state.hash_password(request.password)
+            user["password_hash"], user["password_salt"] = state.hash_password(validate_new_password(request.password))
 
         state.save_persisted_access_users()
 
@@ -666,6 +710,14 @@ def update_snmp_settings(
     settings: SnmpSettingsUpdateRequest,
     _current_user: dict = fastapi.Depends(require_roles("Administrator")),
 ):
+    if settings.port != config.SNMP_PORT:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail=f"SNMP port is fixed by server configuration to {config.SNMP_PORT}",
+        )
+    if len(settings.community.strip()) < 12:
+        raise fastapi.HTTPException(status_code=400, detail="SNMP community must contain at least 12 characters")
+
     with state.state_lock:
         state.snmp_settings = settings.model_dump()
         state.save_persisted_state()
@@ -683,6 +735,7 @@ def history(
     end: str | None = None,
     _current_user: dict = fastapi.Depends(require_roles("Administrator", "Operator", "Viewer")),
 ):
+    range, start, end = normalize_history_request(range, start, end)
     influx_points = influx_service.query_history_from_influx(range, start, end)
 
     if influx_points is not None:
@@ -713,6 +766,7 @@ def export_history_csv(
     end: str | None = None,
     current_user: dict = fastapi.Depends(require_roles("Administrator", "Operator", "Viewer")),
 ):
+    range, start, end = normalize_history_request(range, start, end)
     influx_points = influx_service.query_history_from_influx(range, start, end)
     points = influx_points if influx_points is not None else query_history_from_memory(range, start, end)
     csv_text = build_history_csv(points)

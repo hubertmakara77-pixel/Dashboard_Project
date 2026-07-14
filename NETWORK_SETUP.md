@@ -6,8 +6,8 @@ privileged access. It communicates over the root-owned Unix socket
 small systemd service installed on the Linux host.
 
 The agent validates interface names, IPv4 addresses, subnet, gateway and DNS,
-then invokes NetworkManager without a shell. Only Administrators may submit a
-change through the dashboard; all authenticated roles may read the state.
+then invokes NetworkManager without a shell. Only Administrators may read or
+change host network configuration through the dashboard.
 
 ## Debian / Raspberry Pi OS host
 
