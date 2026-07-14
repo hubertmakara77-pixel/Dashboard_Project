@@ -95,7 +95,7 @@ prepare_environment_file() {
   fi
 
   if [[ "$persisted_state_exists" == false ]]; then
-    ensure_random_secret "INITIAL_ADMIN_PASSWORD" 24 false
+    ensure_random_secret "INITIAL_ADMIN_PASSWORD" 12 false
     ADMIN_PASSWORD_SUMMARY="$(env_value INITIAL_ADMIN_PASSWORD)"
   fi
   ensure_random_secret "SNMP_COMMUNITY" 24 false
