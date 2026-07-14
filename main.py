@@ -1,7 +1,9 @@
 import contextlib
 import csv
 import datetime
+import hashlib
 import io
+import pathlib
 import secrets
 import threading
 
@@ -297,12 +299,22 @@ app.mount(
 templates = fastapi.templating.Jinja2Templates(directory="templates")
 
 
+def static_asset_version() -> str:
+    digest = hashlib.sha256()
+    for path in (pathlib.Path("static/css/style.css"), pathlib.Path("static/js/dashboard.js")):
+        digest.update(path.read_bytes())
+    return digest.hexdigest()[:12]
+
+
+STATIC_ASSET_VERSION = static_asset_version()
+
+
 @app.get("/")
 def home(request: starlette.requests.Request):
     return templates.TemplateResponse(
         request=request,
         name="index.html",
-        context={}
+        context={"static_asset_version": STATIC_ASSET_VERSION}
     )
 
 
