@@ -119,7 +119,9 @@ function canOperate() {
 
 function setActiveTab(tabName) {
     const targetLink = document.querySelector(`.nav-link[data-tab="${tabName}"]`);
-    if (!targetLink) return;
+    if (!targetLink || (targetLink.hasAttribute("data-admin-only") && !isAdministrator())) {
+        return false;
+    }
 
     navLinks.forEach(item => item.classList.remove("active"));
     targetLink.classList.add("active");
@@ -129,6 +131,24 @@ function setActiveTab(tabName) {
     });
 
     currentTitle.textContent = targetLink.dataset.title;
+
+    if (tabName === "overview") updateOverviewCharts();
+    if (tabName === "statistics") updateStatisticsTable();
+    if (tabName === "warnings") updateWarningsTable();
+    if (tabName === "access-control") loadAccessUsers();
+    if (tabName === "snmp-settings") loadSnmpSettings();
+    if (tabName === "network-settings") loadNetworkSettings();
+    return true;
+}
+
+function restoreTabFromUrl() {
+    const requestedTab = decodeURIComponent(window.location.hash.slice(1));
+    const tabName = requestedTab || "standard-view";
+
+    if (!setActiveTab(tabName)) {
+        setActiveTab("standard-view");
+        history.replaceState(null, "", `${window.location.pathname}${window.location.search}#standard-view`);
+    }
 }
 
 function applyRoleUi() {
@@ -163,25 +183,13 @@ function showApp() {
 navLinks.forEach(link => {
     link.addEventListener("click", () => {
         const targetTab = link.dataset.tab;
-
-        if (targetTab === "access-control" && !isAdministrator()) return;
-
-        navLinks.forEach(item => item.classList.remove("active"));
-        link.classList.add("active");
-
-        tabPanels.forEach(panel => {
-            panel.classList.toggle("active", panel.dataset.tab === targetTab);
-        });
-
-        currentTitle.textContent = link.dataset.title;
-
-        if (targetTab === "overview") updateOverviewCharts();
-        if (targetTab === "statistics") updateStatisticsTable();
-        if (targetTab === "warnings") updateWarningsTable();
-        if (targetTab === "access-control") loadAccessUsers();
-        if (targetTab === "snmp-settings") loadSnmpSettings();
-        if (targetTab === "network-settings") loadNetworkSettings();
+        if (!setActiveTab(targetTab)) return;
+        history.pushState(null, "", `${window.location.pathname}${window.location.search}#${encodeURIComponent(targetTab)}`);
     });
+});
+
+window.addEventListener("popstate", () => {
+    if (currentUser) restoreTabFromUrl();
 });
 
 function selectedNetworkInterface() {
@@ -288,6 +296,7 @@ async function checkAuth() {
     currentUser = json.user;
     applyRoleUi();
     showApp();
+    restoreTabFromUrl();
     return true;
 }
 
@@ -306,6 +315,7 @@ async function login(username, password) {
     currentUser = json.user;
     applyRoleUi();
     showApp();
+    restoreTabFromUrl();
 }
 
 async function logout() {
