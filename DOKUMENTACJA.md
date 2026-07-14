@@ -172,13 +172,14 @@ Audit zawiera:
 
 Użytkownicy są zapisani w `persisted_state.json` w sekcji `access_users`.
 
-Domyślne konto, gdy nie ma jeszcze zapisanych użytkowników:
+Przy pierwszej instalacji tworzone jest konto:
 
 ```text
-admin / admin
+admin / hasło losowe wypisane jednorazowo przez instalator
 ```
 
-Po wdrożeniu należy zmienić hasło domyślne.
+Instalacja nie używa wspólnego hasła domyślnego. Sekrety są przechowywane w
+lokalnym pliku `.env` z uprawnieniami `0600`.
 
 ### Role
 
@@ -834,4 +835,4 @@ Uruchamia pierwsze pobranie danych po zalogowaniu.
 - `M`, `G`, `SG`, `PP`, `SPP` są zachowywane, ale nie sterują jeszcze logiką aplikacji.
 - `-999` nie trafia do danych jako prawdziwa wartość.
 - Sesje znikają po restarcie aplikacji.
-- Hasła są hashowane, ale domyślne `admin/admin` trzeba zmienić w środowisku docelowym.
+- Hasła są hashowane, świeża instalacja generuje losowe hasło administratora, a logowanie ma limit nieudanych prób.

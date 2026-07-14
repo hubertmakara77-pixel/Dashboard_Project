@@ -1,3 +1,7 @@
+import logging
+import threading
+import time
+
 import config
 
 
@@ -11,12 +15,24 @@ except ImportError:
 client = None
 write_api = None
 query_api = None
+logger = logging.getLogger(__name__)
+last_error_log = {}
+next_reconnect_at = 0.0
+connection_lock = threading.Lock()
+
+
+def _log_failure(operation: str, error: Exception) -> None:
+    now = time.monotonic()
+    if now - last_error_log.get(operation, 0) >= 60:
+        logger.warning("InfluxDB %s failed: %s", operation, error)
+        last_error_log[operation] = now
 
 
 def init_influx():
     global client
     global write_api
     global query_api
+    global next_reconnect_at
 
     if not config.INFLUX_ENABLED:
         print("InfluxDB disabled in config.py")
@@ -27,26 +43,57 @@ def init_influx():
         print("Install it with: py -3.14 -m pip install influxdb-client")
         return
 
-    client = influxdb_client.InfluxDBClient(
-        url=config.INFLUX_URL,
-        token=config.INFLUX_TOKEN,
-        org=config.INFLUX_ORG
-    )
+    if not config.INFLUX_TOKEN:
+        _log_failure("configuration", ValueError("INFLUX_TOKEN is not configured"))
+        return
 
-    write_api = client.write_api(
-        write_options=influxdb_client.client.write_api.SYNCHRONOUS
-    )
+    try:
+        client = influxdb_client.InfluxDBClient(
+            url=config.INFLUX_URL,
+            token=config.INFLUX_TOKEN,
+            org=config.INFLUX_ORG
+        )
+        if not client.ping():
+            raise ConnectionError("health check failed")
+        write_api = client.write_api(
+            write_options=influxdb_client.client.write_api.SYNCHRONOUS
+        )
+        query_api = client.query_api()
+        print("Connected to InfluxDB")
+    except Exception as error:
+        _log_failure("initialization", error)
+        close_influx()
+        next_reconnect_at = time.monotonic() + 10
 
-    query_api = client.query_api()
 
-    print("Connected to InfluxDB")
+def _ensure_connected() -> bool:
+    global next_reconnect_at
+    if not config.INFLUX_ENABLED or influxdb_client is None:
+        return False
+    if client is not None and write_api is not None and query_api is not None:
+        return True
+    with connection_lock:
+        if client is not None and write_api is not None and query_api is not None:
+            return True
+        if time.monotonic() < next_reconnect_at:
+            return False
+        next_reconnect_at = time.monotonic() + 10
+        init_influx()
+        return client is not None and write_api is not None and query_api is not None
+
+
+def _disconnect_for_retry() -> None:
+    global next_reconnect_at
+    with connection_lock:
+        close_influx()
+        next_reconnect_at = time.monotonic() + 10
 
 
 def write_measurement(data: dict):
     if not config.INFLUX_ENABLED:
         return
 
-    if write_api is None:
+    if not _ensure_connected():
         return
 
     point = influxdb_client.Point(config.MEASUREMENT_NAME)
@@ -56,29 +103,37 @@ def write_measurement(data: dict):
         if isinstance(value, int) or isinstance(value, float):
             point = point.field(key, float(value))
 
-    write_api.write(
-        bucket=config.INFLUX_BUCKET,
-        org=config.INFLUX_ORG,
-        record=point
-    )
+    try:
+        write_api.write(
+            bucket=config.INFLUX_BUCKET,
+            org=config.INFLUX_ORG,
+            record=point
+        )
+    except Exception as error:
+        _log_failure("measurement write", error)
+        _disconnect_for_retry()
 
 
 def write_setpoint(gain_set: float):
     if not config.INFLUX_ENABLED:
         return
 
-    if write_api is None:
+    if not _ensure_connected():
         return
 
     point = influxdb_client.Point(config.SETPOINT_MEASUREMENT_NAME)
     point = point.tag("device", config.DEVICE_NAME)
     point = point.field("gain_set", float(gain_set))
 
-    write_api.write(
-        bucket=config.INFLUX_BUCKET,
-        org=config.INFLUX_ORG,
-        record=point
-    )
+    try:
+        write_api.write(
+            bucket=config.INFLUX_BUCKET,
+            org=config.INFLUX_ORG,
+            record=point
+        )
+    except Exception as error:
+        _log_failure("setpoint write", error)
+        _disconnect_for_retry()
 
 
 def get_window_for_range(range_value: str) -> str:
@@ -137,7 +192,7 @@ def query_history_from_influx(range_value: str, start: str | None = None, end: s
     if not config.INFLUX_ENABLED:
         return None
 
-    if query_api is None:
+    if not _ensure_connected():
         return None
 
     flux_range_clause = get_flux_range_clause(range_value, start, end)
@@ -173,7 +228,12 @@ from(bucket: "{config.INFLUX_BUCKET}")
   |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
 '''
 
-    tables = query_api.query(query, org=config.INFLUX_ORG)
+    try:
+        tables = query_api.query(query, org=config.INFLUX_ORG)
+    except Exception as error:
+        _log_failure("history query", error)
+        _disconnect_for_retry()
+        return None
 
     points = []
 
@@ -200,7 +260,10 @@ def close_influx():
     global query_api
 
     if client is not None:
-        client.close()
+        try:
+            client.close()
+        except Exception as error:
+            _log_failure("shutdown", error)
 
     client = None
     write_api = None

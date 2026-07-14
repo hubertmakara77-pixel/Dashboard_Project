@@ -2,6 +2,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ADMIN_PASSWORD_SUMMARY="existing account password unchanged"
 cd "$PROJECT_DIR"
 
 info() {
@@ -14,64 +15,25 @@ fail() {
 }
 
 require_linux() {
-  [[ "$(uname -s)" == "Linux" ]] || fail "This installer requires Linux or WSL."
+  [[ "$(uname -s)" == "Linux" ]] || fail "This installer requires Linux."
 
   if ! command -v apt-get >/dev/null 2>&1; then
-    fail "This installer currently supports Debian, Ubuntu, Raspberry Pi OS and WSL distributions based on them."
+    fail "This installer supports Debian, Ubuntu and Raspberry Pi OS."
   fi
-}
-
-is_wsl() {
-  grep -qiE '(microsoft|wsl)' /proc/version 2>/dev/null
 }
 
 systemd_is_running() {
   [[ "$(ps -p 1 -o comm= 2>/dev/null | tr -d ' ')" == "systemd" ]]
 }
 
-enable_systemd_in_wsl() {
-  is_wsl || return 0
-  systemd_is_running && return 0
-
-  info "Enabling systemd in WSL"
-
-  if [[ ! -f /etc/wsl.conf ]]; then
-    printf '[boot]\nsystemd=true\n' | sudo tee /etc/wsl.conf >/dev/null
-  elif grep -q '^\[boot\]' /etc/wsl.conf; then
-    if grep -q '^systemd=' /etc/wsl.conf; then
-      sudo sed -i 's/^systemd=.*/systemd=true/' /etc/wsl.conf
-    else
-      sudo sed -i '/^\[boot\]/a systemd=true' /etc/wsl.conf
-    fi
-  else
-    printf '\n[boot]\nsystemd=true\n' | sudo tee -a /etc/wsl.conf >/dev/null
-  fi
-
-  cat <<'MESSAGE'
-
-Systemd has been enabled for this WSL distribution.
-
-Run the following command once in Windows PowerShell:
-
-  wsl --shutdown
-
-Then open WSL again and rerun:
-
-  cd ~/Dashboard_Project
-  bash install_raspberry_pi.sh
-MESSAGE
-  exit 0
-}
-
 install_system_packages() {
   info "Installing required system packages"
   sudo apt-get update
-  sudo apt-get install -y ca-certificates curl gnupg
+  sudo apt-get install -y ca-certificates curl gnupg iproute2 python3
 }
 
 install_docker_engine() {
-  # A Docker Desktop integration may leave the CLI available in WSL without
-  # installing the Linux daemon. Check for dockerd, not only for docker.
+  # Check for the Linux daemon, not only for the Docker client.
   if ! command -v dockerd >/dev/null 2>&1; then
     info "Installing Docker Engine inside Linux"
     curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
@@ -107,6 +69,8 @@ detect_serial_device() {
 
 prepare_environment_file() {
   local serial_device
+  local influx_data_exists=false
+  local persisted_state_exists=false
   serial_device="$(detect_serial_device)"
 
   if [[ ! -f .env ]]; then
@@ -116,9 +80,30 @@ prepare_environment_file() {
     info "Updating serial device in existing .env"
   fi
 
-  sed -i "s#^SERIAL_DEVICE=.*#SERIAL_DEVICE=${serial_device}#" .env
-  sed -i "s#^SERIAL_PORT=.*#SERIAL_PORT=${serial_device}#" .env
+  set_env_value "SERIAL_DEVICE" "$serial_device"
+  set_env_value "SERIAL_PORT" "$serial_device"
+  if [[ -z "$(env_value SNMP_PORT)" ]]; then
+    set_env_value "SNMP_PORT" "1161"
+  fi
+
+  if [[ -d data/influxdb2 ]]; then
+    influx_data_exists=true
+  fi
+
+  if [[ -f data/persisted_state.json ]]; then
+    persisted_state_exists=true
+  fi
+
+  if [[ "$persisted_state_exists" == false ]]; then
+    ensure_random_secret "INITIAL_ADMIN_PASSWORD" 24 false
+    ADMIN_PASSWORD_SUMMARY="$(env_value INITIAL_ADMIN_PASSWORD)"
+  fi
+  ensure_random_secret "SNMP_COMMUNITY" 24 false
+  ensure_random_secret "INFLUX_TOKEN" 48 "$influx_data_exists"
+  ensure_random_secret "INFLUX_INIT_PASSWORD" 32 "$influx_data_exists"
+
   mkdir -p data
+  chmod 600 .env
 
   if [[ "$serial_device" == "/dev/null" ]]; then
     info "No serial adapter detected; starting dashboard without live serial data"
@@ -127,9 +112,84 @@ prepare_environment_file() {
   fi
 }
 
+random_secret() {
+  local length="$1"
+  python3 -c "import secrets; print(secrets.token_urlsafe(${length}))"
+}
+
+env_value() {
+  local key="$1"
+  sed -n "s/^${key}=//p" .env | tail -n1
+}
+
+set_env_value() {
+  local key="$1"
+  local value="$2"
+  if grep -q "^${key}=" .env; then
+    sed -i "s#^${key}=.*#${key}=${value}#" .env
+  else
+    printf '%s=%s\n' "$key" "$value" >> .env
+  fi
+}
+
+ensure_random_secret() {
+  local key="$1"
+  local length="$2"
+  local preserve_existing_data="$3"
+  local current
+  current="$(env_value "$key")"
+
+  case "$current" in
+    ""|admin|admin12345|my-super-token|public|replace-with-a-random-*)
+      if [[ "$preserve_existing_data" == true ]]; then
+        info "WARNING: ${key} is insecure, but existing InfluxDB data prevents automatic rotation"
+        return
+      fi
+      current="$(random_secret "$length")"
+      set_env_value "$key" "$current"
+      ;;
+  esac
+}
+
 start_dashboard() {
   info "Building and starting containers"
   sudo docker compose --profile dashboard up -d --build
+  sudo systemctl start amp-dashboard.service
+}
+
+install_network_agent_service() {
+  local python_path
+  python_path="$(command -v python3)"
+
+  info "Installing host network agent"
+  sudo install -D -m 0755 "${PROJECT_DIR}/network_agent.py" /usr/local/lib/amp-dashboard/network_agent.py
+  sudo tee /etc/systemd/system/amp-network-agent.service >/dev/null <<SERVICE
+[Unit]
+Description=Optical amplifier host network agent
+After=NetworkManager.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+RuntimeDirectory=amp-dashboard
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+ExecStart=${python_path} /usr/local/lib/amp-dashboard/network_agent.py --socket /run/amp-dashboard/network-agent.sock
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now amp-network-agent.service
 }
 
 install_dashboard_service() {
@@ -140,8 +200,8 @@ install_dashboard_service() {
   sudo tee /etc/systemd/system/amp-dashboard.service >/dev/null <<SERVICE
 [Unit]
 Description=Optical amplifier dashboard containers
-Requires=docker.service
-After=docker.service network-online.target
+Requires=docker.service amp-network-agent.service
+After=docker.service amp-network-agent.service network-online.target
 Wants=network-online.target
 
 [Service]
@@ -160,12 +220,8 @@ SERVICE
 
 print_summary() {
   local dashboard_address
-  if is_wsl; then
-    dashboard_address="localhost"
-  else
-    dashboard_address="$(hostname -I 2>/dev/null | awk '{print $1}')"
-    dashboard_address="${dashboard_address:-localhost}"
-  fi
+  dashboard_address="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  dashboard_address="${dashboard_address:-localhost}"
 
   cat <<SUMMARY
 
@@ -175,11 +231,14 @@ Dashboard:
   http://${dashboard_address}:8000
 
 InfluxDB:
-  http://${dashboard_address}:8086
+  http://localhost:8086 (available only on the Linux server)
+
+SNMP:
+  UDP port $(env_value "SNMP_PORT")
 
 Default login:
   username: admin
-  password: admin
+  password: ${ADMIN_PASSWORD_SUMMARY}
 
 Useful commands:
   cd ${PROJECT_DIR}
@@ -187,6 +246,7 @@ Useful commands:
   docker compose --profile dashboard restart app
   docker compose --profile dashboard down
   sudo systemctl status amp-dashboard.service
+  sudo systemctl status amp-network-agent.service
 
 If a serial adapter is connected later, rerun this installer so that .env is
 updated from /dev/null to /dev/ttyACM0 or /dev/ttyUSB0.
@@ -197,10 +257,11 @@ SUMMARY
 }
 
 require_linux
-enable_systemd_in_wsl
+systemd_is_running || fail "systemd must be running on the Linux server."
 install_system_packages
 install_docker_engine
 prepare_environment_file
+install_network_agent_service
 install_dashboard_service
 start_dashboard
 print_summary

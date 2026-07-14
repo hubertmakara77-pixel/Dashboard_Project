@@ -1,0 +1,57 @@
+from __future__ import annotations
+
+import http.client
+import json
+import os
+import socket
+from typing import Any
+
+
+class NetworkError(RuntimeError):
+    """An error returned by, or encountered while contacting, the host agent."""
+
+    def __init__(self, message: str, status_code: int = 503):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class _UnixConnection(http.client.HTTPConnection):
+    def __init__(self, socket_path: str, timeout: float = 10):
+        super().__init__("localhost", timeout=timeout)
+        self.socket_path = socket_path
+
+    def connect(self) -> None:
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(self.timeout)
+        self.sock.connect(self.socket_path)
+
+
+def _request(method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    socket_path = os.getenv("NETWORK_AGENT_SOCKET", "/run/amp-dashboard/network-agent.sock")
+    body = json.dumps(payload).encode() if payload is not None else None
+    headers = {"Content-Type": "application/json"} if body is not None else {}
+    connection = _UnixConnection(socket_path)
+    try:
+        connection.request(method, path, body=body, headers=headers)
+        response = connection.getresponse()
+        raw = response.read()
+    except (OSError, http.client.HTTPException) as exc:
+        raise NetworkError(f"Host network agent is unavailable: {exc}") from exc
+    finally:
+        connection.close()
+
+    try:
+        result = json.loads(raw.decode() or "{}")
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise NetworkError("Host network agent returned an invalid response.") from exc
+    if response.status >= 400:
+        raise NetworkError(str(result.get("detail", "Network operation failed.")), response.status)
+    return result
+
+
+def get_network_state() -> dict[str, Any]:
+    return _request("GET", "/v1/network")
+
+
+def apply_network_settings(payload: dict[str, Any]) -> dict[str, Any]:
+    return _request("POST", "/v1/network", payload)

@@ -11,9 +11,15 @@ services:
       DEVICE_NAME: ${DEVICE_NAME:-optical_amp_1}
       HISTORY_MEMORY_LIMIT: ${HISTORY_MEMORY_LIMIT:-10000}
       PERSISTED_STATE_FILE: ${PERSISTED_STATE_FILE:-/app/data/persisted_state.json}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
+      LOGIN_MAX_ATTEMPTS: ${LOGIN_MAX_ATTEMPTS:-5}
+      LOGIN_WINDOW_SECONDS: ${LOGIN_WINDOW_SECONDS:-300}
+      SESSION_MAX_AGE_SECONDS: ${SESSION_MAX_AGE_SECONDS:-43200}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-false}
       INFLUX_ENABLED: ${INFLUX_ENABLED:-true}
       INFLUX_URL: ${INFLUX_URL:-http://influxdb:8086}
-      INFLUX_TOKEN: ${INFLUX_TOKEN:-my-super-token}
+      INFLUX_TOKEN: ${INFLUX_TOKEN:?INFLUX_TOKEN must be configured in .env}
       INFLUX_ORG: ${INFLUX_ORG:-agh}
       INFLUX_BUCKET: ${INFLUX_BUCKET:-sensors}
       MEASUREMENT_NAME: ${MEASUREMENT_NAME:-optical_amp_status}
@@ -24,12 +30,17 @@ services:
       SYSLOG_APP_NAME: ${SYSLOG_APP_NAME:-amp-dashboard}
       SYSLOG_FACILITY: ${SYSLOG_FACILITY:-16}
       AUDIT_LOG_FILE: ${AUDIT_LOG_FILE:-/app/data/audit.log}
+      NETWORK_AGENT_SOCKET: /run/amp-dashboard/network-agent.sock
+      SNMP_PORT: ${SNMP_PORT:-1161}
+      SNMP_COMMUNITY: ${SNMP_COMMUNITY:?SNMP_COMMUNITY must be configured in .env}
     ports:
       - "8000:8000"
+      - "${SNMP_PORT:-1161}:${SNMP_PORT:-1161}/udp"
     devices:
       - "${SERIAL_DEVICE:-/dev/ttyACM0}:${SERIAL_PORT:-/dev/ttyACM0}"
     volumes:
       - ./data:/app/data
+      - /run/amp-dashboard:/run/amp-dashboard
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -40,13 +51,13 @@ services:
     container_name: influxdb2
     restart: unless-stopped
     ports:
-      - "8086:8086"
+      - "127.0.0.1:8086:8086"
     volumes:
       - ./data/influxdb2:/var/lib/influxdb2
     environment:
       DOCKER_INFLUXDB_INIT_MODE: setup
       DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUX_INIT_USERNAME:-admin}
-      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUX_INIT_PASSWORD:-admin12345}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUX_INIT_PASSWORD:?INFLUX_INIT_PASSWORD must be configured in .env}
       DOCKER_INFLUXDB_INIT_ORG: ${INFLUX_ORG:-agh}
       DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUX_BUCKET:-sensors}
-      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUX_TOKEN:-my-super-token}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUX_TOKEN:?INFLUX_TOKEN must be configured in .env}

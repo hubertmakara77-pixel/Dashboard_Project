@@ -9,6 +9,9 @@ import threading
 import config
 
 
+persist_lock = threading.Lock()
+
+
 DEFAULT_DASHBOARD_SETTINGS = {
     "gain_tolerance": 0.25,
     "warn_limits": {
@@ -19,22 +22,10 @@ DEFAULT_DASHBOARD_SETTINGS = {
     },
 }
 
-DEFAULT_ACCESS_USERS = [
-    {
-        "username": "admin",
-        "role": "Administrator",
-        "active": True,
-        "password_hash": "",
-        "password_salt": "",
-    }
-]
-
-
-
 DEFAULT_SNMP_SETTINGS = {
     "enabled": False,
-    "port": 161,
-    "community": "public",
+    "port": config.SNMP_PORT,
+    "community": config.SNMP_COMMUNITY,
     "trap_host": "127.0.0.1",
     "trap_port": 162,
 }
@@ -66,9 +57,6 @@ def verify_password(password: str, password_hash: str, password_salt: str) -> bo
         return False
 
     return secrets.compare_digest(expected_hash, password_hash)
-
-
-DEFAULT_ACCESS_USERS[0]["password_hash"], DEFAULT_ACCESS_USERS[0]["password_salt"] = hash_password("admin")
 
 
 def load_persisted_state() -> dict:
@@ -116,15 +104,10 @@ def access_user_public(user: dict) -> dict:
 
 
 def merge_access_users(saved_users: list[dict] | None) -> list[dict]:
-    users = json.loads(json.dumps(DEFAULT_ACCESS_USERS))
-
-    if not isinstance(saved_users, list):
-        return users
-
     merged_users = []
     seen_usernames = set()
 
-    for user in saved_users:
+    for user in saved_users if isinstance(saved_users, list) else []:
         if not isinstance(user, dict):
             continue
 
@@ -141,7 +124,33 @@ def merge_access_users(saved_users: list[dict] | None) -> list[dict]:
         })
         seen_usernames.add(username)
 
-    return merged_users or users
+    if merged_users:
+        return merged_users
+
+    if len(config.INITIAL_ADMIN_PASSWORD) < 12:
+        raise RuntimeError(
+            "A fresh installation requires INITIAL_ADMIN_PASSWORD with at least 12 characters. "
+            "Run install_raspberry_pi.sh or configure the environment."
+        )
+
+    password_hash, password_salt = hash_password(config.INITIAL_ADMIN_PASSWORD)
+    return [{
+        "username": "admin",
+        "role": "Administrator",
+        "active": True,
+        "password_hash": password_hash,
+        "password_salt": password_salt,
+    }]
+
+
+def merge_snmp_settings(saved_settings: dict | None) -> dict:
+    settings = DEFAULT_SNMP_SETTINGS.copy()
+    if isinstance(saved_settings, dict):
+        settings.update({key: saved_settings[key] for key in settings if key in saved_settings})
+    settings["port"] = config.SNMP_PORT
+    if settings.get("community") in {"", "public"}:
+        settings["community"] = config.SNMP_COMMUNITY
+    return settings
 
 
 persisted_state = load_persisted_state()
@@ -149,13 +158,18 @@ persisted_state = load_persisted_state()
 
 def save_persisted_state() -> None:
     path = pathlib.Path(config.PERSISTED_STATE_FILE)
+    temporary_path = path.with_suffix(path.suffix + ".tmp")
     payload = {
         "last_known_gain_set": float(last_known_gain_set),
         "dashboard_settings": dashboard_settings,
         "access_users": access_users,
         "snmp_settings": snmp_settings,
     }
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    with persist_lock:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        temporary_path.chmod(0o600)
+        temporary_path.replace(path)
 
 
 def save_persisted_gain_set(gain_set: float) -> None:
@@ -190,7 +204,8 @@ history_buffer = collections.deque(maxlen=config.HISTORY_MEMORY_LIMIT)
 error_buffer = collections.deque(maxlen=500)
 active_warning_keys = set()
 auth_sessions = {}
+login_failures = {}
 
 dashboard_settings = merge_dashboard_settings(persisted_state.get("dashboard_settings"))
 access_users = merge_access_users(persisted_state.get("access_users"))
-snmp_settings = persisted_state.get("snmp_settings", DEFAULT_SNMP_SETTINGS.copy())
+snmp_settings = merge_snmp_settings(persisted_state.get("snmp_settings"))

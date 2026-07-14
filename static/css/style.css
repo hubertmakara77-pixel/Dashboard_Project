@@ -10,6 +10,10 @@ body {
     color: #edf3ef;
 }
 
+[hidden] {
+    display: none !important;
+}
+
 .app-hidden {
     display: none !important;
 }
@@ -539,6 +543,20 @@ select {
     font-size: 20px;
     color: #dfe8e3;
 }
+
+.network-panel { max-width: 1000px; }
+.network-status-grid { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid #20352d; border-radius: 8px; overflow: hidden; margin-bottom: 18px; }
+.network-status-grid > div { display: grid; gap: 6px; padding: 14px; border-right: 1px solid #20352d; border-bottom: 1px solid #20352d; }
+.network-status-grid span { color: #8fa59b; font-size: 12px; font-weight: 700; }
+.network-status-grid strong { overflow-wrap: anywhere; }
+.network-form, .network-static-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.network-form label { display: grid; gap: 7px; color: #a9b9b2; font-weight: 700; }
+.network-form input, .network-form select { width: 100%; padding: 9px; background: #121b18; color: #edf3ef; border: 1px solid #3d5149; border-radius: 6px; }
+.network-static-fields { grid-column: 1 / -1; }
+.network-warning, .network-message { grid-column: 1 / -1; color: #d7b66f; }
+.network-message.error { color: #ff8585; }
+.network-form > button { justify-self: start; }
+@media (max-width: 760px) { .network-status-grid, .network-form, .network-static-fields { grid-template-columns: 1fr; } }
 
 .control-save-header {
     margin-bottom: 2px;
