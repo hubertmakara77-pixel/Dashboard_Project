@@ -18,6 +18,7 @@ import starlette.requests
 import config
 import influx_service
 import network_service
+import ntp_service
 import snmp_service
 import serial_reader
 import state
@@ -406,6 +407,14 @@ def update_network_settings(
         f"interface={settings.interface}; mode={settings.mode}",
     )
     return result
+
+
+@app.get("/api/ntp/status")
+def get_ntp_status(
+    force: bool = False,
+    _current_user: dict = fastapi.Depends(require_roles("Administrator")),
+):
+    return ntp_service.query_ntp_status(force=force)
 
 
 @app.post("/api/auth/login")
