@@ -40,15 +40,15 @@
                     <button type="button" class="nav-link" data-tab="warnings" data-title="Warnings">Warnings</button>
                 </div>
 
-                <div class="nav-group">
+                <div class="nav-group" data-admin-only>
                     <span class="nav-group-title">Administration</span>
                     <button type="button" class="nav-link" data-tab="access-control" data-title="Access Control" data-admin-only>Access Control</button>
                 </div>
 
-                <div class="nav-group">
+                <div class="nav-group" data-admin-only>
                     <span class="nav-group-title">Configuration</span>
                     <button type="button" class="nav-link" data-tab="snmp-settings" data-title="SNMP Settings" data-admin-only>SNMP Configuration</button>
-                    <button type="button" class="nav-link" data-tab="network-settings" data-title="Network Settings">Network Configuration</button>
+                    <button type="button" class="nav-link" data-tab="network-settings" data-title="Network Settings" data-admin-only>Network Configuration</button>
                 </div>
             </nav>
         </aside>
@@ -130,7 +130,7 @@
                             </div>
                         </div>
 
-                        <div class="control-strip">
+                        <div class="control-strip" data-operator-only>
                             <div class="settings-header control-save-header">
                                 <h2>Setpoints & Thresholds</h2>
                                 <button id="save-settings-button" type="button" data-operator-control>Save</button>
@@ -264,7 +264,7 @@
                     <div class="data-panel">
                         <div class="table-header">
                             <h2>Warnings</h2>
-                            <button id="clear-errors-button" type="button" data-operator-control>Clear</button>
+                            <button id="clear-errors-button" type="button" data-operator-only>Clear</button>
                         </div>
                         <table class="plain-table">
                             <thead>

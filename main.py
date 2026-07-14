@@ -351,7 +351,7 @@ def get_settings(_current_user: dict = fastapi.Depends(require_roles("Administra
 
 @app.get("/api/network")
 def get_network_settings(
-    _current_user: dict = fastapi.Depends(require_roles("Administrator", "Operator", "Viewer")),
+    _current_user: dict = fastapi.Depends(require_roles("Administrator")),
 ):
     try:
         return network_service.get_network_state()
@@ -656,7 +656,7 @@ def get_snmp_live_data(_current_user: dict = fastapi.Depends(require_roles("Admi
 
 
 @app.get("/api/snmp/settings")
-def get_snmp_settings(_current_user: dict = fastapi.Depends(require_roles("Administrator", "Operator", "Viewer"))):
+def get_snmp_settings(_current_user: dict = fastapi.Depends(require_roles("Administrator"))):
     with state.state_lock:
         return dict(state.snmp_settings)
 

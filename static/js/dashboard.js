@@ -160,6 +160,10 @@ function applyRoleUi() {
         element.disabled = !canOperate();
     });
 
+    document.querySelectorAll("[data-operator-only]").forEach(element => {
+        element.hidden = !canOperate();
+    });
+
     if (currentUser) {
         setTextIfExists("current-user-label", `${currentUser.username} (${currentUser.role})`);
     }
