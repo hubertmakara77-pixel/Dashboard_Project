@@ -3,6 +3,7 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ADMIN_PASSWORD_SUMMARY="existing account password unchanged"
+DEFAULT_ADMIN_PASSWORD="Admin123!Amp"
 cd "$PROJECT_DIR"
 
 info() {
@@ -95,7 +96,9 @@ prepare_environment_file() {
   fi
 
   if [[ "$persisted_state_exists" == false ]]; then
-    ensure_random_secret "INITIAL_ADMIN_PASSWORD" 24 false
+    if [[ -z "$(env_value INITIAL_ADMIN_PASSWORD)" ]]; then
+      set_env_value "INITIAL_ADMIN_PASSWORD" "$DEFAULT_ADMIN_PASSWORD"
+    fi
     ADMIN_PASSWORD_SUMMARY="$(env_value INITIAL_ADMIN_PASSWORD)"
   fi
   ensure_random_secret "SNMP_COMMUNITY" 24 false
