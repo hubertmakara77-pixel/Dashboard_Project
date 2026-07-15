@@ -1,0 +1,54 @@
+import logging
+import os
+
+from pyrad.client import Client, Timeout
+from pyrad.dictionary import Dictionary
+import pyrad.packet
+
+import config
+
+logger = logging.getLogger(__name__)
+
+_DICTIONARY_PATH = os.path.join(os.path.dirname(__file__), "radius_dictionary")
+_dictionary = Dictionary(_DICTIONARY_PATH)
+
+
+class RadiusUnavailableError(RuntimeError):
+    """Serwer RADIUS nie odpowiedział lub wystąpił błąd komunikacji."""
+
+
+def authenticate(username: str, password: str) -> bool:
+    """Weryfikuje username/hasło przez RADIUS (PAP).
+
+    Zwraca True przy Access-Accept, False przy Access-Reject.
+    Podnosi RadiusUnavailableError jeśli serwer nie odpowiada / błąd sieci -
+    to rozróżnienie jest ważne, żeby nie mylić "złego hasła" z "RADIUS padł".
+    """
+    client = Client(
+        server=config.RADIUS_SERVER,
+        authport=config.RADIUS_PORT,
+        secret=config.RADIUS_SECRET.encode("utf-8"),
+        dict=_dictionary,
+        timeout=config.RADIUS_TIMEOUT_SECONDS,
+        retries=config.RADIUS_RETRIES,
+    )
+
+    request = client.CreateAuthPacket(code=pyrad.packet.AccessRequest, User_Name=username)
+    request["User-Password"] = request.PwCrypt(password)
+    request["NAS-Identifier"] = config.RADIUS_NAS_IDENTIFIER
+
+    try:
+        reply = client.SendPacket(request)
+    except Timeout as exc:
+        raise RadiusUnavailableError(f"RADIUS server did not respond ({config.RADIUS_SERVER}:{config.RADIUS_PORT})") from exc
+    except OSError as exc:
+        raise RadiusUnavailableError(f"RADIUS communication error: {exc}") from exc
+
+    if reply.code == pyrad.packet.AccessAccept:
+        return True
+
+    if reply.code == pyrad.packet.AccessReject:
+        return False
+
+    logger.warning("Unexpected RADIUS reply code %s for user %s", reply.code, username)
+    return False

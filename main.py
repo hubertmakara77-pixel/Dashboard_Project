@@ -19,6 +19,7 @@ import config
 import influx_service
 import network_service
 import ntp_service
+import radius_service
 import snmp_service
 import serial_reader
 import state
@@ -437,14 +438,29 @@ def login(
             raise fastapi.HTTPException(status_code=429, detail="Too many login attempts. Try again later")
 
         user = find_access_user(username)
+        user_known_and_active = user is not None and user["active"]
 
-        if (
-            user is None
-            or not user["active"]
-            or not state.verify_password(login_request.password, user["password_hash"], user["password_salt"])
-        ):
+        if not user_known_and_active:
             failures.append(now)
-            audit_event(request, "login_failed", username, "invalid_credentials_or_inactive_user")
+            audit_event(request, "login_failed", username, "unknown_or_inactive_user")
+            raise fastapi.HTTPException(status_code=401, detail="Invalid username or password")
+
+    # Zapytanie RADIUS to blokująca operacja sieciowa (do kilku sekund przy
+    # timeoucie) - musi lecieć POZA state_lock, żeby nie zamrażać reszty appki
+    # (serial reader, SNMP agent) na czas oczekiwania na odpowiedź serwera.
+    try:
+        radius_ok = radius_service.authenticate(username, login_request.password)
+    except radius_service.RadiusUnavailableError as exc:
+        audit_event(request, "login_radius_unavailable", username, str(exc))
+        raise fastapi.HTTPException(
+            status_code=503,
+            detail="Authentication server (RADIUS) is unavailable. Try again later.",
+        ) from exc
+
+    with state.state_lock:
+        if not radius_ok:
+            state.login_failures.setdefault(client_ip, []).append(now)
+            audit_event(request, "login_failed", username, "radius_reject")
             raise fastapi.HTTPException(status_code=401, detail="Invalid username or password")
 
         state.login_failures.pop(client_ip, None)

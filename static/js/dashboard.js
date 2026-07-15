@@ -347,6 +347,46 @@ async function loadNtpStatus(force = false) {
 
 document.getElementById('refresh-ntp-button')?.addEventListener('click', () => loadNtpStatus(true))
 
+function showNtpMessage(message, isError = false) {
+    const element = document.getElementById("ntp-message");
+    if (!element) return;
+    element.textContent = message;
+    element.classList.toggle("error", isError);
+}
+
+async function loadNtpStatus(force = false) {
+    if (!document.getElementById("ntp-server")) return;
+    showNtpMessage(force ? "Querying NTP server..." : "Loading NTP status...");
+    try {
+        const response = await fetch(`/api/ntp/status${force ? "?force=true" : ""}`);
+        handleAuthResponse(response);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "Could not read NTP status");
+
+        setTextIfExists("ntp-server", `${data.server}${data.port ? ":" + data.port : ""}`);
+        setTextIfExists("ntp-reachable", data.reachable ? "Yes" : "No");
+        setTextIfExists("ntp-stratum", data.stratum !== undefined ? `${data.stratum} (${data.stratum_label || "--"})` : "--");
+        setTextIfExists("ntp-reference-id", data.reference_id || "--");
+        setTextIfExists("ntp-leap-indicator", data.leap_indicator_label || "--");
+        setTextIfExists("ntp-reference-time", data.reference_time_utc ? new Date(data.reference_time_utc).toLocaleString() : "--");
+        setTextIfExists("ntp-offset", data.offset_ms !== undefined && data.offset_ms !== null ? `${data.offset_ms} ms` : "--");
+        setTextIfExists("ntp-round-trip", data.round_trip_ms !== undefined && data.round_trip_ms !== null ? `${data.round_trip_ms} ms` : "--");
+        setTextIfExists("ntp-root-delay", (data.root_delay_ms !== undefined && data.root_delay_ms !== null) ? `${data.root_delay_ms} ms / ${data.root_dispersion_ms} ms` : "--");
+        setTextIfExists("ntp-poll-interval", data.poll_interval_seconds ? `${data.poll_interval_seconds} s` : "--");
+        setTextIfExists("ntp-checked-at", data.checked_at ? new Date(data.checked_at).toLocaleString() : "--");
+
+        if (data.reachable) {
+            showNtpMessage(`Synchronized with ${data.server}.`);
+        } else {
+            showNtpMessage(data.error || "NTP server unreachable.", true);
+        }
+    } catch (error) {
+        showNtpMessage(error.message, true);
+    }
+}
+
+document.getElementById("refresh-ntp-button")?.addEventListener("click", () => loadNtpStatus(true));
+
 async function loadSettings() {
 	if (!currentUser) return
 
