@@ -49,6 +49,7 @@
                     <span class="nav-group-title">Configuration</span>
                     <button type="button" class="nav-link" data-tab="snmp-settings" data-title="SNMP Settings" data-admin-only>SNMP Configuration</button>
                     <button type="button" class="nav-link" data-tab="network-settings" data-title="Network Settings" data-admin-only>Network Configuration</button>
+                    <button type="button" class="nav-link" data-tab="ntp-settings" data-title="NTP Settings" data-admin-only>NTP Configuration</button>
                 </div>
             </nav>
         </aside>
@@ -395,6 +396,29 @@
                             <p class="network-warning">Applying settings reloads the connection and may disconnect this panel.</p>
                             <button id="save-network-button" type="submit" data-admin-only>Save network settings</button>
                         </form>
+                    </div>
+                </section>
+
+                <section class="tab-panel" data-tab="ntp-settings">
+                    <div class="data-panel network-panel">
+                        <div class="settings-header">
+                            <h2>NTP Configuration</h2>
+                            <button id="refresh-ntp-button" type="button">Refresh</button>
+                        </div>
+                        <p id="ntp-message" class="network-message" role="status"></p>
+                        <div class="network-status-grid">
+                            <div><span>Time server</span><strong id="ntp-server">--</strong></div>
+                            <div><span>Reachable</span><strong id="ntp-reachable">--</strong></div>
+                            <div><span>Stratum</span><strong id="ntp-stratum">--</strong></div>
+                            <div><span>Reference ID</span><strong id="ntp-reference-id">--</strong></div>
+                            <div><span>Leap indicator</span><strong id="ntp-leap-indicator">--</strong></div>
+                            <div><span>Reference time (UTC)</span><strong id="ntp-reference-time">--</strong></div>
+                            <div><span>Clock offset</span><strong id="ntp-offset">--</strong></div>
+                            <div><span>Round-trip delay</span><strong id="ntp-round-trip">--</strong></div>
+                            <div><span>Root delay / dispersion</span><strong id="ntp-root-delay">--</strong></div>
+                            <div><span>Poll interval</span><strong id="ntp-poll-interval">--</strong></div>
+                            <div><span>Last checked</span><strong id="ntp-checked-at">--</strong></div>
+                        </div>
                     </div>
                 </section>
             </main>

@@ -6,3 +6,4 @@ influxdb-client
 pysnmp
 itsdangerous
 python-multipart
+pyrad

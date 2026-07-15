@@ -57,3 +57,10 @@ AUDIT_LOG_FILE = os.getenv("AUDIT_LOG_FILE", "logs/audit.log")
 
 SNMP_PORT = _env_int("SNMP_PORT", 1161)
 SNMP_COMMUNITY = os.getenv("SNMP_COMMUNITY", "")
+
+# Główny Urząd Miar - krajowy serwer czasu (NTP/SNTP)
+NTP_SERVER = os.getenv("NTP_SERVER", "tempus1.gum.gov.pl")
+NTP_SERVER_FALLBACK_IP = os.getenv("NTP_SERVER_FALLBACK_IP", "194.146.251.100")
+NTP_PORT = _env_int("NTP_PORT", 123)
+NTP_TIMEOUT_SECONDS = _env_int("NTP_TIMEOUT_SECONDS", 3)
+NTP_CACHE_SECONDS = _env_int("NTP_CACHE_SECONDS", 15)

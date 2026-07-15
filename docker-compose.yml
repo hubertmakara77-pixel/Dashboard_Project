@@ -33,6 +33,17 @@ services:
       NETWORK_AGENT_SOCKET: /run/amp-dashboard/network-agent.sock
       SNMP_PORT: ${SNMP_PORT:-1161}
       SNMP_COMMUNITY: ${SNMP_COMMUNITY:?SNMP_COMMUNITY must be configured in .env}
+      NTP_SERVER: ${NTP_SERVER:-tempus1.gum.gov.pl}
+      NTP_SERVER_FALLBACK_IP: ${NTP_SERVER_FALLBACK_IP:-194.146.251.100}
+      NTP_PORT: ${NTP_PORT:-123}
+      NTP_TIMEOUT_SECONDS: ${NTP_TIMEOUT_SECONDS:-3}
+      NTP_CACHE_SECONDS: ${NTP_CACHE_SECONDS:-15}
+      RADIUS_SERVER: ${RADIUS_SERVER:-radius}
+      RADIUS_PORT: ${RADIUS_PORT:-1812}
+      RADIUS_SECRET: ${RADIUS_SECRET:?RADIUS_SECRET must be configured in .env}
+      RADIUS_TIMEOUT_SECONDS: ${RADIUS_TIMEOUT_SECONDS:-3}
+      RADIUS_RETRIES: ${RADIUS_RETRIES:-1}
+      RADIUS_NAS_IDENTIFIER: ${RADIUS_NAS_IDENTIFIER:-amp-dashboard}
     ports:
       - "8000:8000"
       - "${SNMP_PORT:-1161}:${SNMP_PORT:-1161}/udp"
@@ -45,6 +56,21 @@ services:
       - "host.docker.internal:host-gateway"
     depends_on:
       - influxdb
+      - radius
+
+  radius:
+    image: freeradius/freeradius-server:latest
+    container_name: freeradius
+    profiles:
+      - dashboard
+    restart: unless-stopped
+    volumes:
+      - ./radius/clients.conf:/etc/raddb/clients.conf:ro
+      - ./radius/authorize:/etc/raddb/mods-config/files/authorize:ro
+    # Port wystawiony tylko na localhost hosta - do ręcznego debugowania
+    # (np. radtest); appka i tak łączy się przez wewnętrzną sieć Dockera.
+    ports:
+      - "127.0.0.1:1812:1812/udp"
 
   influxdb:
     image: influxdb:2.7

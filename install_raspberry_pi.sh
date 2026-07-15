@@ -3,6 +3,7 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ADMIN_PASSWORD_SUMMARY="existing account password unchanged"
+DEFAULT_ADMIN_PASSWORD="Admin123!Amp"
 cd "$PROJECT_DIR"
 
 info() {
