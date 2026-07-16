@@ -119,7 +119,11 @@ function canOperate() {
 
 function setActiveTab(tabName) {
 	const targetLink = document.querySelector(`.nav-link[data-tab="${tabName}"]`)
-	if (!targetLink || (targetLink.hasAttribute('data-admin-only') && !isAdministrator())) {
+	if (
+		!targetLink ||
+		(targetLink.hasAttribute('data-admin-only') && !isAdministrator()) ||
+		(targetLink.hasAttribute('data-operator-only') && !canOperate())
+	) {
 		return false
 	}
 
@@ -169,8 +173,12 @@ function applyRoleUi() {
 		setTextIfExists('current-user-label', `${currentUser.username} (${currentUser.role})`)
 	}
 
-	const accessTab = document.querySelector('.tab-panel[data-tab="access-control"]')
-	if (accessTab && accessTab.classList.contains('active') && !isAdministrator()) {
+	const activeTab = document.querySelector('.tab-panel.active')
+	if (
+		activeTab &&
+		((activeTab.hasAttribute('data-admin-only') && !isAdministrator()) ||
+			(activeTab.hasAttribute('data-operator-only') && !canOperate()))
+	) {
 		setActiveTab('standard-view')
 	}
 }

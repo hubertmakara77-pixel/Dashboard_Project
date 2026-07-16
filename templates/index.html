@@ -30,7 +30,8 @@
             <nav class="sidebar-nav">
                 <div class="nav-group">
                     <span class="nav-group-title">Device</span>
-                    <button type="button" class="nav-link active" data-tab="standard-view" data-title="Dashboard">Dashboard</button>
+                    <button type="button" class="nav-link active" data-tab="standard-view" data-title="Live View">Live View</button>
+                    <button type="button" class="nav-link" data-tab="device-settings" data-title="Device Settings" data-operator-only>Settings</button>
                 </div>
 
                 <div class="nav-group">
@@ -43,10 +44,6 @@
                 <div class="nav-group" data-admin-only>
                     <span class="nav-group-title">Administration</span>
                     <button type="button" class="nav-link" data-tab="access-control" data-title="Access Control" data-admin-only>Access Control</button>
-                </div>
-
-                <div class="nav-group" data-admin-only>
-                    <span class="nav-group-title">Configuration</span>
                     <button type="button" class="nav-link" data-tab="snmp-settings" data-title="SNMP Settings" data-admin-only>SNMP Configuration</button>
                     <button type="button" class="nav-link" data-tab="network-settings" data-title="Network Settings" data-admin-only>Network Configuration</button>
                     <button type="button" class="nav-link" data-tab="ntp-settings" data-title="NTP Settings" data-admin-only>NTP Configuration</button>
@@ -56,7 +53,7 @@
 
         <div class="main">
             <header class="topbar">
-                <h1 id="current-tab-title">Dashboard</h1>
+                <h1 id="current-tab-title">Live View</h1>
                 <div class="user-menu">
                     <span id="current-user-label">--</span>
                     <button id="logout-button" type="button">Log out</button>
@@ -131,7 +128,11 @@
                             </div>
                         </div>
 
-                        <div class="control-strip" data-operator-only>
+                    </div>
+                </section>
+
+                <section class="tab-panel" data-tab="device-settings" data-operator-only>
+                    <div class="control-strip">
                             <div class="settings-header control-save-header">
                                 <h2>Setpoints & Thresholds</h2>
                                 <button id="save-settings-button" type="button" data-operator-control>Save</button>
@@ -178,9 +179,7 @@
                                     </div>
                                 </div>
                             </div>
-                        </div>
                     </div>
-
                 </section>
 
                 <section class="tab-panel" data-tab="overview">
@@ -285,7 +284,7 @@
                     </div>
                 </section>
 
-                <section class="tab-panel" data-tab="access-control">
+                <section class="tab-panel" data-tab="access-control" data-admin-only>
                     <div class="access-grid">
                         <form id="access-user-form" class="control-strip access-form">
                             <div class="settings-header control-save-header">
@@ -349,7 +348,7 @@
                     </div>
                 </section>
 
-                <section class="tab-panel" data-tab="snmp-settings">
+                <section class="tab-panel" data-tab="snmp-settings" data-admin-only>
                     <div class="access-grid">
                         <form id="snmp-settings-form" class="control-strip access-form">
                             <div class="settings-header control-save-header">
@@ -369,7 +368,7 @@
                     </div>
                 </section>
 
-                <section class="tab-panel" data-tab="network-settings">
+                <section class="tab-panel" data-tab="network-settings" data-admin-only>
                     <div class="data-panel network-panel">
                         <div class="settings-header">
                             <h2>Network Configuration</h2>
@@ -399,7 +398,7 @@
                     </div>
                 </section>
 
-                <section class="tab-panel" data-tab="ntp-settings">
+                <section class="tab-panel" data-tab="ntp-settings" data-admin-only>
                     <div class="data-panel network-panel">
                         <div class="settings-header">
                             <h2>NTP Configuration</h2>
