@@ -53,7 +53,8 @@ SYSLOG_PORT = _env_int("SYSLOG_PORT", 514)
 SYSLOG_APP_NAME = os.getenv("SYSLOG_APP_NAME", "amp-dashboard")
 SYSLOG_FACILITY = _env_int("SYSLOG_FACILITY", 16)
 
-AUDIT_LOG_FILE = os.getenv("AUDIT_LOG_FILE", "logs/audit.log")
+# AUDIT_LOG_FILE pozostaje jako zgodny wstecznie fallback dla starszych wdrozen.
+SYSLOG_LOG_FILE = os.getenv("SYSLOG_LOG_FILE") or os.getenv("AUDIT_LOG_FILE") or "logs/syslog.log"
 
 SNMP_PORT = _env_int("SNMP_PORT", 1161)
 SNMP_COMMUNITY = os.getenv("SNMP_COMMUNITY", "")

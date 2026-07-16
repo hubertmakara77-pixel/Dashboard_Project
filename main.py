@@ -3,6 +3,7 @@ import csv
 import datetime
 import hashlib
 import io
+import json
 import pathlib
 import secrets
 import threading
@@ -124,6 +125,20 @@ def audit_event(request: starlette.requests.Request, action: str, username: str,
         ip_address=get_client_ip(request),
         details=details,
     )
+
+
+def audit_changes(before: dict, after: dict, *, redacted: set[str] | None = None) -> str:
+    """Buduje bezpieczny, jednoznaczny opis zmienionych wartosci."""
+    redacted = redacted or set()
+    changes = {}
+    for key in sorted(set(before) | set(after)):
+        if before.get(key) == after.get(key):
+            continue
+        changes[key] = {
+            "before": "[REDACTED]" if key in redacted else before.get(key),
+            "after": "[REDACTED]" if key in redacted else after.get(key),
+        }
+    return f"changes={json.dumps(changes, ensure_ascii=False, separators=(',', ':'))}"
 
 
 def create_session(username: str) -> str:
@@ -397,6 +412,11 @@ def update_network_settings(
     current_user: dict = fastapi.Depends(require_roles("Administrator")),
 ):
     try:
+        before = network_service.get_network_state()
+    except network_service.NetworkError:
+        before = {}
+
+    try:
         result = network_service.apply_network_settings(settings.model_dump())
     except network_service.NetworkError as exc:
         raise fastapi.HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
@@ -405,7 +425,7 @@ def update_network_settings(
         request,
         "network_settings_updated",
         current_user["username"],
-        f"interface={settings.interface}; mode={settings.mode}",
+        audit_changes(before, settings.model_dump()),
     )
     return result
 
@@ -518,14 +538,15 @@ def get_access_users(_current_user: dict = fastapi.Depends(require_roles("Admini
         }
 
 
-@app.get("/api/audit/export.log")
-def export_audit_log(
+@app.get("/api/syslog/export.log")
+@app.get("/api/audit/export.log", include_in_schema=False)
+def export_syslog_log(
     request: starlette.requests.Request,
     current_user: dict = fastapi.Depends(require_roles("Administrator")),
 ):
-    audit_event(request, "audit_log_exported", current_user["username"])
+    audit_event(request, "syslog_exported", current_user["username"])
 
-    path = syslog_service.get_audit_log_path()
+    path = syslog_service.get_syslog_log_path()
     filename_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
     if not path.exists():
@@ -533,14 +554,14 @@ def export_audit_log(
             content="",
             media_type="text/plain",
             headers={
-                "Content-Disposition": f'attachment; filename="amp_audit_{filename_time}.log"'
+                "Content-Disposition": f'attachment; filename="amp_syslog_{filename_time}.log"'
             },
         )
 
     return fastapi.responses.FileResponse(
         path,
         media_type="text/plain",
-        filename=f"amp_audit_{filename_time}.log",
+        filename=f"amp_syslog_{filename_time}.log",
     )
 
 
@@ -597,6 +618,7 @@ def update_access_user(
         if user is None:
             raise fastapi.HTTPException(status_code=404, detail="User not found")
 
+        before = state.access_user_public(user)
         next_role = request.role.strip() if request.role is not None else user["role"]
         next_active = bool(request.active) if request.active is not None else bool(user["active"])
 
@@ -622,7 +644,7 @@ def update_access_user(
             http_request,
             "access_user_updated",
             current_user["username"],
-            f"target={username}; role={user['role']}; active={user['active']}; password_changed={bool(request.password)}",
+            f"target={username}; {audit_changes(before, state.access_user_public(user))}; password_changed={bool(request.password)}",
         )
 
         return state.access_user_public(user)
@@ -668,6 +690,7 @@ def update_settings(
     current_user: dict = fastapi.Depends(require_roles("Administrator", "Operator")),
 ):
     with state.state_lock:
+        before = json.loads(json.dumps(state.dashboard_settings))
         if request.gain_tolerance is not None:
             state.dashboard_settings["gain_tolerance"] = float(request.gain_tolerance)
 
@@ -687,7 +710,7 @@ def update_settings(
             http_request,
             "settings_updated",
             current_user["username"],
-            f"gain_tolerance={state.dashboard_settings['gain_tolerance']}; warn_limits_updated={request.warn_limits is not None}",
+            audit_changes(before, state.dashboard_settings),
         )
 
         return state.dashboard_settings
@@ -733,7 +756,8 @@ def get_snmp_settings(_current_user: dict = fastapi.Depends(require_roles("Admin
 @app.post("/api/snmp/settings")
 def update_snmp_settings(
     settings: SnmpSettingsUpdateRequest,
-    _current_user: dict = fastapi.Depends(require_roles("Administrator")),
+    request: starlette.requests.Request,
+    current_user: dict = fastapi.Depends(require_roles("Administrator")),
 ):
     if settings.port != config.SNMP_PORT:
         raise fastapi.HTTPException(
@@ -744,12 +768,20 @@ def update_snmp_settings(
         raise fastapi.HTTPException(status_code=400, detail="SNMP community must contain at least 12 characters")
 
     with state.state_lock:
+        before = dict(state.snmp_settings)
         state.snmp_settings = settings.model_dump()
         state.save_persisted_state()
 
     snmp_service.close_snmp()
     if settings.enabled:
         snmp_service.init_snmp()
+
+    audit_event(
+        request,
+        "snmp_settings_updated",
+        current_user["username"],
+        audit_changes(before, state.snmp_settings, redacted={"community"}),
+    )
 
     return state.snmp_settings
 

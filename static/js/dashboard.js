@@ -1066,7 +1066,7 @@ if (gainSetInput) {
 function setupAuth() {
 	const loginForm = document.getElementById('login-form')
 	const logoutButton = document.getElementById('logout-button')
-	const auditLogButton = document.getElementById('download-audit-log-button')
+	const syslogButton = document.getElementById('download-syslog-button')
 
 	if (loginForm) {
 		loginForm.addEventListener('submit', async event => {
@@ -1094,10 +1094,10 @@ function setupAuth() {
 		})
 	}
 
-	if (auditLogButton) {
-		auditLogButton.addEventListener('click', () => {
+	if (syslogButton) {
+		syslogButton.addEventListener('click', () => {
 			if (!isAdministrator()) return
-			window.location.href = '/api/audit/export.log'
+			window.location.href = '/api/syslog/export.log'
 		})
 	}
 }
