@@ -133,17 +133,8 @@
 
                 <section class="tab-panel" data-tab="device-settings" data-operator-only>
                     <div class="data-panel device-settings-panel">
-                            <div class="settings-header control-save-header">
-                                <h2>Setpoints & Thresholds</h2>
-                                <button id="save-settings-button" type="button" data-operator-control>Save</button>
-                            </div>
-
-                            <div class="threshold-panel">
-                                <div class="section-title-row">
-                                    <h2>Warning Thresholds</h2>
-                                </div>
-
-                                <div class="limit-list">
+                        <div class="threshold-panel">
+                            <div class="limit-list">
                                     <label class="limit-row limit-wide-row">
                                         <span>Gain Setpoint:</span>
                                         <input id="gain-set-input" type="number" step="0.1" placeholder="--" data-operator-control>
@@ -152,6 +143,9 @@
                                         <span>Max gain (delta):</span>
                                         <input id="gain-tolerance-input" type="number" step="0.01" min="0" value="0.25" data-operator-control>
                                     </label>
+                                    <div class="section-title-row threshold-title-row">
+                                        <h2>Warning Thresholds</h2>
+                                    </div>
                                     <div class="limit-header">
                                         <span></span>
                                         <span>MIN</span>
@@ -177,8 +171,11 @@
                                         <input data-limit-field="PoB" data-limit-side="min" type="number" step="0.01" placeholder="min" data-operator-control>
                                         <input data-limit-field="PoB" data-limit-side="max" type="number" step="0.01" placeholder="max" data-operator-control>
                                     </div>
-                                </div>
                             </div>
+                            <div class="settings-actions">
+                                <button id="save-settings-button" type="button" data-operator-control>Save</button>
+                            </div>
+                        </div>
                     </div>
                 </section>
 

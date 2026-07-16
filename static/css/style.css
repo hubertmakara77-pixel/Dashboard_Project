@@ -397,7 +397,8 @@ select {
 }
 
 .range-buttons button,
-.settings-header button {
+.settings-header button,
+.settings-actions button {
     padding: 8px 14px;
     background: rgb(0, 106, 60);
     color: #ffffff;
@@ -407,7 +408,8 @@ select {
 }
 
 .range-buttons button:hover,
-.settings-header button:hover {
+.settings-header button:hover,
+.settings-actions button:hover {
     background: #087a49;
 }
 
@@ -772,6 +774,16 @@ select {
 .action-buttons button:hover {
     border-color: #57c08a;
     color: #ffffff;
+}
+
+.threshold-title-row {
+    margin-top: 18px;
+}
+
+.settings-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 14px;
 }
 
 .notification-container {
