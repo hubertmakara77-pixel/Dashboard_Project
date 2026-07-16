@@ -6,6 +6,8 @@ import influx_service
 
 
 class FakePoint:
+    timestamps = []
+
     def __init__(self, *_args):
         pass
 
@@ -13,6 +15,10 @@ class FakePoint:
         return self
 
     def field(self, *_args):
+        return self
+
+    def time(self, timestamp):
+        self.timestamps.append(timestamp)
         return self
 
 
@@ -35,6 +41,7 @@ class FakeClient:
 
 class InfluxResilienceTests(unittest.TestCase):
     def setUp(self):
+        FakePoint.timestamps.clear()
         self.originals = (
             influx_service.influxdb_client,
             influx_service.client,
@@ -58,6 +65,12 @@ class InfluxResilienceTests(unittest.TestCase):
         with mock.patch.object(config, "INFLUX_ENABLED", True):
             influx_service.write_measurement({"PiA": 1.0})
         self.assertIsNone(influx_service.client)
+
+    def test_measurement_uses_explicit_sample_timestamp(self):
+        timestamp = "2026-07-17T10:15:30+00:00"
+        with mock.patch.object(config, "INFLUX_ENABLED", True):
+            influx_service.write_measurement({"PiA": 1.0}, timestamp)
+        self.assertEqual(FakePoint.timestamps, [timestamp])
 
     def test_query_failure_falls_back_to_memory(self):
         with mock.patch.object(config, "INFLUX_ENABLED", True):

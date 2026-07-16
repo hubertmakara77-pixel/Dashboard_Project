@@ -12,9 +12,14 @@ The installer:
 - creates `.env` from `.env.example`,
 - generates unique administrator, InfluxDB, SNMP and RADIUS secrets,
 - creates a local FreeRADIUS configuration and administrator account,
+- configures `systemd-timesyncd` to synchronize the Linux host clock,
 - detects `/dev/ttyACM0` or `/dev/ttyUSB0` for the serial device,
 - creates the local `data` directory,
 - builds and starts the dashboard, InfluxDB and FreeRADIUS containers.
+
+Measurement timestamps come from the NTP-synchronized host clock. The same
+UTC timestamp assigned when a serial frame is received is stored in memory,
+used by warnings, and written explicitly to InfluxDB.
 
 After installation the dashboard is available at:
 
@@ -47,6 +52,7 @@ sudo docker compose --profile dashboard logs -f app
 sudo docker compose --profile dashboard restart app
 sudo docker compose --profile dashboard down
 sudo docker compose --profile dashboard up -d --build
+timedatectl show --property=NTPSynchronized --property=NTP
 ```
 
 SNMP v2c is exposed on UDP port `1161` by default. Its generated community is

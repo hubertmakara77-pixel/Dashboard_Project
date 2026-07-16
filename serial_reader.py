@@ -213,7 +213,8 @@ def serial_reader_loop():
 
                 state.active_warning_keys = current_warning_keys
 
-            influx_service.write_measurement(data)
+            # Ten sam czas odbioru probki trafia do pamieci, warningow i InfluxDB.
+            influx_service.write_measurement(data, now)
 
             for error in syslog_warnings:
                 syslog_service.send_warning(format_syslog_warning(error))
@@ -246,6 +247,7 @@ def serial_reader_loop():
 
 
 def send_gain_set(gain_set: float):
+    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
     with state.serial_lock:
         if state.serial_port is None:
             raise RuntimeError("Serial port is not open")
@@ -256,4 +258,4 @@ def send_gain_set(gain_set: float):
         state.last_known_gain_set = float(gain_set)
         state.save_persisted_gain_set(state.last_known_gain_set)
 
-    influx_service.write_setpoint(gain_set)
+    influx_service.write_setpoint(gain_set, timestamp)

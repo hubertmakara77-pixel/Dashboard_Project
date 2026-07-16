@@ -89,7 +89,7 @@ def _disconnect_for_retry() -> None:
         next_reconnect_at = time.monotonic() + 10
 
 
-def write_measurement(data: dict):
+def write_measurement(data: dict, timestamp: str | None = None):
     if not config.INFLUX_ENABLED:
         return
 
@@ -103,6 +103,9 @@ def write_measurement(data: dict):
         if isinstance(value, int) or isinstance(value, float):
             point = point.field(key, float(value))
 
+    if timestamp is not None:
+        point = point.time(timestamp)
+
     try:
         write_api.write(
             bucket=config.INFLUX_BUCKET,
@@ -114,7 +117,7 @@ def write_measurement(data: dict):
         _disconnect_for_retry()
 
 
-def write_setpoint(gain_set: float):
+def write_setpoint(gain_set: float, timestamp: str | None = None):
     if not config.INFLUX_ENABLED:
         return
 
@@ -124,6 +127,8 @@ def write_setpoint(gain_set: float):
     point = influxdb_client.Point(config.SETPOINT_MEASUREMENT_NAME)
     point = point.tag("device", config.DEVICE_NAME)
     point = point.field("gain_set", float(gain_set))
+    if timestamp is not None:
+        point = point.time(timestamp)
 
     try:
         write_api.write(

@@ -29,7 +29,7 @@ systemd_is_running() {
 install_system_packages() {
   info "Installing required system packages"
   sudo apt-get update
-  sudo apt-get install -y ca-certificates curl gnupg iproute2 python3
+  sudo apt-get install -y ca-certificates curl gnupg iproute2 python3 systemd-timesyncd
 }
 
 install_docker_engine() {
@@ -107,6 +107,11 @@ prepare_environment_file() {
   set_env_default "RADIUS_TIMEOUT_SECONDS" "3"
   set_env_default "RADIUS_RETRIES" "1"
   set_env_default "RADIUS_NAS_IDENTIFIER" "amp-dashboard"
+  set_env_default "NTP_SERVER" "tempus1.gum.gov.pl"
+  set_env_default "NTP_SERVER_FALLBACK_IP" "194.146.251.100"
+  set_env_default "NTP_PORT" "123"
+  set_env_default "NTP_TIMEOUT_SECONDS" "3"
+  set_env_default "NTP_CACHE_SECONDS" "15"
   ADMIN_PASSWORD_SUMMARY="$(env_value RADIUS_ADMIN_PASSWORD)"
 
   mkdir -p data
@@ -192,6 +197,24 @@ client dashboard {
     ipaddr = 172.16.0.0/12
     secret = ${radius_secret}
 }
+
+configure_time_sync() {
+  local ntp_server
+  local fallback_server
+  ntp_server="$(env_value NTP_SERVER)"
+  fallback_server="$(env_value NTP_SERVER_FALLBACK_IP)"
+
+  info "Configuring host clock synchronization with NTP"
+  sudo install -d -m 0755 /etc/systemd/timesyncd.conf.d
+  sudo tee /etc/systemd/timesyncd.conf.d/amp-dashboard.conf >/dev/null <<TIMESYNC
+[Time]
+NTP=${ntp_server}
+FallbackNTP=${fallback_server}
+TIMESYNC
+  sudo timedatectl set-ntp true
+  sudo systemctl enable --now systemd-timesyncd.service
+  sudo systemctl restart systemd-timesyncd.service
+}
 RADIUS_CLIENT
   else
     info "Keeping existing radius/clients.conf"
@@ -261,8 +284,8 @@ install_dashboard_service() {
 [Unit]
 Description=Optical amplifier dashboard containers
 Requires=docker.service amp-network-agent.service
-After=docker.service amp-network-agent.service network-online.target
-Wants=network-online.target
+After=docker.service amp-network-agent.service systemd-timesyncd.service network-online.target
+Wants=network-online.target systemd-timesyncd.service
 
 [Service]
 Type=oneshot
@@ -299,6 +322,9 @@ SNMP:
 RADIUS:
   local FreeRADIUS container on UDP port $(env_value "RADIUS_PORT")
 
+Time synchronization:
+  systemd-timesyncd uses $(env_value "NTP_SERVER")
+
 Default login:
   username: admin
   password: ${ADMIN_PASSWORD_SUMMARY}
@@ -325,6 +351,7 @@ install_system_packages
 install_docker_engine
 prepare_environment_file
 prepare_local_radius
+configure_time_sync
 install_network_agent_service
 install_dashboard_service
 start_dashboard
