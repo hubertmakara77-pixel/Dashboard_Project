@@ -236,9 +236,9 @@ TIMESYNC
 
 configure_system_syslog() {
   info "Configuring system rsyslog for amp-dashboard"
-  sudo install -d -o syslog -g adm -m 0750 /var/log/amp-dashboard
+  sudo install -d -o root -g adm -m 0750 /var/log/amp-dashboard
   sudo touch /var/log/amp-dashboard/amp-dashboard.log
-  sudo chown syslog:adm /var/log/amp-dashboard/amp-dashboard.log
+  sudo chown root:adm /var/log/amp-dashboard/amp-dashboard.log
   sudo chmod 0640 /var/log/amp-dashboard/amp-dashboard.log
 
   sudo tee /etc/rsyslog.d/30-amp-dashboard.conf >/dev/null <<'RSYSLOG'
@@ -250,7 +250,7 @@ ruleset(name="ampDashboard") {
         action(
             type="omfile"
             file="/var/log/amp-dashboard/amp-dashboard.log"
-            fileOwner="syslog"
+            fileOwner="root"
             fileGroup="adm"
             fileCreateMode="0640"
         )
@@ -269,7 +269,7 @@ RSYSLOG
     delaycompress
     missingok
     notifempty
-    create 0640 syslog adm
+    create 0640 root adm
     postrotate
         systemctl kill -s HUP rsyslog.service >/dev/null 2>&1 || true
     endscript
