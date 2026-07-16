@@ -175,6 +175,17 @@ prepare_local_radius() {
   info "Preparing local FreeRADIUS configuration"
   mkdir -p radius
 
+  # Docker tworzy katalog w miejscu brakujacego bind-mountu. Naprawiamy
+  # bezpiecznie tylko pusty katalog; rmdir odmowi usuniecia danych.
+  if [[ -d radius/clients.conf ]]; then
+    info "Replacing Docker-created radius/clients.conf directory with a file"
+    sudo rmdir radius/clients.conf || fail "radius/clients.conf is a non-empty directory; move its contents and rerun the installer"
+  fi
+  if [[ -d radius/authorize ]]; then
+    info "Replacing Docker-created radius/authorize directory with a file"
+    sudo rmdir radius/authorize || fail "radius/authorize is a non-empty directory; move its contents and rerun the installer"
+  fi
+
   if [[ ! -f radius/clients.conf ]]; then
     cat > radius/clients.conf <<RADIUS_CLIENT
 client dashboard {
