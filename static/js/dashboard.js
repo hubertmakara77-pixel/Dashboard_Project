@@ -81,6 +81,26 @@ function escapeHtml(value) {
 		.replaceAll("'", '&#039;')
 }
 
+function showNotification(message, type = 'success') {
+	const container = document.getElementById('notification-container')
+	if (!container) return
+	const notification = document.createElement('div')
+	notification.className = `notification ${type}`
+	notification.setAttribute('role', type === 'error' ? 'alert' : 'status')
+	notification.textContent = message
+	container.appendChild(notification)
+	window.setTimeout(() => notification.remove(), 5000)
+}
+
+async function responseError(response, fallback) {
+	try {
+		const body = await response.json()
+		return new Error(body.detail || fallback)
+	} catch {
+		return new Error(fallback)
+	}
+}
+
 function valueOrNull(input) {
 	if (!input || input.value === '') return null
 	return Number(input.value)
@@ -293,8 +313,10 @@ document.getElementById('network-form')?.addEventListener('submit', async event 
 		latestNetwork = data
 		fillNetworkForm(selectedNetworkInterface())
 		showNetworkMessage('Network settings applied.')
+		showNotification('Network settings applied.')
 	} catch (error) {
 		showNetworkMessage(error.message, true)
+		showNotification(error.message, 'error')
 	}
 })
 
@@ -483,22 +505,6 @@ async function saveSettings() {
 		warnLimits[field][side] = valueOrNull(input)
 	})
 
-	if (gainInputEdited && gainValueText !== '') {
-		const gainResponse = await fetch('/api/set_gain', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ gain_set: Number(gainValueText) }),
-		})
-		handleAuthResponse(gainResponse)
-
-		if (!gainResponse.ok) {
-			throw new Error('Could not set gain_set')
-		}
-
-		gainInputEdited = false
-		gainInput.value = Number(gainValueText)
-	}
-
 	const response = await fetch('/api/settings', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
@@ -508,9 +514,29 @@ async function saveSettings() {
 		}),
 	})
 	handleAuthResponse(response)
+	if (!response.ok) throw await responseError(response, 'Could not save thresholds')
 
 	dashboardSettings = await response.json()
 	updateSettingsForm()
+
+	let gainError = null
+	if (gainInputEdited && gainValueText !== '') {
+		const gainResponse = await fetch('/api/set_gain', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ gain_set: Number(gainValueText) }),
+		})
+		handleAuthResponse(gainResponse)
+
+		if (gainResponse.ok) {
+			gainInputEdited = false
+			gainInput.value = Number(gainValueText)
+		} else {
+			gainError = await responseError(gainResponse, 'Could not send gain setpoint to the device')
+		}
+	}
+
+	return { gainError }
 }
 
 async function updateDashboard() {
@@ -605,9 +631,14 @@ function setupSettingsButtons() {
 	if (saveButton) {
 		saveButton.addEventListener('click', async () => {
 			try {
-				await saveSettings()
+				const result = await saveSettings()
+				if (result.gainError) {
+					showNotification(`Thresholds saved, but gain setpoint was not sent: ${result.gainError.message}`, 'warning')
+				} else {
+					showNotification('Setpoints and thresholds saved.')
+				}
 			} catch (error) {
-				alert('Could not save setpoints and thresholds. Check the serial port.')
+				showNotification(error.message || 'Could not save setpoints and thresholds.', 'error')
 				console.error('Error saving setpoints and thresholds:', error)
 			}
 		})
@@ -616,9 +647,15 @@ function setupSettingsButtons() {
 	if (clearButton) {
 		clearButton.addEventListener('click', async () => {
 			if (!canOperate()) return
-			const response = await fetch('/api/errors/clear', { method: 'POST' })
-			handleAuthResponse(response)
-			await updateWarningsTable()
+			try {
+				const response = await fetch('/api/errors/clear', { method: 'POST' })
+				handleAuthResponse(response)
+				if (!response.ok) throw await responseError(response, 'Could not clear warnings')
+				await updateWarningsTable()
+				showNotification('Warnings cleared.')
+			} catch (error) {
+				showNotification(error.message, 'error')
+			}
 		})
 	}
 }
@@ -711,12 +748,13 @@ function setupAccessControl() {
 			const roleInput = document.getElementById('access-role-input')
 			const activeInput = document.getElementById('access-active-input')
 
+			const username = usernameInput.value.trim()
 			try {
 				const response = await fetch('/api/access/users', {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({
-						username: usernameInput.value.trim(),
+						username,
 						password: passwordInput.value,
 						role: roleInput.value,
 						active: activeInput.checked,
@@ -724,13 +762,14 @@ function setupAccessControl() {
 				})
 				handleAuthResponse(response)
 
-				if (!response.ok) throw new Error('Could not add user')
+				if (!response.ok) throw await responseError(response, 'Could not add user')
 
 				form.reset()
 				activeInput.checked = true
 				await loadAccessUsers()
+				showNotification(`User "${username}" added.`)
 			} catch (error) {
-				alert('Could not add user.')
+				showNotification(error.message, 'error')
 				console.error('Error adding access user:', error)
 			}
 		})
@@ -754,11 +793,12 @@ function setupAccessControl() {
 					})
 					handleAuthResponse(response)
 
-					if (!response.ok) throw new Error('Could not update user')
+					if (!response.ok) throw await responseError(response, 'Could not update user')
 
 					await loadAccessUsers()
+					showNotification(`User "${username}" saved.`)
 				} catch (error) {
-					alert('Could not save user.')
+					showNotification(error.message, 'error')
 					console.error('Error saving access user:', error)
 				}
 			}
@@ -774,11 +814,12 @@ function setupAccessControl() {
 					})
 					handleAuthResponse(response)
 
-					if (!response.ok) throw new Error('Could not delete user')
+					if (!response.ok) throw await responseError(response, 'Could not delete user')
 
 					await loadAccessUsers()
+					showNotification(`User "${username}" deleted.`)
 				} catch (error) {
-					alert('Could not delete user. At least one user must remain.')
+					showNotification(error.message, 'error')
 					console.error('Error deleting access user:', error)
 				}
 			}
@@ -1059,14 +1100,20 @@ if (snmpForm) {
 			trap_host: document.getElementById('snmp-trap-host-input').value.trim(),
 			trap_port: Number(document.getElementById('snmp-trap-port-input').value),
 		}
-		const response = await fetch('/api/snmp/settings', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(payload),
-		})
-		handleAuthResponse(response)
-		if (!response.ok) throw new Error('Could not save SNMP settings')
-		await loadSnmpSettings()
+		try {
+			const response = await fetch('/api/snmp/settings', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(payload),
+			})
+			handleAuthResponse(response)
+			if (!response.ok) throw await responseError(response, 'Could not save SNMP settings')
+			await loadSnmpSettings()
+			showNotification('SNMP settings saved.')
+		} catch (error) {
+			showNotification(error.message, 'error')
+			console.error('Error saving SNMP settings:', error)
+		}
 	})
 }
 const gainSetInput = document.getElementById('gain-set-input')

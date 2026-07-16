@@ -132,13 +132,13 @@
                 </section>
 
                 <section class="tab-panel" data-tab="device-settings" data-operator-only>
-                    <div class="control-strip">
+                    <div class="data-panel device-settings-panel">
                             <div class="settings-header control-save-header">
                                 <h2>Setpoints & Thresholds</h2>
                                 <button id="save-settings-button" type="button" data-operator-control>Save</button>
                             </div>
 
-                            <div class="control-block control-section threshold-panel">
+                            <div class="threshold-panel">
                                 <div class="section-title-row">
                                     <h2>Warning Thresholds</h2>
                                 </div>
@@ -423,6 +423,8 @@
             </main>
         </div>
     </div>
+
+    <div id="notification-container" class="notification-container" aria-live="polite" aria-atomic="true"></div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/static/js/dashboard.js?v={{ static_asset_version }}"></script>
