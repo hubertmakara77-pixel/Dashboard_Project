@@ -206,7 +206,9 @@ RADIUS_USER
     ADMIN_PASSWORD_SUMMARY="defined in radius/authorize"
   fi
 
-  chmod 600 radius/clients.conf radius/authorize
+  # Bind-mounty zachowuja uprawnienia hosta, a FreeRADIUS dziala w kontenerze
+  # jako nieuprzywilejowany uzytkownik `freerad` i musi moc odczytac te pliki.
+  chmod 644 radius/clients.conf radius/authorize
 }
 
 start_dashboard() {
