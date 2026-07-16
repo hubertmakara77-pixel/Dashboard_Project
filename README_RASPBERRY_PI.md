@@ -22,7 +22,7 @@ UTC timestamp assigned when a serial frame is received is stored in memory,
 used by warnings, and written explicitly to InfluxDB.
 
 Application audit events and warnings are sent to the host `rsyslog` service
-and stored only in `/var/log/amp-dashboard.log`. The installer configures daily
+and stored only in `/var/log/amp-dashboard/amp-dashboard.log`. The installer configures daily
 rotation with 30 retained archives. The log is mounted read-only into the app
 container solely for the administrator download action.
 

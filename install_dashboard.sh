@@ -236,9 +236,10 @@ TIMESYNC
 
 configure_system_syslog() {
   info "Configuring system rsyslog for amp-dashboard"
-  sudo touch /var/log/amp-dashboard.log
-  sudo chown syslog:adm /var/log/amp-dashboard.log
-  sudo chmod 0640 /var/log/amp-dashboard.log
+  sudo install -d -o syslog -g adm -m 0750 /var/log/amp-dashboard
+  sudo touch /var/log/amp-dashboard/amp-dashboard.log
+  sudo chown syslog:adm /var/log/amp-dashboard/amp-dashboard.log
+  sudo chmod 0640 /var/log/amp-dashboard/amp-dashboard.log
 
   sudo tee /etc/rsyslog.d/30-amp-dashboard.conf >/dev/null <<'RSYSLOG'
 module(load="imudp")
@@ -248,7 +249,7 @@ ruleset(name="ampDashboard") {
     if ($programname == "amp-dashboard") then {
         action(
             type="omfile"
-            file="/var/log/amp-dashboard.log"
+            file="/var/log/amp-dashboard/amp-dashboard.log"
             fileOwner="syslog"
             fileGroup="adm"
             fileCreateMode="0640"
@@ -261,7 +262,7 @@ input(type="imudp" port="514" ruleset="ampDashboard")
 RSYSLOG
 
   sudo tee /etc/logrotate.d/amp-dashboard >/dev/null <<'LOGROTATE'
-/var/log/amp-dashboard.log {
+/var/log/amp-dashboard/amp-dashboard.log {
     daily
     rotate 30
     compress
@@ -280,10 +281,10 @@ LOGROTATE
   sudo systemctl restart rsyslog.service
 
   # Jednorazowa migracja starych plikow aplikacyjnych do jedynego logu systemowego.
-  for legacy_log in data/syslog.log data/audit.log; do
+  for legacy_log in /var/log/amp-dashboard.log data/syslog.log data/audit.log; do
     if [[ -f "$legacy_log" ]]; then
-      sudo tee -a /var/log/amp-dashboard.log < "$legacy_log" >/dev/null
-      rm -f "$legacy_log"
+      sudo sh -c 'cat "$1" >> /var/log/amp-dashboard/amp-dashboard.log' sh "$legacy_log"
+      sudo rm -f "$legacy_log"
     fi
   done
 }
@@ -380,7 +381,7 @@ Time synchronization:
   systemd-timesyncd uses $(env_value "NTP_SERVER")
 
 System log:
-  /var/log/amp-dashboard.log (managed by rsyslog and logrotate)
+  /var/log/amp-dashboard/amp-dashboard.log (managed by rsyslog and logrotate)
 
 Default login:
   username: admin

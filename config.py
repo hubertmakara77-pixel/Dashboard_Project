@@ -54,7 +54,7 @@ SYSLOG_APP_NAME = os.getenv("SYSLOG_APP_NAME", "amp-dashboard")
 SYSLOG_FACILITY = _env_int("SYSLOG_FACILITY", 16)
 SYSLOG_TIMEZONE = os.getenv("SYSLOG_TIMEZONE", "Europe/Warsaw")
 
-SYSLOG_EXPORT_FILE = os.getenv("SYSLOG_EXPORT_FILE", "/var/log/amp-dashboard.log")
+SYSLOG_EXPORT_FILE = os.getenv("SYSLOG_EXPORT_FILE", "/var/log/amp-dashboard/amp-dashboard.log")
 
 SNMP_PORT = _env_int("SNMP_PORT", 1161)
 SNMP_COMMUNITY = os.getenv("SNMP_COMMUNITY", "")
