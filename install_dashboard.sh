@@ -3,7 +3,6 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ADMIN_PASSWORD_SUMMARY="existing account password unchanged"
-DEFAULT_ADMIN_PASSWORD="Admin123!Amp"
 cd "$PROJECT_DIR"
 
 info() {
@@ -96,12 +95,19 @@ prepare_environment_file() {
   fi
 
   if [[ "$persisted_state_exists" == false ]]; then
-    ensure_random_secret "INITIAL_ADMIN_PASSWORD" 12 false
-    ADMIN_PASSWORD_SUMMARY="$(env_value INITIAL_ADMIN_PASSWORD)"
+    ensure_random_secret "INITIAL_ADMIN_PASSWORD" 24 false
   fi
   ensure_random_secret "SNMP_COMMUNITY" 24 false
   ensure_random_secret "INFLUX_TOKEN" 48 "$influx_data_exists"
   ensure_random_secret "INFLUX_INIT_PASSWORD" 32 "$influx_data_exists"
+  ensure_random_secret "RADIUS_SECRET" 48 false
+  ensure_random_secret "RADIUS_ADMIN_PASSWORD" 24 false
+  set_env_default "RADIUS_SERVER" "radius"
+  set_env_default "RADIUS_PORT" "1812"
+  set_env_default "RADIUS_TIMEOUT_SECONDS" "3"
+  set_env_default "RADIUS_RETRIES" "1"
+  set_env_default "RADIUS_NAS_IDENTIFIER" "amp-dashboard"
+  ADMIN_PASSWORD_SUMMARY="$(env_value RADIUS_ADMIN_PASSWORD)"
 
   mkdir -p data
   chmod 600 .env
@@ -133,6 +139,14 @@ set_env_value() {
   fi
 }
 
+set_env_default() {
+  local key="$1"
+  local value="$2"
+  if [[ -z "$(env_value "$key")" ]]; then
+    set_env_value "$key" "$value"
+  fi
+}
+
 ensure_random_secret() {
   local key="$1"
   local length="$2"
@@ -150,6 +164,38 @@ ensure_random_secret() {
       set_env_value "$key" "$current"
       ;;
   esac
+}
+
+prepare_local_radius() {
+  local radius_secret
+  local radius_admin_password
+  radius_secret="$(env_value RADIUS_SECRET)"
+  radius_admin_password="$(env_value RADIUS_ADMIN_PASSWORD)"
+
+  info "Preparing local FreeRADIUS configuration"
+  mkdir -p radius
+
+  if [[ ! -f radius/clients.conf ]]; then
+    cat > radius/clients.conf <<RADIUS_CLIENT
+client dashboard {
+    ipaddr = 172.16.0.0/12
+    secret = ${radius_secret}
+}
+RADIUS_CLIENT
+  else
+    info "Keeping existing radius/clients.conf"
+  fi
+
+  if [[ ! -f radius/authorize ]]; then
+    cat > radius/authorize <<RADIUS_USER
+admin Cleartext-Password := "${radius_admin_password}"
+RADIUS_USER
+  else
+    info "Keeping existing radius/authorize; its credentials remain unchanged"
+    ADMIN_PASSWORD_SUMMARY="defined in radius/authorize"
+  fi
+
+  chmod 600 radius/clients.conf radius/authorize
 }
 
 start_dashboard() {
@@ -237,6 +283,9 @@ InfluxDB:
 SNMP:
   UDP port $(env_value "SNMP_PORT")
 
+RADIUS:
+  local FreeRADIUS container on UDP port $(env_value "RADIUS_PORT")
+
 Default login:
   username: admin
   password: ${ADMIN_PASSWORD_SUMMARY}
@@ -262,6 +311,7 @@ systemd_is_running || fail "systemd must be running on the Linux server."
 install_system_packages
 install_docker_engine
 prepare_environment_file
+prepare_local_radius
 install_network_agent_service
 install_dashboard_service
 start_dashboard

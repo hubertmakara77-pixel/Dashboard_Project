@@ -24,7 +24,7 @@ Do not switch an existing remote server from `ifupdown`, Netplan or
 `systemd-networkd` to NetworkManager without local console access. Taking over
 the active interface may immediately disconnect SSH and the dashboard.
 
-Run `install_raspberry_pi.sh` after NetworkManager is ready. The installer
+Run `install_dashboard.sh` after NetworkManager is ready. The installer
 installs and enables both `amp-network-agent.service` and
 `amp-dashboard.service`.
 

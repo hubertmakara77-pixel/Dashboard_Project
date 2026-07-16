@@ -130,7 +130,7 @@ def merge_access_users(saved_users: list[dict] | None) -> list[dict]:
     if len(config.INITIAL_ADMIN_PASSWORD) < 12:
         raise RuntimeError(
             "A fresh installation requires INITIAL_ADMIN_PASSWORD with at least 12 characters. "
-            "Run install_raspberry_pi.sh or configure the environment."
+            "Run install_dashboard.sh or configure the environment."
         )
 
     password_hash, password_salt = hash_password(config.INITIAL_ADMIN_PASSWORD)

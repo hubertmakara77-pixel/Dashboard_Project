@@ -1,24 +1,25 @@
-# Raspberry Pi installation
+# Linux dashboard installation
 
 Run this command from the project directory:
 
 ```bash
-./install_raspberry_pi.sh
+./install_dashboard.sh
 ```
 
 The installer:
 
 - installs Docker and Docker Compose plugin,
 - creates `.env` from `.env.example`,
-- generates unique administrator, InfluxDB and SNMP secrets,
+- generates unique administrator, InfluxDB, SNMP and RADIUS secrets,
+- creates a local FreeRADIUS configuration and administrator account,
 - detects `/dev/ttyACM0` or `/dev/ttyUSB0` for the serial device,
 - creates the local `data` directory,
-- builds and starts the FastAPI dashboard and InfluxDB containers.
+- builds and starts the dashboard, InfluxDB and FreeRADIUS containers.
 
 After installation the dashboard is available at:
 
 ```text
-http://RASPBERRY_PI_IP:8000
+http://LINUX_SERVER_IP:8000
 ```
 
 Initial login:
