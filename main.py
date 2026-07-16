@@ -127,18 +127,36 @@ def audit_event(request: starlette.requests.Request, action: str, username: str,
     )
 
 
+def flatten_audit_values(value: dict, prefix: str = "") -> dict:
+    flattened = {}
+    for key, item in value.items():
+        path = f"{prefix}.{key}" if prefix else key
+        if isinstance(item, dict):
+            flattened.update(flatten_audit_values(item, path))
+        else:
+            flattened[path] = item
+    return flattened
+
+
 def audit_changes(before: dict, after: dict, *, redacted: set[str] | None = None) -> str:
-    """Buduje bezpieczny, jednoznaczny opis zmienionych wartosci."""
+    """Buduje czytelne pola before/after dla kazdego zmienionego parametru."""
     redacted = redacted or set()
-    changes = {}
-    for key in sorted(set(before) | set(after)):
-        if before.get(key) == after.get(key):
+    before_values = flatten_audit_values(before)
+    after_values = flatten_audit_values(after)
+    details = []
+    for key in sorted(set(before_values) | set(after_values)):
+        old_value = before_values.get(key)
+        new_value = after_values.get(key)
+        if old_value == new_value:
             continue
-        changes[key] = {
-            "before": "[REDACTED]" if key in redacted else before.get(key),
-            "after": "[REDACTED]" if key in redacted else after.get(key),
-        }
-    return f"changes={json.dumps(changes, ensure_ascii=False, separators=(',', ':'))}"
+        is_redacted = key in redacted or key.split(".")[0] in redacted
+        if is_redacted:
+            old_value = new_value = "[REDACTED]"
+        details.append(
+            f"{key}.before={json.dumps(old_value, ensure_ascii=False)}; "
+            f"{key}.after={json.dumps(new_value, ensure_ascii=False)}"
+        )
+    return "; ".join(details) if details else "no_effective_changes=true"
 
 
 def create_session(username: str) -> str:
@@ -852,6 +870,9 @@ def set_gain(
     http_request: starlette.requests.Request,
     current_user: dict = fastapi.Depends(require_roles("Administrator", "Operator")),
 ):
+    with state.state_lock:
+        previous_gain_set = state.last_known_gain_set
+
     try:
         serial_reader.send_gain_set(request.gain_set)
     except RuntimeError as e:
@@ -860,7 +881,15 @@ def set_gain(
             detail=str(e)
         )
 
-    audit_event(http_request, "gain_setpoint_updated", current_user["username"], f"gain_set={request.gain_set}")
+    audit_event(
+        http_request,
+        "gain_setpoint_updated",
+        current_user["username"],
+        audit_changes(
+            {"gain_set": previous_gain_set},
+            {"gain_set": request.gain_set},
+        ),
+    )
 
     return {
         "status": "ok",

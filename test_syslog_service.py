@@ -1,3 +1,4 @@
+import datetime
 import pathlib
 import tempfile
 import unittest
@@ -34,6 +35,24 @@ class SyslogServiceTests(unittest.TestCase):
 
             self.assertFalse(path.exists())
             socket_mock.assert_not_called()
+
+    def test_audit_uses_configured_local_time_with_offset(self):
+        fixed_time = datetime.datetime(
+            2026, 7, 16, 23, 15, 0, tzinfo=datetime.timezone(datetime.timedelta(hours=2))
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "syslog.log"
+            with (
+                mock.patch.object(config, "SYSLOG_ENABLED", True),
+                mock.patch.object(config, "SYSLOG_LOG_FILE", str(path)),
+                mock.patch("syslog_service.local_now", return_value=fixed_time),
+                mock.patch("syslog_service.socket.socket"),
+            ):
+                syslog_service.send_audit("settings_updated", "admin", "127.0.0.1")
+
+            content = path.read_text(encoding="utf-8")
+            self.assertIn("Jul 16 23:15:00", content)
+            self.assertIn("timestamp=2026-07-16T23:15:00+02:00", content)
 
 
 if __name__ == "__main__":

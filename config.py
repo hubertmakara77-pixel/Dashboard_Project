@@ -52,6 +52,7 @@ SYSLOG_HOST = os.getenv("SYSLOG_HOST", "127.0.0.1")
 SYSLOG_PORT = _env_int("SYSLOG_PORT", 514)
 SYSLOG_APP_NAME = os.getenv("SYSLOG_APP_NAME", "amp-dashboard")
 SYSLOG_FACILITY = _env_int("SYSLOG_FACILITY", 16)
+SYSLOG_TIMEZONE = os.getenv("SYSLOG_TIMEZONE", "Europe/Warsaw")
 
 # AUDIT_LOG_FILE pozostaje jako zgodny wstecznie fallback dla starszych wdrozen.
 SYSLOG_LOG_FILE = os.getenv("SYSLOG_LOG_FILE") or os.getenv("AUDIT_LOG_FILE") or "logs/syslog.log"

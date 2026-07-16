@@ -2,6 +2,7 @@ import datetime
 import pathlib
 import socket
 import threading
+import zoneinfo
 
 import config
 
@@ -10,6 +11,14 @@ FACILITY_LOCAL0 = config.SYSLOG_FACILITY
 SEVERITY_WARNING = 4
 SEVERITY_INFO = 6
 syslog_log_lock = threading.Lock()
+
+
+def local_now() -> datetime.datetime:
+    try:
+        timezone = zoneinfo.ZoneInfo(config.SYSLOG_TIMEZONE)
+    except zoneinfo.ZoneInfoNotFoundError:
+        timezone = datetime.timezone.utc
+    return datetime.datetime.now(timezone)
 
 
 def append_syslog_log(message: str) -> None:
@@ -32,7 +41,7 @@ def send_syslog(message: str, severity: int) -> None:
         return
 
     priority = FACILITY_LOCAL0 * 8 + severity
-    timestamp = datetime.datetime.now().strftime("%b %d %H:%M:%S")
+    timestamp = local_now().strftime("%b %d %H:%M:%S")
     hostname = socket.gethostname()
     payload = f"<{priority}>{timestamp} {hostname} {config.SYSLOG_APP_NAME}: {message}"
 
@@ -61,7 +70,7 @@ def get_audit_log_path() -> pathlib.Path:
 
 
 def send_audit(action: str, username: str, ip_address: str, details: str = "") -> None:
-    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    timestamp = local_now().isoformat(timespec="seconds")
     detail_text = f"; details={details}" if details else ""
     message = f"audit timestamp={timestamp}; user={username}; ip={ip_address}; action={action}{detail_text}"
 
