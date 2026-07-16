@@ -36,6 +36,9 @@ def authenticate(username: str, password: str) -> bool:
     request = client.CreateAuthPacket(code=pyrad.packet.AccessRequest, User_Name=username)
     request["User-Password"] = request.PwCrypt(password)
     request["NAS-Identifier"] = config.RADIUS_NAS_IDENTIFIER
+    # Aktualne FreeRADIUS wymaga Message-Authenticator w Access-Request.
+    # pyrad oblicza HMAC-MD5 z uzyciem wspoldzielonego sekretu.
+    request.add_message_authenticator()
 
     try:
         reply = client.SendPacket(request)

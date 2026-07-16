@@ -421,7 +421,12 @@ async function login(username, password) {
 	})
 
 	if (!response.ok) {
-		throw new Error('Invalid username or password')
+		let message = 'Invalid username or password'
+		try {
+			const body = await response.json()
+			if (body.detail) message = body.detail
+		} catch {}
+		throw new Error(message)
 	}
 
 	const json = await response.json()
@@ -1082,8 +1087,8 @@ function setupAuth() {
 				await login(username, password)
 				loginForm.reset()
 				await startDataRefresh()
-			} catch {
-				error.textContent = 'Invalid username or password'
+			} catch (loginError) {
+				error.textContent = loginError.message || 'Invalid username or password'
 			}
 		})
 	}
