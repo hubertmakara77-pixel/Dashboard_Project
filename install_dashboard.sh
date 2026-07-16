@@ -29,7 +29,7 @@ systemd_is_running() {
 install_system_packages() {
   info "Installing required system packages"
   sudo apt-get update
-  sudo apt-get install -y ca-certificates curl gnupg iproute2 python3 systemd-timesyncd
+  sudo apt-get install -y ca-certificates curl gnupg iproute2 logrotate python3 rsyslog systemd-timesyncd
 }
 
 install_docker_engine() {
@@ -197,6 +197,24 @@ client dashboard {
     ipaddr = 172.16.0.0/12
     secret = ${radius_secret}
 }
+RADIUS_CLIENT
+  else
+    info "Keeping existing radius/clients.conf"
+  fi
+
+  if [[ ! -f radius/authorize ]]; then
+    cat > radius/authorize <<RADIUS_USER
+admin Cleartext-Password := "${radius_admin_password}"
+RADIUS_USER
+  else
+    info "Keeping existing radius/authorize; its credentials remain unchanged"
+    ADMIN_PASSWORD_SUMMARY="defined in radius/authorize"
+  fi
+
+  # Bind-mounty zachowuja uprawnienia hosta, a FreeRADIUS dziala w kontenerze
+  # jako nieuprzywilejowany uzytkownik `freerad` i musi moc odczytac te pliki.
+  chmod 644 radius/clients.conf radius/authorize
+}
 
 configure_time_sync() {
   local ntp_server
@@ -215,23 +233,59 @@ TIMESYNC
   sudo systemctl enable --now systemd-timesyncd.service
   sudo systemctl restart systemd-timesyncd.service
 }
-RADIUS_CLIENT
-  else
-    info "Keeping existing radius/clients.conf"
-  fi
 
-  if [[ ! -f radius/authorize ]]; then
-    cat > radius/authorize <<RADIUS_USER
-admin Cleartext-Password := "${radius_admin_password}"
-RADIUS_USER
-  else
-    info "Keeping existing radius/authorize; its credentials remain unchanged"
-    ADMIN_PASSWORD_SUMMARY="defined in radius/authorize"
-  fi
+configure_system_syslog() {
+  info "Configuring system rsyslog for amp-dashboard"
+  sudo touch /var/log/amp-dashboard.log
+  sudo chown syslog:adm /var/log/amp-dashboard.log
+  sudo chmod 0640 /var/log/amp-dashboard.log
 
-  # Bind-mounty zachowuja uprawnienia hosta, a FreeRADIUS dziala w kontenerze
-  # jako nieuprzywilejowany uzytkownik `freerad` i musi moc odczytac te pliki.
-  chmod 644 radius/clients.conf radius/authorize
+  sudo tee /etc/rsyslog.d/30-amp-dashboard.conf >/dev/null <<'RSYSLOG'
+module(load="imudp")
+$AllowedSender UDP, 127.0.0.1, 172.16.0.0/12
+
+ruleset(name="ampDashboard") {
+    if ($programname == "amp-dashboard") then {
+        action(
+            type="omfile"
+            file="/var/log/amp-dashboard.log"
+            fileOwner="syslog"
+            fileGroup="adm"
+            fileCreateMode="0640"
+        )
+        stop
+    }
+}
+
+input(type="imudp" port="514" ruleset="ampDashboard")
+RSYSLOG
+
+  sudo tee /etc/logrotate.d/amp-dashboard >/dev/null <<'LOGROTATE'
+/var/log/amp-dashboard.log {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 syslog adm
+    postrotate
+        systemctl kill -s HUP rsyslog.service >/dev/null 2>&1 || true
+    endscript
+}
+LOGROTATE
+
+  sudo rsyslogd -N1
+  sudo systemctl enable --now rsyslog.service
+  sudo systemctl restart rsyslog.service
+
+  # Jednorazowa migracja starych plikow aplikacyjnych do jedynego logu systemowego.
+  for legacy_log in data/syslog.log data/audit.log; do
+    if [[ -f "$legacy_log" ]]; then
+      sudo tee -a /var/log/amp-dashboard.log < "$legacy_log" >/dev/null
+      rm -f "$legacy_log"
+    fi
+  done
 }
 
 start_dashboard() {
@@ -325,6 +379,9 @@ RADIUS:
 Time synchronization:
   systemd-timesyncd uses $(env_value "NTP_SERVER")
 
+System log:
+  /var/log/amp-dashboard.log (managed by rsyslog and logrotate)
+
 Default login:
   username: admin
   password: ${ADMIN_PASSWORD_SUMMARY}
@@ -352,6 +409,7 @@ install_docker_engine
 prepare_environment_file
 prepare_local_radius
 configure_time_sync
+configure_system_syslog
 install_network_agent_service
 install_dashboard_service
 start_dashboard

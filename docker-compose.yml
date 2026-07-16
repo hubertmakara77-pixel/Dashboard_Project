@@ -30,7 +30,7 @@ services:
       SYSLOG_APP_NAME: ${SYSLOG_APP_NAME:-amp-dashboard}
       SYSLOG_FACILITY: ${SYSLOG_FACILITY:-16}
       SYSLOG_TIMEZONE: ${SYSLOG_TIMEZONE:-Europe/Warsaw}
-      SYSLOG_LOG_FILE: ${SYSLOG_LOG_FILE:-${AUDIT_LOG_FILE:-/app/data/syslog.log}}
+      SYSLOG_EXPORT_FILE: ${SYSLOG_EXPORT_FILE:-/var/log/amp-dashboard.log}
       TZ: ${TZ:-Europe/Warsaw}
       NETWORK_AGENT_SOCKET: /run/amp-dashboard/network-agent.sock
       SNMP_PORT: ${SNMP_PORT:-1161}
@@ -54,6 +54,7 @@ services:
     volumes:
       - ./data:/app/data
       - /run/amp-dashboard:/run/amp-dashboard
+      - /var/log/amp-dashboard.log:/var/log/amp-dashboard.log:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
