@@ -3,6 +3,7 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ADMIN_PASSWORD_SUMMARY="existing account password unchanged"
+RADIUS_SUMMARY=""
 cd "$PROJECT_DIR"
 
 info() {
@@ -70,7 +71,7 @@ detect_serial_device() {
 prepare_environment_file() {
   local serial_device
   local influx_data_exists=false
-  local persisted_state_exists=false
+  local radius_mode
   serial_device="$(detect_serial_device)"
 
   if [[ ! -f .env ]]; then
@@ -79,6 +80,12 @@ prepare_environment_file() {
   else
     info "Updating serial device in existing .env"
   fi
+
+  prompt_radius_configuration
+
+  # Hasło Dashboardu z poprzednich wersji nie jest już używane. RADIUS jest
+  # jedynym źródłem haseł, więc usuń także pozostawioną wartość z .env.
+  sed -i '/^INITIAL_ADMIN_PASSWORD=/d' .env
 
   set_env_value "SERIAL_DEVICE" "$serial_device"
   set_env_value "SERIAL_PORT" "$serial_device"
@@ -90,18 +97,10 @@ prepare_environment_file() {
     influx_data_exists=true
   fi
 
-  if [[ -f data/persisted_state.json ]]; then
-    persisted_state_exists=true
-  fi
-
-  if [[ "$persisted_state_exists" == false ]]; then
-    ensure_random_secret "INITIAL_ADMIN_PASSWORD" 24 false
-  fi
   ensure_random_secret "SNMP_COMMUNITY" 24 false
   ensure_random_secret "INFLUX_TOKEN" 48 "$influx_data_exists"
   ensure_random_secret "INFLUX_INIT_PASSWORD" 32 "$influx_data_exists"
-  ensure_random_secret "RADIUS_SECRET" 48 false
-  ensure_random_secret "RADIUS_ADMIN_PASSWORD" 24 false
+  set_env_default "RADIUS_MODE" "local"
   set_env_default "RADIUS_SERVER" "radius"
   set_env_default "RADIUS_PORT" "1812"
   set_env_default "RADIUS_TIMEOUT_SECONDS" "3"
@@ -112,7 +111,25 @@ prepare_environment_file() {
   set_env_default "NTP_PORT" "123"
   set_env_default "NTP_TIMEOUT_SECONDS" "3"
   set_env_default "NTP_CACHE_SECONDS" "15"
-  ADMIN_PASSWORD_SUMMARY="$(env_value RADIUS_ADMIN_PASSWORD)"
+  radius_mode="$(env_value RADIUS_MODE)"
+  case "$radius_mode" in
+    local)
+      set_env_value "RADIUS_SERVER" "radius"
+      ensure_random_secret "RADIUS_SECRET" 48 false
+      ensure_random_secret "RADIUS_ADMIN_PASSWORD" 24 false
+      ADMIN_PASSWORD_SUMMARY="$(env_value RADIUS_ADMIN_PASSWORD)"
+      RADIUS_SUMMARY="local FreeRADIUS container on UDP port $(env_value RADIUS_PORT)"
+      ;;
+    remote)
+      [[ -n "$(env_value RADIUS_SERVER)" ]] || fail "RADIUS_SERVER is required when RADIUS_MODE=remote"
+      [[ -n "$(env_value RADIUS_SECRET)" ]] || fail "RADIUS_SECRET is required when RADIUS_MODE=remote"
+      ADMIN_PASSWORD_SUMMARY="managed by the remote RADIUS server"
+      RADIUS_SUMMARY="remote server $(env_value RADIUS_SERVER):$(env_value RADIUS_PORT)"
+      ;;
+    *)
+      fail "RADIUS_MODE must be 'local' or 'remote'"
+      ;;
+  esac
 
   mkdir -p data
   chmod 600 .env
@@ -152,6 +169,87 @@ set_env_default() {
   fi
 }
 
+prompt_radius_configuration() {
+  local current_mode
+  local selected_mode
+  local radius_server
+  local radius_port
+  local radius_secret
+  local entered_secret=""
+  local entered_server=""
+  local entered_port=""
+  local confirmation
+
+  # Przy uruchomieniu automatycznym nie ma terminala. Wtedy instalator używa
+  # istniejącego .env i nie blokuje startu systemd oczekiwaniem na odpowiedź.
+  [[ -t 0 ]] || return
+
+  current_mode="$(env_value RADIUS_MODE)"
+  current_mode="${current_mode:-local}"
+  radius_server="$(env_value RADIUS_SERVER)"
+  radius_server="${radius_server:-radius}"
+  radius_port="$(env_value RADIUS_PORT)"
+  radius_port="${radius_port:-1812}"
+  radius_secret="$(env_value RADIUS_SECRET)"
+
+  info "RADIUS configuration"
+  read -r -p "RADIUS mode [local/remote] (${current_mode}): " selected_mode
+  selected_mode="${selected_mode:-$current_mode}"
+
+  case "$selected_mode" in
+    local)
+      radius_server="radius"
+      ;;
+    remote)
+      read -r -p "Remote RADIUS server (${radius_server}): " entered_server
+      radius_server="${entered_server:-$radius_server}"
+      read -r -p "Remote RADIUS UDP port (${radius_port}): " entered_port
+      radius_port="${entered_port:-$radius_port}"
+
+      while true; do
+        if [[ "$current_mode" == "remote" && -n "$radius_secret" ]]; then
+          read -r -s -p "RADIUS shared secret (Enter keeps the current secret): " entered_secret
+          printf '\n'
+          entered_secret="${entered_secret:-$radius_secret}"
+        else
+          read -r -s -p "RADIUS shared secret: " entered_secret
+          printf '\n'
+        fi
+
+        [[ -n "$entered_secret" ]] && break
+        info "RADIUS shared secret cannot be empty"
+      done
+      radius_secret="$entered_secret"
+      ;;
+    *)
+      fail "RADIUS mode must be 'local' or 'remote'"
+      ;;
+  esac
+
+  printf '\nRADIUS mode: %s\n' "$selected_mode"
+  if [[ "$selected_mode" == "remote" ]]; then
+    printf 'RADIUS server: %s:%s\n' "$radius_server" "$radius_port"
+    printf 'RADIUS shared secret: configured (hidden)\n'
+  else
+    printf 'RADIUS server: local FreeRADIUS container\n'
+  fi
+
+  read -r -p "Apply this RADIUS configuration? [y/N]: " confirmation
+  case "$confirmation" in
+    y|Y|yes|YES)
+      set_env_value "RADIUS_MODE" "$selected_mode"
+      set_env_value "RADIUS_SERVER" "$radius_server"
+      set_env_value "RADIUS_PORT" "$radius_port"
+      if [[ "$selected_mode" == "remote" ]]; then
+        set_env_value "RADIUS_SECRET" "$radius_secret"
+      fi
+      ;;
+    *)
+      fail "RADIUS configuration was not confirmed"
+      ;;
+  esac
+}
+
 ensure_random_secret() {
   local key="$1"
   local length="$2"
@@ -174,6 +272,11 @@ ensure_random_secret() {
 prepare_local_radius() {
   local radius_secret
   local radius_admin_password
+  if [[ "$(env_value RADIUS_MODE)" != "local" ]]; then
+    info "Using remote RADIUS server; skipping local FreeRADIUS configuration"
+    return
+  fi
+
   radius_secret="$(env_value RADIUS_SECRET)"
   radius_admin_password="$(env_value RADIUS_ADMIN_PASSWORD)"
 
@@ -191,16 +294,14 @@ prepare_local_radius() {
     sudo rmdir radius/authorize || fail "radius/authorize is a non-empty directory; move its contents and rerun the installer"
   fi
 
-  if [[ ! -f radius/clients.conf ]]; then
-    cat > radius/clients.conf <<RADIUS_CLIENT
+  # Ten plik musi zawsze odpowiadać RADIUS_SECRET z .env, również po zmianie
+  # trybu remote -> local albo świadomej rotacji sekretu.
+  cat > radius/clients.conf <<RADIUS_CLIENT
 client dashboard {
     ipaddr = 172.16.0.0/12
     secret = ${radius_secret}
 }
 RADIUS_CLIENT
-  else
-    info "Keeping existing radius/clients.conf"
-  fi
 
   if [[ ! -f radius/authorize ]]; then
     cat > radius/authorize <<RADIUS_USER
@@ -291,7 +392,13 @@ LOGROTATE
 
 start_dashboard() {
   info "Building and starting containers"
-  sudo docker compose --profile dashboard up -d --build
+  if [[ "$(env_value RADIUS_MODE)" == "local" ]]; then
+    sudo docker compose --profile dashboard --profile local-radius up -d --build
+  else
+    # Usuń wcześniejszy lokalny kontener również wtedy, gdy miał restart policy.
+    sudo docker compose --profile local-radius rm -sf radius
+    sudo docker compose --profile dashboard up -d --build
+  fi
   sudo systemctl start amp-dashboard.service
 }
 
@@ -332,7 +439,12 @@ SERVICE
 
 install_dashboard_service() {
   local docker_path
+  local radius_profile=""
   docker_path="$(command -v docker)"
+
+  if [[ "$(env_value RADIUS_MODE)" == "local" ]]; then
+    radius_profile="--profile local-radius"
+  fi
 
   info "Configuring dashboard to start automatically with Linux"
   sudo tee /etc/systemd/system/amp-dashboard.service >/dev/null <<SERVICE
@@ -346,7 +458,7 @@ Wants=network-online.target systemd-timesyncd.service
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=${PROJECT_DIR}
-ExecStart=${docker_path} compose --profile dashboard up -d
+ExecStart=${docker_path} compose --profile dashboard ${radius_profile} up -d
 
 [Install]
 WantedBy=multi-user.target
@@ -375,7 +487,7 @@ SNMP:
   UDP port $(env_value "SNMP_PORT")
 
 RADIUS:
-  local FreeRADIUS container on UDP port $(env_value "RADIUS_PORT")
+  ${RADIUS_SUMMARY}
 
 Time synchronization:
   systemd-timesyncd uses $(env_value "NTP_SERVER")

@@ -170,7 +170,8 @@ Audit zawiera:
 
 ### Użytkownicy
 
-Użytkownicy są zapisani w `persisted_state.json` w sekcji `access_users`.
+Dashboard zapisuje w `persisted_state.json` wyłącznie login, rolę i pole
+`active`. Hasła są przechowywane i weryfikowane tylko przez RADIUS.
 
 Przy pierwszej instalacji tworzone jest konto:
 
@@ -178,8 +179,11 @@ Przy pierwszej instalacji tworzone jest konto:
 admin / hasło losowe wypisane jednorazowo przez instalator
 ```
 
-Instalacja nie używa wspólnego hasła domyślnego. Sekrety są przechowywane w
-lokalnym pliku `.env` z uprawnieniami `0600`.
+W trybie `RADIUS_MODE=local` hasło testowego konta `admin` znajduje się w
+lokalnej konfiguracji FreeRADIUS i jest wypisywane przez instalator. W trybie
+`RADIUS_MODE=remote` użytkownik i jego hasło muszą istnieć na centralnym
+serwerze RADIUS. Sekret klienta RADIUS jest przechowywany w `.env` z
+uprawnieniami `0600`.
 
 ### Role
 
@@ -204,23 +208,11 @@ Pole `active` oznacza, czy konto może się logować.
 
 To pozwala tymczasowo zablokować konto bez jego usuwania.
 
-### Hashowanie haseł
+### Przechowywanie haseł
 
-Hasła nie są zapisywane jako tekst jawny.
-
-Mechanizm:
-
-1. Przy tworzeniu/zmianie hasła generowana jest losowa sól 16 bajtów.
-2. Hasło jest hashowane przez PBKDF2-HMAC-SHA256.
-3. Liczba iteracji: `120_000`.
-4. Hash i sól są zapisywane jako Base64.
-
-W `persisted_state.json` zapisywane są:
-
-- `password_hash`,
-- `password_salt`.
-
-Nie jest zapisywane oryginalne hasło.
+Dashboard nie zapisuje hasła, jego hasha ani soli. Przy uruchomieniu usuwa
+również stare pola `password_hash` i `password_salt` z wcześniejszych wersji
+pliku stanu. Zarządzanie hasłami odbywa się wyłącznie w RADIUS.
 
 ### Weryfikacja hasła
 
@@ -229,8 +221,8 @@ Podczas logowania:
 1. Backend znajduje użytkownika po loginie.
 2. Sprawdza, czy użytkownik istnieje.
 3. Sprawdza, czy `active = true`.
-4. Hashuje wpisane hasło tą samą solą.
-5. Porównuje hashe przez `secrets.compare_digest`, żeby ograniczyć ryzyko ataków timingowych.
+4. Wysyła login i hasło do skonfigurowanego serwera RADIUS.
+5. Tworzy sesję tylko po odpowiedzi `Access-Accept`.
 
 ### Sesje
 
@@ -448,14 +440,6 @@ Wysyła nowy gain setpoint do urządzenia, zapisuje go jako ostatnią znaną war
 
 ### `state.py`
 
-#### `hash_password(password: str, salt: str | None = None)`
-
-Tworzy hash hasła PBKDF2-HMAC-SHA256. Jeżeli sól nie została podana, generuje nową. Zwraca `(password_hash, password_salt)`.
-
-#### `verify_password(password: str, password_hash: str, password_salt: str)`
-
-Sprawdza, czy wpisane hasło odpowiada zapisanemu hash. Używa `secrets.compare_digest`.
-
 #### `load_persisted_state()`
 
 Czyta `persisted_state.json`. Jeśli pliku nie ma albo jest uszkodzony, zwraca pusty słownik.
@@ -466,7 +450,7 @@ Czyta `persisted_state.json`. Jeśli pliku nie ma albo jest uszkodzony, zwraca p
 
 #### `access_user_public(user: dict)`
 
-Zwraca bezpieczną wersję użytkownika bez hasha i soli. Używane w API.
+Zwraca login, rolę i stan aktywności użytkownika. Używane w API.
 
 #### `merge_access_users(saved_users: list[dict] | None)`
 
@@ -585,7 +569,8 @@ Zwraca ustawienia progów. Dostęp: Administrator, Operator, Viewer.
 
 #### Endpoint `login()`
 
-Sprawdza login i hasło, tworzy sesję, zapisuje cookie i wysyła audit do sysloga.
+Sprawdza lokalny dostęp i rolę, zleca weryfikację hasła serwerowi RADIUS,
+tworzy sesję, zapisuje cookie i wysyła audit do sysloga.
 
 #### Endpoint `auth_me()`
 
@@ -601,11 +586,12 @@ Zwraca listę użytkowników. Dostęp: Administrator.
 
 #### Endpoint `create_access_user()`
 
-Dodaje użytkownika, hashuje hasło, zapisuje stan i wysyła audit. Dostęp: Administrator.
+Dodaje lokalne uprawnienie dla loginu istniejącego w RADIUS, zapisuje rolę i
+wysyła audit. Dostęp: Administrator.
 
 #### Endpoint `update_access_user()`
 
-Aktualizuje rolę, aktywność lub hasło użytkownika. Chroni ostatniego aktywnego administratora. Dostęp: Administrator.
+Aktualizuje rolę lub aktywność użytkownika. Chroni ostatniego aktywnego administratora. Dostęp: Administrator.
 
 #### Endpoint `delete_access_user()`
 

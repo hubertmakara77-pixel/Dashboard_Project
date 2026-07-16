@@ -11,7 +11,6 @@ services:
       DEVICE_NAME: ${DEVICE_NAME:-optical_amp_1}
       HISTORY_MEMORY_LIMIT: ${HISTORY_MEMORY_LIMIT:-10000}
       PERSISTED_STATE_FILE: ${PERSISTED_STATE_FILE:-/app/data/persisted_state.json}
-      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
       LOGIN_MAX_ATTEMPTS: ${LOGIN_MAX_ATTEMPTS:-5}
       LOGIN_WINDOW_SECONDS: ${LOGIN_WINDOW_SECONDS:-300}
       SESSION_MAX_AGE_SECONDS: ${SESSION_MAX_AGE_SECONDS:-43200}
@@ -59,13 +58,12 @@ services:
       - "host.docker.internal:host-gateway"
     depends_on:
       - influxdb
-      - radius
 
   radius:
     image: freeradius/freeradius-server:latest
     container_name: freeradius
     profiles:
-      - dashboard
+      - local-radius
     restart: unless-stopped
     volumes:
       - ./radius/clients.conf:/etc/raddb/clients.conf:ro

@@ -60,13 +60,11 @@ class LoginRequest(pydantic.BaseModel):
 
 class AccessUserCreateRequest(pydantic.BaseModel):
     username: str
-    password: str
     role: typing.Literal["Administrator", "Operator", "Viewer"] = "Operator"
     active: bool = True
 
 
 class AccessUserUpdateRequest(pydantic.BaseModel):
-    password: str | None = None
     role: typing.Literal["Administrator", "Operator", "Viewer"] | None = None
     active: bool | None = None
 
@@ -86,12 +84,6 @@ def normalize_username(username: str) -> str:
         raise fastapi.HTTPException(status_code=400, detail="Username is required")
 
     return value
-
-
-def validate_new_password(password: str) -> str:
-    if len(password) < 12:
-        raise fastapi.HTTPException(status_code=400, detail="Password must contain at least 12 characters")
-    return password
 
 
 def count_active_administrators() -> int:
@@ -591,22 +583,14 @@ def create_access_user(
 ):
     username = normalize_username(request.username)
 
-    if not request.password:
-        raise fastapi.HTTPException(status_code=400, detail="Password is required")
-
-    validate_new_password(request.password)
-
     with state.state_lock:
         if find_access_user(username) is not None:
             raise fastapi.HTTPException(status_code=409, detail="User already exists")
 
-        password_hash, password_salt = state.hash_password(request.password)
         user = {
             "username": username,
             "role": request.role.strip() or "Operator",
             "active": bool(request.active),
-            "password_hash": password_hash,
-            "password_salt": password_salt,
         }
         state.access_users.append(user)
         state.save_persisted_access_users()
@@ -653,16 +637,13 @@ def update_access_user(
         if request.active is not None:
             user["active"] = next_active
 
-        if request.password:
-            user["password_hash"], user["password_salt"] = state.hash_password(validate_new_password(request.password))
-
         state.save_persisted_access_users()
 
         audit_event(
             http_request,
             "access_user_updated",
             current_user["username"],
-            f"target={username}; {audit_changes(before, state.access_user_public(user))}; password_changed={bool(request.password)}",
+            f"target={username}; {audit_changes(before, state.access_user_public(user))}",
         )
 
         return state.access_user_public(user)

@@ -6,16 +6,21 @@ Run this command from the project directory:
 ./install_dashboard.sh
 ```
 
+In an interactive terminal the installer asks whether RADIUS is `local` or
+`remote`. Remote mode prompts for the server, UDP port and shared secret (input
+is hidden), then requires an explicit `[y/N]` confirmation. Non-interactive
+runs keep the existing `.env` configuration.
+
 The installer:
 
 - installs Docker and Docker Compose plugin,
 - creates `.env` from `.env.example`,
-- generates unique administrator, InfluxDB, SNMP and RADIUS secrets,
+- generates unique InfluxDB, SNMP and local RADIUS secrets,
 - creates a local FreeRADIUS configuration and administrator account,
 - configures `systemd-timesyncd` to synchronize the Linux host clock,
 - detects `/dev/ttyACM0` or `/dev/ttyUSB0` for the serial device,
 - creates the local `data` directory,
-- builds and starts the dashboard, InfluxDB and FreeRADIUS containers.
+- builds and starts the dashboard and InfluxDB containers, plus FreeRADIUS in local mode.
 
 Measurement timestamps come from the NTP-synchronized host clock. The same
 UTC timestamp assigned when a serial frame is received is stored in memory,
@@ -38,6 +43,33 @@ Initial login:
 username: admin
 password: printed once by the installer
 ```
+
+RADIUS is the only password authority. The dashboard stores only the username,
+application role and active flag. Passwords are never stored in
+`persisted_state.json` and are not managed in the dashboard UI.
+
+The default test setup uses the local FreeRADIUS container:
+
+```text
+RADIUS_MODE=local
+RADIUS_SERVER=radius
+```
+
+To use a central RADIUS server, configure `.env` before rerunning the installer:
+
+```text
+RADIUS_MODE=remote
+RADIUS_SERVER=192.168.1.50
+RADIUS_PORT=1812
+RADIUS_SECRET=secret_configured_for_this_dashboard_client
+```
+
+In remote mode the installer does not start the local FreeRADIUS container.
+Users and passwords must exist on the central server; Administration in the
+dashboard only grants those usernames an application role and access.
+The central RADIUS administrator must register the Debian host as a RADIUS
+client with the same shared secret. The server must be reachable from the host
+on UDP/1812.
 
 The generated secrets are stored in `.env` with mode `0600`. InfluxDB's web
 port is bound to localhost and is not exposed to the LAN.

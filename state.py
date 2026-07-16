@@ -1,9 +1,6 @@
 import collections
-import base64
-import hashlib
 import json
 import pathlib
-import secrets
 import threading
 
 import config
@@ -29,35 +26,6 @@ DEFAULT_SNMP_SETTINGS = {
     "trap_host": "127.0.0.1",
     "trap_port": 162,
 }
-
-def hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
-    if salt is None:
-        salt_bytes = secrets.token_bytes(16)
-        salt = base64.b64encode(salt_bytes).decode("ascii")
-    else:
-        salt_bytes = base64.b64decode(salt.encode("ascii"))
-
-    digest = hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode("utf-8"),
-        salt_bytes,
-        120_000,
-    )
-
-    return base64.b64encode(digest).decode("ascii"), salt
-
-
-def verify_password(password: str, password_hash: str, password_salt: str) -> bool:
-    if not password_hash or not password_salt:
-        return False
-
-    try:
-        expected_hash, _ = hash_password(password, password_salt)
-    except (ValueError, TypeError):
-        return False
-
-    return secrets.compare_digest(expected_hash, password_hash)
-
 
 def load_persisted_state() -> dict:
     path = pathlib.Path(config.PERSISTED_STATE_FILE)
@@ -99,7 +67,6 @@ def access_user_public(user: dict) -> dict:
         "username": user["username"],
         "role": user["role"],
         "active": bool(user["active"]),
-        "password_set": bool(user.get("password_hash")),
     }
 
 
@@ -119,27 +86,16 @@ def merge_access_users(saved_users: list[dict] | None) -> list[dict]:
             "username": username,
             "role": str(user.get("role", "Operator")).strip() or "Operator",
             "active": bool(user.get("active", True)),
-            "password_hash": str(user.get("password_hash", "")),
-            "password_salt": str(user.get("password_salt", "")),
         })
         seen_usernames.add(username)
 
     if merged_users:
         return merged_users
 
-    if len(config.INITIAL_ADMIN_PASSWORD) < 12:
-        raise RuntimeError(
-            "A fresh installation requires INITIAL_ADMIN_PASSWORD with at least 12 characters. "
-            "Run install_dashboard.sh or configure the environment."
-        )
-
-    password_hash, password_salt = hash_password(config.INITIAL_ADMIN_PASSWORD)
     return [{
         "username": "admin",
         "role": "Administrator",
         "active": True,
-        "password_hash": password_hash,
-        "password_salt": password_salt,
     }]
 
 
@@ -209,3 +165,12 @@ login_failures = {}
 dashboard_settings = merge_dashboard_settings(persisted_state.get("dashboard_settings"))
 access_users = merge_access_users(persisted_state.get("access_users"))
 snmp_settings = merge_snmp_settings(persisted_state.get("snmp_settings"))
+
+# Usuń stare lokalne hashe haseł. Od tej wersji hasła przechowuje i sprawdza
+# wyłącznie RADIUS, a Dashboard zapisuje tylko role i dostęp do aplikacji.
+_saved_access_users = persisted_state.get("access_users")
+if isinstance(_saved_access_users, list) and any(
+    isinstance(user, dict) and ("password_hash" in user or "password_salt" in user)
+    for user in _saved_access_users
+):
+    save_persisted_access_users()

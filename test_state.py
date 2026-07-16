@@ -1,28 +1,34 @@
 import json
-import os
 import pathlib
 import tempfile
 import unittest
 from unittest import mock
-
-os.environ.setdefault("INITIAL_ADMIN_PASSWORD", "test-bootstrap-password")
 
 import config
 import state
 
 
 class StateSecurityTests(unittest.TestCase):
-    def test_fresh_install_requires_strong_initial_password(self):
-        with mock.patch.object(config, "INITIAL_ADMIN_PASSWORD", "short"):
-            with self.assertRaisesRegex(RuntimeError, "at least 12"):
-                state.merge_access_users(None)
-
-    def test_bootstrap_password_is_hashed(self):
-        with mock.patch.object(config, "INITIAL_ADMIN_PASSWORD", "a-secure-bootstrap-password"):
-            users = state.merge_access_users(None)
+    def test_fresh_install_creates_admin_authorization_without_password(self):
+        users = state.merge_access_users(None)
         self.assertEqual(users[0]["username"], "admin")
-        self.assertNotEqual(users[0]["password_hash"], "a-secure-bootstrap-password")
-        self.assertTrue(state.verify_password("a-secure-bootstrap-password", users[0]["password_hash"], users[0]["password_salt"]))
+        self.assertEqual(users[0]["role"], "Administrator")
+        self.assertNotIn("password_hash", users[0])
+        self.assertNotIn("password_salt", users[0])
+
+    def test_legacy_password_hashes_are_removed(self):
+        users = state.merge_access_users([{
+            "username": "operator",
+            "role": "Operator",
+            "active": True,
+            "password_hash": "legacy-hash",
+            "password_salt": "legacy-salt",
+        }])
+        self.assertEqual(users, [{
+            "username": "operator",
+            "role": "Operator",
+            "active": True,
+        }])
 
     def test_persisted_state_is_written_atomically(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -31,6 +37,8 @@ class StateSecurityTests(unittest.TestCase):
                 state.save_persisted_state()
             payload = json.loads(path.read_text(encoding="utf-8"))
             self.assertIn("access_users", payload)
+            self.assertNotIn("password_hash", json.dumps(payload))
+            self.assertNotIn("password_salt", json.dumps(payload))
             self.assertFalse(path.with_suffix(".json.tmp").exists())
 
 

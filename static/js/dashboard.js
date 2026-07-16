@@ -676,7 +676,7 @@ async function loadAccessUsers() {
 		if (!body) return
 
 		if (!users.length) {
-			body.innerHTML = '<tr><td colspan="5">No users</td></tr>'
+			body.innerHTML = '<tr><td colspan="4">No users</td></tr>'
 			return
 		}
 
@@ -703,9 +703,6 @@ async function loadAccessUsers() {
                         </label>
                     </td>
                     <td>
-                        <input data-access-password type="password" placeholder="${user.password_set ? 'unchanged' : 'new password'}">
-                    </td>
-                    <td>
                         <div class="action-buttons">
                             <button data-access-save type="button">Save</button>
                             <button data-access-delete type="button">Delete</button>
@@ -721,17 +718,10 @@ async function loadAccessUsers() {
 }
 
 function getAccessRowPayload(row) {
-	const passwordInput = row.querySelector('[data-access-password]')
-	const payload = {
+	return {
 		role: row.querySelector('[data-access-role]').value,
 		active: row.querySelector('[data-access-active]').checked,
 	}
-
-	if (passwordInput.value.trim() !== '') {
-		payload.password = passwordInput.value
-	}
-
-	return payload
 }
 
 function setupAccessControl() {
@@ -744,7 +734,6 @@ function setupAccessControl() {
 			if (!isAdministrator()) return
 
 			const usernameInput = document.getElementById('access-username-input')
-			const passwordInput = document.getElementById('access-password-input')
 			const roleInput = document.getElementById('access-role-input')
 			const activeInput = document.getElementById('access-active-input')
 
@@ -755,7 +744,6 @@ function setupAccessControl() {
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({
 						username,
-						password: passwordInput.value,
 						role: roleInput.value,
 						active: activeInput.checked,
 					}),
