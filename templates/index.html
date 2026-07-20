@@ -31,7 +31,7 @@
                 <div class="nav-group">
                     <span class="nav-group-title">Device</span>
                     <button type="button" class="nav-link active" data-tab="standard-view" data-title="Live View">Live View</button>
-                    <button type="button" class="nav-link" data-tab="device-settings" data-title="Device Settings" data-operator-only>Settings</button>
+                    <button type="button" class="nav-link" data-tab="device-settings" data-title="Settings" data-operator-only>Settings</button>
                 </div>
 
                 <div class="nav-group">
@@ -44,9 +44,9 @@
                 <div class="nav-group" data-admin-only>
                     <span class="nav-group-title">Administration</span>
                     <button type="button" class="nav-link" data-tab="access-control" data-title="Access Control" data-admin-only>Access Control</button>
-                    <button type="button" class="nav-link" data-tab="snmp-settings" data-title="SNMP Settings" data-admin-only>SNMP Configuration</button>
-                    <button type="button" class="nav-link" data-tab="network-settings" data-title="Network Settings" data-admin-only>Network Configuration</button>
-                    <button type="button" class="nav-link" data-tab="ntp-settings" data-title="NTP Settings" data-admin-only>NTP Configuration</button>
+                    <button type="button" class="nav-link" data-tab="snmp-settings" data-title="SNMP Configuration" data-admin-only>SNMP Configuration</button>
+                    <button type="button" class="nav-link" data-tab="network-settings" data-title="Network Configuration" data-admin-only>Network Configuration</button>
+                    <button type="button" class="nav-link" data-tab="ntp-settings" data-title="Time Diagnostics" data-admin-only>Time Diagnostics</button>
                 </div>
             </nav>
         </aside>
@@ -392,7 +392,7 @@
                 <section class="tab-panel" data-tab="ntp-settings" data-admin-only>
                     <div class="data-panel network-panel">
                         <div class="settings-header">
-                            <h2>NTP Configuration</h2>
+                            <h2>Time Diagnostics</h2>
                             <button id="refresh-ntp-button" type="button">Refresh</button>
                         </div>
                         <p id="ntp-message" class="network-message" role="status"></p>
