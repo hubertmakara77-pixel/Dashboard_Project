@@ -166,6 +166,12 @@ Audit zawiera:
 - nazwę akcji,
 - szczegóły akcji.
 
+Lokalny `rsyslog` może opcjonalnie przekazywać te same zdarzenia do centralnego
+serwera. Sterują tym ustawienia `REMOTE_SYSLOG_ENABLED`, `REMOTE_SYSLOG_HOST`,
+`REMOTE_SYSLOG_PORT` i `REMOTE_SYSLOG_PROTOCOL` w `.env`. Lokalna kopia logu
+pozostaje zachowana, a forwarding TCP korzysta z kolejki i ponawia połączenie po
+chwilowej niedostępności odbiornika.
+
 ## 7. Logowanie, hasła i zabezpieczenia
 
 ### Użytkownicy

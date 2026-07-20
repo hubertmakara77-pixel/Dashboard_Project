@@ -111,6 +111,9 @@ prepare_environment_file() {
   set_env_default "NTP_PORT" "123"
   set_env_default "NTP_TIMEOUT_SECONDS" "3"
   set_env_default "NTP_CACHE_SECONDS" "15"
+  set_env_default "REMOTE_SYSLOG_ENABLED" "false"
+  set_env_default "REMOTE_SYSLOG_PORT" "514"
+  set_env_default "REMOTE_SYSLOG_PROTOCOL" "tcp"
   radius_mode="$(env_value RADIUS_MODE)"
   case "$radius_mode" in
     local)
@@ -336,6 +339,31 @@ TIMESYNC
 }
 
 configure_system_syslog() {
+  local remote_enabled
+  local remote_host
+  local remote_port
+  local remote_protocol
+  remote_enabled="$(env_value REMOTE_SYSLOG_ENABLED)"
+  remote_host="$(env_value REMOTE_SYSLOG_HOST)"
+  remote_port="$(env_value REMOTE_SYSLOG_PORT)"
+  remote_protocol="$(env_value REMOTE_SYSLOG_PROTOCOL)"
+
+  case "${remote_enabled,,}" in
+    true|yes|1|on)
+      [[ -n "$remote_host" ]] || fail "REMOTE_SYSLOG_HOST is required when remote syslog is enabled"
+      [[ "$remote_host" =~ ^[A-Za-z0-9._:-]+$ ]] || fail "REMOTE_SYSLOG_HOST contains unsupported characters"
+      [[ "$remote_port" =~ ^[0-9]+$ ]] && (( remote_port >= 1 && remote_port <= 65535 )) || fail "REMOTE_SYSLOG_PORT must be between 1 and 65535"
+      [[ "$remote_protocol" == "tcp" || "$remote_protocol" == "udp" ]] || fail "REMOTE_SYSLOG_PROTOCOL must be 'tcp' or 'udp'"
+      remote_enabled=true
+      ;;
+    false|no|0|off|"")
+      remote_enabled=false
+      ;;
+    *)
+      fail "REMOTE_SYSLOG_ENABLED must be true or false"
+      ;;
+  esac
+
   info "Configuring system rsyslog for amp-dashboard"
   sudo install -d -o root -g adm -m 0750 /var/log/amp-dashboard
   sudo touch /var/log/amp-dashboard/amp-dashboard.log
@@ -358,6 +386,24 @@ ruleset(name="ampDashboard") {
             fileCreateMode="0640"
             template="ampDashboardLine"
         )
+RSYSLOG
+
+  if [[ "$remote_enabled" == true ]]; then
+    sudo tee -a /etc/rsyslog.d/30-amp-dashboard.conf >/dev/null <<RSYSLOG_FORWARD
+        action(
+            type="omfwd"
+            target="${remote_host}"
+            port="${remote_port}"
+            protocol="${remote_protocol}"
+            action.resumeRetryCount="-1"
+            queue.type="LinkedList"
+            queue.filename="ampDashboardForward"
+            queue.saveOnShutdown="on"
+        )
+RSYSLOG_FORWARD
+  fi
+
+  sudo tee -a /etc/rsyslog.d/30-amp-dashboard.conf >/dev/null <<'RSYSLOG'
         stop
     }
 }

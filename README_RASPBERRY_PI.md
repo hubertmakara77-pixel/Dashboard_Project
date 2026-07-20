@@ -34,6 +34,56 @@ The dedicated rsyslog template writes one RFC 3339 event timestamp followed by
 the dashboard message. It omits the Docker container hostname and does not
 duplicate the timestamp inside the audit or warning content.
 
+To retain the local file and forward the same events to a central syslog
+server, set the following values in `.env` and rerun the installer:
+
+```text
+REMOTE_SYSLOG_ENABLED=true
+REMOTE_SYSLOG_HOST=192.168.1.100
+REMOTE_SYSLOG_PORT=514
+REMOTE_SYSLOG_PROTOCOL=tcp
+```
+
+TCP is recommended. The forwarding action uses a persistent rsyslog queue and
+retries indefinitely if the central server is temporarily unavailable. Only
+events whose program name is `amp-dashboard` are forwarded.
+
+The receiving Debian server must listen on the selected protocol. For TCP,
+create `/etc/rsyslog.d/30-amp-dashboard-receiver.conf` containing:
+
+```text
+module(load="imtcp")
+
+template(name="ampDashboardRemoteLine" type="string" string="%timereported:::date-rfc3339% %msg:2:$%\n")
+
+if ($programname == "amp-dashboard") then {
+    action(
+        type="omfile"
+        file="/var/log/amp-dashboard/amp-dashboard.log"
+        fileOwner="root"
+        fileGroup="adm"
+        fileCreateMode="0640"
+        template="ampDashboardRemoteLine"
+    )
+    stop
+}
+
+input(type="imtcp" port="514")
+```
+
+Prepare the destination, validate the configuration and restart the receiver:
+
+```bash
+sudo install -d -o root -g adm -m 0750 /var/log/amp-dashboard
+sudo touch /var/log/amp-dashboard/amp-dashboard.log
+sudo chown root:adm /var/log/amp-dashboard/amp-dashboard.log
+sudo chmod 0640 /var/log/amp-dashboard/amp-dashboard.log
+sudo rsyslogd -N1
+sudo systemctl restart rsyslog
+```
+
+Allow TCP/514 only from the Dashboard Debian host in the receiver firewall.
+
 After installation the dashboard is available at:
 
 ```text
