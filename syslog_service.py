@@ -34,7 +34,8 @@ def send_syslog(message: str, severity: int) -> None:
 
 
 def send_warning(message: str) -> None:
-    send_syslog(message, SEVERITY_WARNING)
+    timestamp = local_now().isoformat(timespec="seconds")
+    send_syslog(f"warning timestamp={timestamp}; {message}", SEVERITY_WARNING)
 
 
 def get_syslog_log_path() -> pathlib.Path:

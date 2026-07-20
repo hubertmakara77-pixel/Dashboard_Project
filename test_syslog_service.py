@@ -44,6 +44,20 @@ class SyslogServiceTests(unittest.TestCase):
         self.assertIn(b"Jul 16 23:15:00", payload)
         self.assertIn(b"timestamp=2026-07-16T23:15:00+02:00", payload)
 
+    def test_warning_contains_its_own_timestamp_for_message_only_log(self):
+        fixed_time = datetime.datetime(
+            2026, 7, 16, 23, 15, 0, tzinfo=datetime.timezone(datetime.timedelta(hours=2))
+        )
+        with (
+            mock.patch.object(config, "SYSLOG_ENABLED", True),
+            mock.patch("syslog_service.local_now", return_value=fixed_time),
+            mock.patch("syslog_service.socket.socket") as socket_mock,
+        ):
+            syslog_service.send_warning("WARNING field=PiA")
+
+        payload = socket_mock.return_value.__enter__.return_value.sendto.call_args.args[0]
+        self.assertIn(b"warning timestamp=2026-07-16T23:15:00+02:00; WARNING field=PiA", payload)
+
 
 if __name__ == "__main__":
     unittest.main()

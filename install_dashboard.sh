@@ -346,6 +346,8 @@ configure_system_syslog() {
 module(load="imudp")
 $AllowedSender UDP, 127.0.0.1, 172.16.0.0/12
 
+template(name="ampDashboardMessageOnly" type="string" string="%msg:2:$%\n")
+
 ruleset(name="ampDashboard") {
     if ($programname == "amp-dashboard") then {
         action(
@@ -354,6 +356,7 @@ ruleset(name="ampDashboard") {
             fileOwner="root"
             fileGroup="adm"
             fileCreateMode="0640"
+            template="ampDashboardMessageOnly"
         )
         stop
     }
