@@ -242,8 +242,10 @@ function updateNetworkStaticFields() {
 	const container = document.getElementById('network-static-fields')
 	if (!form || !container) return
 	const isStatic = form.elements.mode.value === 'static'
-	container.hidden = !isStatic
+	container.classList.toggle('is-expanded', isStatic)
+	container.setAttribute('aria-hidden', String(!isStatic))
 	container.querySelectorAll('input').forEach(input => {
+		input.disabled = !isStatic
 		input.required = isStatic && input.name !== 'dns'
 	})
 }

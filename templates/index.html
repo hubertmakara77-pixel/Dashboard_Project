@@ -377,7 +377,7 @@
                         <form id="network-form" class="network-form">
                             <label>Interface<select name="interface" id="network-interface" required></select></label>
                             <label>IPv4 mode<select name="mode" id="network-mode" required><option value="dhcp">Dynamic (DHCP)</option><option value="static">Static</option></select></label>
-                            <div id="network-static-fields" class="network-static-fields">
+                            <div id="network-static-fields" class="network-static-fields" aria-hidden="true">
                                 <label>IP address<input name="ip_address" type="text" placeholder="192.168.1.20"></label>
                                 <label>Subnet mask<input name="netmask" type="text" placeholder="255.255.255.0"></label>
                                 <label>Default gateway<input name="gateway" type="text" placeholder="192.168.1.1"></label>

@@ -551,7 +551,30 @@ select {
 .network-form, .network-static-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .network-form label { display: grid; gap: 7px; color: #a9b9b2; font-weight: 700; }
 .network-form input, .network-form select { width: 100%; padding: 9px; background: #121b18; color: #edf3ef; border: 1px solid #3d5149; border-radius: 6px; }
-.network-static-fields { grid-column: 1 / -1; }
+.network-static-fields {
+    grid-column: 1 / -1;
+    max-height: 0;
+    padding: 0 14px;
+    overflow: hidden;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateY(-6px);
+    border: 1px solid transparent;
+    border-radius: 8px;
+    transition: max-height 220ms ease, padding 220ms ease, opacity 160ms ease,
+        transform 220ms ease, border-color 220ms ease, visibility 0s linear 220ms;
+}
+.network-static-fields.is-expanded {
+    max-height: 600px;
+    padding: 14px;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateY(0);
+    border-color: #20352d;
+    transition-delay: 0s;
+}
 .network-warning, .network-message { grid-column: 1 / -1; color: #d7b66f; }
 .network-message.error { color: #ff8585; }
 .network-form > button { justify-self: start; }
