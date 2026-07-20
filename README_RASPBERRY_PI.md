@@ -30,9 +30,9 @@ Application audit events and warnings are sent to the host `rsyslog` service
 and stored only in `/var/log/amp-dashboard/amp-dashboard.log`. The installer configures daily
 rotation with 30 retained archives. The log is mounted read-only into the app
 container solely for the administrator download action.
-The dedicated file uses a message-only rsyslog template, so each line contains
-the dashboard event and its ISO timestamp without the Docker container hostname
-or a second syslog header timestamp.
+The dedicated rsyslog template writes one RFC 3339 event timestamp followed by
+the dashboard message. It omits the Docker container hostname and does not
+duplicate the timestamp inside the audit or warning content.
 
 After installation the dashboard is available at:
 

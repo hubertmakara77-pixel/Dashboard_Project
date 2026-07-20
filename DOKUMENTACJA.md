@@ -155,7 +155,7 @@ Wysyłany przy działaniach użytkownika:
 Format:
 
 ```text
-audit timestamp=...; user=...; ip=...; action=...; details=...
+2026-07-20T12:34:56+02:00 audit; user=...; ip=...; action=...; details=...
 ```
 
 Audit zawiera:
