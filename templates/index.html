@@ -47,6 +47,7 @@
                     <button type="button" class="nav-link" data-tab="snmp-settings" data-title="SNMP Configuration" data-admin-only>SNMP Configuration</button>
                     <button type="button" class="nav-link" data-tab="network-settings" data-title="Network Configuration" data-admin-only>Network Configuration</button>
                     <button type="button" class="nav-link" data-tab="ntp-settings" data-title="Time Diagnostics" data-admin-only>Time Diagnostics</button>
+                    <button type="button" class="nav-link" data-tab="service-diagnostics" data-title="Service Diagnostics" data-admin-only>Service Diagnostics</button>
                 </div>
             </nav>
         </aside>
@@ -64,6 +65,8 @@
                 <div class="status-item">Last update: <span id="status-last-update">--</span></div>
                 <div class="status-item">System time: <span id="status-system-time">--</span></div>
                 <div class="status-item">Device status: <span id="status-connection" class="status-error">DISCONNECTED</span></div>
+                <div class="status-item">Remote database: <span id="status-influx" class="status-error">DISCONNECTED</span></div>
+                <div class="status-item">Buffered records: <span id="status-influx-pending">--</span></div>
             </div>
 
             <main class="content">
@@ -408,6 +411,52 @@
                             <div><span>Root delay / dispersion</span><strong id="ntp-root-delay">--</strong></div>
                             <div><span>Poll interval</span><strong id="ntp-poll-interval">--</strong></div>
                             <div><span>Last checked</span><strong id="ntp-checked-at">--</strong></div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="tab-panel" data-tab="service-diagnostics" data-admin-only>
+                    <form id="service-settings-form" class="control-strip service-settings-form">
+                        <div class="settings-header control-save-header">
+                            <h2>Service Settings</h2>
+                            <button type="submit">Save</button>
+                        </div>
+                        <div class="service-settings-fields">
+                            <label class="form-field">Heartbeat interval (seconds; 0 disables)<input id="service-heartbeat-input" type="number" min="0" max="86400" required></label>
+                            <label class="form-field">Maximum SQLite records<input id="service-buffer-limit-input" type="number" min="1" max="10000000" required></label>
+                            <label class="form-field">Minimum free disk space (MiB; 0 disables)<input id="service-buffer-reserve-input" type="number" min="0" max="1000000" required></label>
+                        </div>
+                    </form>
+                    <div class="service-diagnostics-grid">
+                        <div class="data-panel network-panel">
+                            <div class="settings-header"><h2>InfluxDB</h2><button id="refresh-services-button" type="button">Refresh</button></div>
+                            <div class="network-status-grid service-status-grid">
+                                <div><span>Status</span><strong id="service-influx-state">--</strong></div>
+                                <div><span>Server URL</span><strong id="service-influx-url">--</strong></div>
+                                <div><span>Organization</span><strong id="service-influx-org">--</strong></div>
+                                <div><span>Bucket</span><strong id="service-influx-bucket">--</strong></div>
+                                <div><span>Pending records</span><strong id="service-influx-pending">--</strong></div>
+                                <div><span>Buffer limit</span><strong id="service-influx-limit">--</strong></div>
+                                <div><span>SQLite buffer</span><strong id="service-influx-file">--</strong></div>
+                                <div><span>SQLite size</span><strong id="service-influx-size">--</strong></div>
+                                <div><span>Disk space available</span><strong id="service-influx-free">--</strong></div>
+                                <div><span>Reserved disk space</span><strong id="service-influx-reserve">--</strong></div>
+                                <div><span>Discarded since startup</span><strong id="service-influx-discarded">--</strong></div>
+                                <div><span>Retry interval</span><strong id="service-influx-retry">--</strong></div>
+                            </div>
+                        </div>
+                        <div class="data-panel network-panel">
+                            <div class="settings-header"><h2>Rsyslog</h2></div>
+                            <div class="network-status-grid service-status-grid">
+                                <div><span>Local logging</span><strong id="service-syslog-local">--</strong></div>
+                                <div><span>Local destination</span><strong id="service-syslog-destination">--</strong></div>
+                                <div><span>Local file</span><strong id="service-syslog-file">--</strong></div>
+                                <div><span>Remote forwarding</span><strong id="service-syslog-remote">--</strong></div>
+                                <div><span>Remote server</span><strong id="service-syslog-host">--</strong></div>
+                                <div><span>Protocol</span><strong id="service-syslog-protocol">--</strong></div>
+                                <div><span>Heartbeat interval</span><strong id="service-syslog-heartbeat">--</strong></div>
+                            </div>
+                            <p class="network-warning">Remote forwarding status means configured, not delivery confirmation. Rsyslog queues messages while the receiver is unavailable.</p>
                         </div>
                     </div>
                 </section>

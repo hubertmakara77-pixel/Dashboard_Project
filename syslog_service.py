@@ -24,7 +24,10 @@ def send_syslog(message: str, severity: int) -> None:
     priority = FACILITY_LOCAL0 * 8 + severity
     timestamp = local_now().strftime("%b %d %H:%M:%S")
     hostname = socket.gethostname()
-    payload = f"<{priority}>{timestamp} {hostname} {config.SYSLOG_APP_NAME}: {message}"
+    payload = (
+        f"<{priority}>{timestamp} {hostname} {config.SYSLOG_APP_NAME}: "
+        f"device={config.DEVICE_NAME}; {message}"
+    )
 
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
@@ -35,6 +38,11 @@ def send_syslog(message: str, severity: int) -> None:
 
 def send_warning(message: str) -> None:
     send_syslog(f"warning; {message}", SEVERITY_WARNING)
+
+
+def send_lifecycle(event: str, **fields: object) -> None:
+    field_text = "".join(f"; {name}={value}" for name, value in fields.items())
+    send_syslog(f"lifecycle; event={event}{field_text}", SEVERITY_INFO)
 
 
 def get_syslog_log_path() -> pathlib.Path:

@@ -163,6 +163,7 @@ function setActiveTab(tabName) {
 	if (tabName === 'snmp-settings') loadSnmpSettings()
 	if (tabName === 'network-settings') loadNetworkSettings()
 	if (tabName === 'ntp-settings') loadNtpStatus()
+	if (tabName === 'service-diagnostics') loadServiceDiagnostics()
 	return true
 }
 
@@ -379,45 +380,88 @@ async function loadNtpStatus(force = false) {
 
 document.getElementById('refresh-ntp-button')?.addEventListener('click', () => loadNtpStatus(true))
 
-function showNtpMessage(message, isError = false) {
-    const element = document.getElementById("ntp-message");
-    if (!element) return;
-    element.textContent = message;
-    element.classList.toggle("error", isError);
+function updateInfluxStatus(influx = {}) {
+	const state = String(influx.state || 'disconnected').toUpperCase()
+	const statusElement = document.getElementById('status-influx')
+	if (statusElement) {
+		statusElement.textContent = state
+		statusElement.className = influx.state === 'connected' ? 'status-ok' : (influx.state === 'syncing' || influx.state === 'buffering' ? 'status-warn' : 'status-error')
+	}
+	setTextIfExists('status-influx-pending', String(influx.pending_records ?? 0))
 }
 
-async function loadNtpStatus(force = false) {
-    if (!document.getElementById("ntp-server")) return;
-    showNtpMessage(force ? "Querying NTP server..." : "Loading NTP status...");
-    try {
-        const response = await fetch(`/api/ntp/status${force ? "?force=true" : ""}`);
-        handleAuthResponse(response);
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || "Could not read NTP status");
-
-        setTextIfExists("ntp-server", `${data.server}${data.port ? ":" + data.port : ""}`);
-        setTextIfExists("ntp-reachable", data.reachable ? "Yes" : "No");
-        setTextIfExists("ntp-stratum", data.stratum !== undefined ? `${data.stratum} (${data.stratum_label || "--"})` : "--");
-        setTextIfExists("ntp-reference-id", data.reference_id || "--");
-        setTextIfExists("ntp-leap-indicator", data.leap_indicator_label || "--");
-        setTextIfExists("ntp-reference-time", data.reference_time_utc ? new Date(data.reference_time_utc).toLocaleString() : "--");
-        setTextIfExists("ntp-offset", data.offset_ms !== undefined && data.offset_ms !== null ? `${data.offset_ms} ms` : "--");
-        setTextIfExists("ntp-round-trip", data.round_trip_ms !== undefined && data.round_trip_ms !== null ? `${data.round_trip_ms} ms` : "--");
-        setTextIfExists("ntp-root-delay", (data.root_delay_ms !== undefined && data.root_delay_ms !== null) ? `${data.root_delay_ms} ms / ${data.root_dispersion_ms} ms` : "--");
-        setTextIfExists("ntp-poll-interval", data.poll_interval_seconds ? `${data.poll_interval_seconds} s` : "--");
-        setTextIfExists("ntp-checked-at", data.checked_at ? new Date(data.checked_at).toLocaleString() : "--");
-
-        if (data.reachable) {
-            showNtpMessage(`Synchronized with ${data.server}.`);
-        } else {
-            showNtpMessage(data.error || "NTP server unreachable.", true);
-        }
-    } catch (error) {
-        showNtpMessage(error.message, true);
-    }
+function formatBytes(bytes) {
+	const value = Number(bytes)
+	if (!Number.isFinite(value)) return '--'
+	if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`
+	if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MiB`
+	return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GiB`
 }
 
-document.getElementById("refresh-ntp-button")?.addEventListener("click", () => loadNtpStatus(true));
+async function loadServiceDiagnostics() {
+	if (!isAdministrator() || !document.getElementById('service-influx-state')) return
+	try {
+		const response = await fetch('/api/service-diagnostics')
+		handleAuthResponse(response)
+		const data = await response.json()
+		if (!response.ok) throw new Error(data.detail || 'Could not read service diagnostics')
+		const influx = data.influx || {}
+		const syslog = data.syslog || {}
+		setTextIfExists('service-influx-state', String(influx.state || '--').toUpperCase())
+		setTextIfExists('service-influx-url', influx.url || '--')
+		setTextIfExists('service-influx-org', influx.organization || '--')
+		setTextIfExists('service-influx-bucket', influx.bucket || '--')
+		setTextIfExists('service-influx-pending', String(influx.pending_records ?? 0))
+		setTextIfExists('service-influx-limit', String(influx.buffer_limit ?? '--'))
+		setTextIfExists('service-influx-file', influx.buffer_file || '--')
+		setTextIfExists('service-influx-size', formatBytes(influx.buffer_size_bytes))
+		setTextIfExists('service-influx-free', formatBytes(influx.filesystem_free_bytes))
+		setTextIfExists('service-influx-reserve', `${influx.buffer_min_free_mb ?? '--'} MiB`)
+		setTextIfExists('service-influx-discarded', String(influx.discarded_records_since_start ?? 0))
+		setTextIfExists('service-influx-retry', `${influx.retry_seconds ?? '--'} s`)
+		setTextIfExists('service-syslog-local', syslog.local_enabled ? 'ENABLED' : 'DISABLED')
+		setTextIfExists('service-syslog-destination', syslog.local_destination || '--')
+		setTextIfExists('service-syslog-file', syslog.local_file || '--')
+		setTextIfExists('service-syslog-remote', syslog.remote_enabled ? 'ENABLED' : 'DISABLED')
+		setTextIfExists('service-syslog-host', syslog.remote_enabled ? `${syslog.remote_host}:${syslog.remote_port}` : 'Not configured')
+		setTextIfExists('service-syslog-protocol', syslog.remote_enabled ? String(syslog.remote_protocol).toUpperCase() : '--')
+		setTextIfExists('service-syslog-heartbeat', syslog.heartbeat_seconds > 0 ? `${syslog.heartbeat_seconds} s` : 'DISABLED')
+		const heartbeatInput = document.getElementById('service-heartbeat-input')
+		const bufferLimitInput = document.getElementById('service-buffer-limit-input')
+		const bufferReserveInput = document.getElementById('service-buffer-reserve-input')
+		if (heartbeatInput) heartbeatInput.value = syslog.heartbeat_seconds ?? 300
+		if (bufferLimitInput) bufferLimitInput.value = influx.buffer_limit ?? 250000
+		if (bufferReserveInput) bufferReserveInput.value = influx.buffer_min_free_mb ?? 512
+	} catch (error) {
+		setTextIfExists('service-influx-state', 'API ERROR')
+		console.error('Error loading service diagnostics:', error)
+	}
+}
+
+document.getElementById('refresh-services-button')?.addEventListener('click', loadServiceDiagnostics)
+
+document.getElementById('service-settings-form')?.addEventListener('submit', async event => {
+	event.preventDefault()
+	try {
+		const response = await fetch('/api/service-diagnostics/settings', {
+			method: 'PUT',
+			headers: {'Content-Type': 'application/json'},
+			body: JSON.stringify({
+				syslog_heartbeat_seconds: Number(document.getElementById('service-heartbeat-input').value),
+				influx_buffer_max_records: Number(document.getElementById('service-buffer-limit-input').value),
+				influx_buffer_min_free_mb: Number(document.getElementById('service-buffer-reserve-input').value),
+			}),
+		})
+		handleAuthResponse(response)
+		const result = await response.json()
+		if (!response.ok) throw new Error(result.detail || 'Could not save service settings')
+		const suffix = result.pruned_records ? ` ${result.pruned_records} oldest buffered records were removed.` : ''
+		showNotification(`Service settings saved.${suffix}`)
+		await loadServiceDiagnostics()
+	} catch (error) {
+		showNotification(error.message || 'Could not save service settings.', 'error')
+	}
+})
 
 async function loadSettings() {
 	if (!currentUser) return
@@ -567,6 +611,7 @@ async function updateDashboard() {
 
 		setTextIfExists('status-last-update', formatTime(json.last_update))
 		setTextIfExists('status-system-time', new Date().toLocaleTimeString())
+		updateInfluxStatus(json.influx)
 
 		const statusEl = document.getElementById('status-connection')
 
@@ -581,6 +626,7 @@ async function updateDashboard() {
 		const statusEl = document.getElementById('status-connection')
 		statusEl.textContent = 'API ERROR'
 		statusEl.className = 'status-error'
+		updateInfluxStatus({ state: 'disconnected', pending_records: '--' })
 		console.error('Error fetching /api/latest:', error)
 	}
 }
@@ -1188,6 +1234,8 @@ setInterval(() => {
 
 	const ntpTab = document.querySelector('.tab-panel[data-tab="ntp-settings"]')
 	if (ntpTab && ntpTab.classList.contains('active')) loadNtpStatus()
+	const servicesTab = document.querySelector('.tab-panel[data-tab="service-diagnostics"]')
+	if (servicesTab && servicesTab.classList.contains('active')) loadServiceDiagnostics()
 
 	const statisticsTab = document.querySelector('.tab-panel[data-tab="statistics"]')
 	if (statisticsTab && statisticsTab.classList.contains('active')) {

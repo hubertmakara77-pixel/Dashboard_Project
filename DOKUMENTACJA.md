@@ -172,6 +172,21 @@ serwera. Sterują tym ustawienia `REMOTE_SYSLOG_ENABLED`, `REMOTE_SYSLOG_HOST`,
 pozostaje zachowana, a forwarding TCP korzysta z kolejki i ponawia połączenie po
 chwilowej niedostępności odbiornika.
 
+### Zdarzenia lifecycle
+
+Aplikacja wysyła `started` po uruchomieniu, `stopped` podczas kontrolowanego
+wyłączenia oraz okresowy `heartbeat`. Interwał określa
+`SYSLOG_HEARTBEAT_SECONDS` (domyślnie 300 sekund, wartość `0` wyłącza heartbeat).
+Heartbeat zawiera stan InfluxDB i liczbę rekordów oczekujących w SQLite. Przy
+awarii zasilania lub procesu wpis `stopped` nie powstanie; awarię wykrywa się na
+centralnym serwerze po braku kolejnych heartbeatów.
+
+Administrator może w `Service Diagnostics` bez restartu zmienić interwał
+heartbeat, maksymalną liczbę rekordów bufora SQLite oraz minimalną rezerwę
+wolnego miejsca. Ustawienia są zapisywane w `persisted_state.json`. Obniżenie
+limitu usuwa od razu najstarsze nadmiarowe rekordy. Po osiągnięciu rezerwy dysku
+nowe rekordy nie są dopisywane, a aplikacja wysyła warning do sysloga.
+
 ## 7. Logowanie, hasła i zabezpieczenia
 
 ### Użytkownicy
@@ -179,17 +194,15 @@ chwilowej niedostępności odbiornika.
 Dashboard zapisuje w `persisted_state.json` wyłącznie login, rolę i pole
 `active`. Hasła są przechowywane i weryfikowane tylko przez RADIUS.
 
-Przy pierwszej instalacji tworzone jest konto:
+Przy pierwszej instalacji Dashboard ma lokalny wpis uprawnień dla loginu:
 
 ```text
-admin / hasło losowe wypisane jednorazowo przez instalator
+admin
 ```
 
-W trybie `RADIUS_MODE=local` hasło testowego konta `admin` znajduje się w
-lokalnej konfiguracji FreeRADIUS i jest wypisywane przez instalator. W trybie
-`RADIUS_MODE=remote` użytkownik i jego hasło muszą istnieć na centralnym
-serwerze RADIUS. Sekret klienta RADIUS jest przechowywany w `.env` z
-uprawnieniami `0600`.
+Użytkownik `admin` i jego hasło muszą istnieć na zewnętrznym serwerze RADIUS.
+Projekt nie uruchamia lokalnego FreeRADIUS. Sekret klienta RADIUS jest
+przechowywany w `.env` z uprawnieniami `0600`.
 
 ### Role
 
@@ -314,9 +327,26 @@ Eksport CSV jest logowany do sysloga jako audit.
 
 ## 9. InfluxDB
 
-Jeżeli `INFLUX_ENABLED = True`, aplikacja próbuje zapisywać pomiary do InfluxDB.
+Aplikacja zapisuje pomiary do zewnętrznego InfluxDB wskazanego przez
+`INFLUX_URL`. Projekt nie uruchamia własnego kontenera InfluxDB.
+
+Każda instalacja otrzymuje stabilny `DEVICE_NAME` utworzony z nazwy hosta i
+unikalnej części adresu MAC (awaryjnie z `/etc/machine-id`). Ta sama wartość
+jest tagiem `device` w InfluxDB, identyfikatorem w komunikatach syslog i
+domyślnym `NAS-Identifier` dla RADIUS. Dzięki temu wiele płytek może korzystać
+z tych samych usług centralnych bez mieszania pomiarów i logów.
 
 Zapisywane są pola liczbowe z odebranej ramki oraz wartości wyliczone.
+
+Każdy pomiar i setpoint jest najpierw zapisywany do trwałej kolejki SQLite
+`data/influx_buffer.db`. Osobny wątek wysyła rekordy do InfluxDB i usuwa je z
+pliku dopiero po potwierdzonym zapisie. Po awarii sieci, InfluxDB albo restarcie
+Dashboardu zaległe rekordy są automatycznie dosyłane z oryginalnymi timestampami.
+Domyślny limit kolejki wynosi 250 000 rekordów; po jego osiągnięciu usuwany jest
+najstarszy rekord. Endpoint `/api/status` zwraca stan połączenia i licznik jako
+`influx.state` oraz `influx.pending_records`. Wszyscy użytkownicy widzą te dwie
+wartości w górnym pasku. Szczegółowe adresy i parametry InfluxDB oraz rsysloga
+są dostępne wyłącznie Administratorowi w zakładce `Service Diagnostics`.
 
 Historia dla wykresów/statystyk jest pobierana:
 
@@ -631,15 +661,17 @@ Wysyła nowy gain setpoint do urządzenia i wysyła audit. Dostęp: Administrato
 
 #### `init_influx()`
 
-Inicjalizuje klienta InfluxDB, jeśli `INFLUX_ENABLED = True`.
+Inicjalizuje klienta zewnętrznego InfluxDB.
 
 #### `write_measurement(data: dict)`
 
-Zapisuje pola liczbowe z pomiaru jako punkt InfluxDB.
+Dodaje pola liczbowe pomiaru do trwałej kolejki SQLite. Wątek wysyłający zapisuje
+je później jako punkt InfluxDB.
 
 #### `write_setpoint(gain_set: float)`
 
-Zapisuje ustawiony gain setpoint do osobnego measurementu.
+Dodaje gain setpoint do trwałej kolejki SQLite przeznaczonej dla osobnego
+measurementu.
 
 #### `get_window_for_range(range_value: str)`
 

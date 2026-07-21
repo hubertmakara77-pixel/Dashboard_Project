@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ADMIN_PASSWORD_SUMMARY="existing account password unchanged"
+INFLUX_SUMMARY=""
 RADIUS_SUMMARY=""
 cd "$PROJECT_DIR"
 
@@ -19,7 +19,7 @@ require_linux() {
   [[ "$(uname -s)" == "Linux" ]] || fail "This installer requires Linux."
 
   if ! command -v apt-get >/dev/null 2>&1; then
-    fail "This installer supports Debian, Ubuntu and Raspberry Pi OS."
+    fail "This installer requires a Debian-family Linux system with apt."
   fi
 }
 
@@ -68,10 +68,43 @@ detect_serial_device() {
   fi
 }
 
+ensure_device_name() {
+  local current_name
+  local prefix
+  local hardware_id=""
+  local mac_address=""
+
+  current_name="$(env_value DEVICE_NAME)"
+  if [[ -n "$current_name" && "$current_name" != "optical_amp_1" ]]; then
+    [[ "$current_name" =~ ^[A-Za-z0-9._-]+$ ]] || fail "DEVICE_NAME may contain only letters, digits, dots, underscores and hyphens"
+    return
+  fi
+
+  prefix="$(hostname -s | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g; s/^-*//; s/-*$//')"
+  prefix="${prefix:-beaglebone}"
+
+  if [[ -r /sys/class/net/eth0/address ]]; then
+    mac_address="$(tr -d ':\r\n' < /sys/class/net/eth0/address)"
+    if [[ "$mac_address" =~ ^[0-9a-fA-F]{12}$ && "$mac_address" != "000000000000" ]]; then
+      hardware_id="${mac_address: -8}"
+    fi
+  fi
+
+  if [[ -z "$hardware_id" && -r /etc/machine-id ]]; then
+    hardware_id="$(tr -d '-\r\n' < /etc/machine-id | head -c 8)"
+  fi
+
+  if [[ ! "$hardware_id" =~ ^[0-9a-fA-F]{8}$ ]]; then
+    hardware_id="$(python3 -c 'import secrets; print(secrets.token_hex(4))')"
+  fi
+
+  current_name="${prefix}-${hardware_id,,}"
+  set_env_value "DEVICE_NAME" "$current_name"
+  info "Assigned stable device identifier ${current_name}"
+}
+
 prepare_environment_file() {
   local serial_device
-  local influx_data_exists=false
-  local radius_mode
   serial_device="$(detect_serial_device)"
 
   if [[ ! -f .env ]]; then
@@ -81,7 +114,8 @@ prepare_environment_file() {
     info "Updating serial device in existing .env"
   fi
 
-  prompt_radius_configuration
+  prompt_remote_services_configuration
+  prompt_remote_syslog_configuration
 
   # Hasło Dashboardu z poprzednich wersji nie jest już używane. RADIUS jest
   # jedynym źródłem haseł, więc usuń także pozostawioną wartość z .env.
@@ -89,23 +123,22 @@ prepare_environment_file() {
 
   set_env_value "SERIAL_DEVICE" "$serial_device"
   set_env_value "SERIAL_PORT" "$serial_device"
+  ensure_device_name
   if [[ -z "$(env_value SNMP_PORT)" ]]; then
     set_env_value "SNMP_PORT" "1161"
   fi
 
-  if [[ -d data/influxdb2 ]]; then
-    influx_data_exists=true
-  fi
-
-  ensure_random_secret "SNMP_COMMUNITY" 24 false
-  ensure_random_secret "INFLUX_TOKEN" 48 "$influx_data_exists"
-  ensure_random_secret "INFLUX_INIT_PASSWORD" 32 "$influx_data_exists"
-  set_env_default "RADIUS_MODE" "local"
-  set_env_default "RADIUS_SERVER" "radius"
+  ensure_random_secret "SNMP_COMMUNITY" 24
+  set_env_default "INFLUX_BUFFER_FILE" "/app/data/influx_buffer.db"
+  set_env_default "INFLUX_BUFFER_MAX_RECORDS" "250000"
+  set_env_default "INFLUX_BUFFER_BATCH_SIZE" "500"
+  set_env_default "INFLUX_RETRY_SECONDS" "10"
   set_env_default "RADIUS_PORT" "1812"
   set_env_default "RADIUS_TIMEOUT_SECONDS" "3"
   set_env_default "RADIUS_RETRIES" "1"
-  set_env_default "RADIUS_NAS_IDENTIFIER" "amp-dashboard"
+  if [[ -z "$(env_value RADIUS_NAS_IDENTIFIER)" || "$(env_value RADIUS_NAS_IDENTIFIER)" == "amp-dashboard" ]]; then
+    set_env_value "RADIUS_NAS_IDENTIFIER" "$(env_value DEVICE_NAME)"
+  fi
   set_env_default "NTP_SERVER" "tempus1.gum.gov.pl"
   set_env_default "NTP_SERVER_FALLBACK_IP" "194.146.251.100"
   set_env_default "NTP_PORT" "123"
@@ -114,25 +147,15 @@ prepare_environment_file() {
   set_env_default "REMOTE_SYSLOG_ENABLED" "false"
   set_env_default "REMOTE_SYSLOG_PORT" "514"
   set_env_default "REMOTE_SYSLOG_PROTOCOL" "tcp"
-  radius_mode="$(env_value RADIUS_MODE)"
-  case "$radius_mode" in
-    local)
-      set_env_value "RADIUS_SERVER" "radius"
-      ensure_random_secret "RADIUS_SECRET" 48 false
-      ensure_random_secret "RADIUS_ADMIN_PASSWORD" 24 false
-      ADMIN_PASSWORD_SUMMARY="$(env_value RADIUS_ADMIN_PASSWORD)"
-      RADIUS_SUMMARY="local FreeRADIUS container on UDP port $(env_value RADIUS_PORT)"
-      ;;
-    remote)
-      [[ -n "$(env_value RADIUS_SERVER)" ]] || fail "RADIUS_SERVER is required when RADIUS_MODE=remote"
-      [[ -n "$(env_value RADIUS_SECRET)" ]] || fail "RADIUS_SECRET is required when RADIUS_MODE=remote"
-      ADMIN_PASSWORD_SUMMARY="managed by the remote RADIUS server"
-      RADIUS_SUMMARY="remote server $(env_value RADIUS_SERVER):$(env_value RADIUS_PORT)"
-      ;;
-    *)
-      fail "RADIUS_MODE must be 'local' or 'remote'"
-      ;;
-  esac
+  set_env_default "SYSLOG_HEARTBEAT_SECONDS" "300"
+  set_env_default "INFLUX_BUFFER_MIN_FREE_MB" "512"
+  validate_remote_services_configuration
+  INFLUX_SUMMARY="remote server $(env_value INFLUX_URL), org $(env_value INFLUX_ORG), bucket $(env_value INFLUX_BUCKET)"
+  RADIUS_SUMMARY="remote server $(env_value RADIUS_SERVER):$(env_value RADIUS_PORT)"
+
+  # Remove obsolete local-service settings from configurations created by
+  # earlier installer versions. Existing InfluxDB data is intentionally kept.
+  sed -i '/^INFLUX_INIT_USERNAME=/d; /^INFLUX_INIT_PASSWORD=/d; /^RADIUS_MODE=/d; /^RADIUS_ADMIN_PASSWORD=/d' .env
 
   mkdir -p data
   chmod 600 .env
@@ -157,8 +180,10 @@ env_value() {
 set_env_value() {
   local key="$1"
   local value="$2"
+  local escaped_value
+  escaped_value="$(printf '%s' "$value" | sed 's/[\\&#]/\\&/g')"
   if grep -q "^${key}=" .env; then
-    sed -i "s#^${key}=.*#${key}=${value}#" .env
+    sed -i "s#^${key}=.*#${key}=${escaped_value}#" .env
   else
     printf '%s=%s\n' "$key" "$value" >> .env
   fi
@@ -172,152 +197,173 @@ set_env_default() {
   fi
 }
 
-prompt_radius_configuration() {
-  local current_mode
-  local selected_mode
-  local radius_server
-  local radius_port
-  local radius_secret
-  local entered_secret=""
-  local entered_server=""
-  local entered_port=""
-  local confirmation
+prompt_remote_services_configuration() {
+  local influx_url influx_token influx_org influx_bucket
+  local radius_server radius_port radius_secret entered_value confirmation
 
-  # Przy uruchomieniu automatycznym nie ma terminala. Wtedy instalator używa
-  # istniejącego .env i nie blokuje startu systemd oczekiwaniem na odpowiedź.
   [[ -t 0 ]] || return
 
-  current_mode="$(env_value RADIUS_MODE)"
-  current_mode="${current_mode:-local}"
+  influx_url="$(env_value INFLUX_URL)"
+  [[ "$influx_url" == "http://influxdb:8086" ]] && influx_url=""
+  influx_token="$(env_value INFLUX_TOKEN)"
+  influx_org="$(env_value INFLUX_ORG)"
+  influx_org="${influx_org:-agh}"
+  influx_bucket="$(env_value INFLUX_BUCKET)"
+  influx_bucket="${influx_bucket:-sensors}"
   radius_server="$(env_value RADIUS_SERVER)"
-  radius_server="${radius_server:-radius}"
+  [[ "$radius_server" == "radius" ]] && radius_server=""
   radius_port="$(env_value RADIUS_PORT)"
   radius_port="${radius_port:-1812}"
   radius_secret="$(env_value RADIUS_SECRET)"
 
-  info "RADIUS configuration"
-  read -r -p "RADIUS mode [local/remote] (${current_mode}): " selected_mode
-  selected_mode="${selected_mode:-$current_mode}"
+  info "Remote InfluxDB configuration"
+  read -r -p "InfluxDB URL, e.g. http://192.168.1.60:8086 (${influx_url}): " entered_value
+  influx_url="${entered_value:-$influx_url}"
+  read -r -p "InfluxDB organization (${influx_org}): " entered_value
+  influx_org="${entered_value:-$influx_org}"
+  read -r -p "InfluxDB bucket (${influx_bucket}): " entered_value
+  influx_bucket="${entered_value:-$influx_bucket}"
+  if [[ -n "$influx_token" ]]; then
+    read -r -s -p "InfluxDB API token (Enter keeps the current token): " entered_value
+  else
+    read -r -s -p "InfluxDB API token: " entered_value
+  fi
+  printf '\n'
+  influx_token="${entered_value:-$influx_token}"
 
-  case "$selected_mode" in
-    local)
-      radius_server="radius"
+  info "Remote RADIUS configuration"
+  read -r -p "RADIUS server address (${radius_server}): " entered_value
+  radius_server="${entered_value:-$radius_server}"
+  read -r -p "RADIUS UDP port (${radius_port}): " entered_value
+  radius_port="${entered_value:-$radius_port}"
+  if [[ -n "$radius_secret" ]]; then
+    read -r -s -p "RADIUS shared secret (Enter keeps the current secret): " entered_value
+  else
+    read -r -s -p "RADIUS shared secret: " entered_value
+  fi
+  printf '\n'
+  radius_secret="${entered_value:-$radius_secret}"
+
+  printf '\nInfluxDB: %s (org=%s, bucket=%s)\n' "$influx_url" "$influx_org" "$influx_bucket"
+  printf 'InfluxDB token: configured (hidden)\n'
+  printf 'RADIUS: %s:%s\n' "$radius_server" "$radius_port"
+  printf 'RADIUS shared secret: configured (hidden)\n'
+  read -r -p "Apply this remote services configuration? [y/N]: " confirmation
+  case "$confirmation" in
+    y|Y|yes|YES)
+      set_env_value "INFLUX_URL" "$influx_url"
+      set_env_value "INFLUX_TOKEN" "$influx_token"
+      set_env_value "INFLUX_ORG" "$influx_org"
+      set_env_value "INFLUX_BUCKET" "$influx_bucket"
+      set_env_value "RADIUS_SERVER" "$radius_server"
+      set_env_value "RADIUS_PORT" "$radius_port"
+      set_env_value "RADIUS_SECRET" "$radius_secret"
       ;;
-    remote)
-      read -r -p "Remote RADIUS server (${radius_server}): " entered_server
-      radius_server="${entered_server:-$radius_server}"
-      read -r -p "Remote RADIUS UDP port (${radius_port}): " entered_port
-      radius_port="${entered_port:-$radius_port}"
+    *) fail "Remote services configuration was not confirmed" ;;
+  esac
+}
 
-      while true; do
-        if [[ "$current_mode" == "remote" && -n "$radius_secret" ]]; then
-          read -r -s -p "RADIUS shared secret (Enter keeps the current secret): " entered_secret
-          printf '\n'
-          entered_secret="${entered_secret:-$radius_secret}"
-        else
-          read -r -s -p "RADIUS shared secret: " entered_secret
-          printf '\n'
-        fi
+validate_remote_services_configuration() {
+  local influx_url radius_server radius_port
+  influx_url="$(env_value INFLUX_URL)"
+  radius_server="$(env_value RADIUS_SERVER)"
+  radius_port="$(env_value RADIUS_PORT)"
 
-        [[ -n "$entered_secret" ]] && break
-        info "RADIUS shared secret cannot be empty"
-      done
-      radius_secret="$entered_secret"
+  [[ "$influx_url" =~ ^https?:// ]] || fail "INFLUX_URL must be the HTTP(S) URL of the remote InfluxDB server"
+  [[ "$influx_url" != "http://influxdb:8086" && "$influx_url" != "http://localhost:8086" ]] || fail "INFLUX_URL must point to an external server"
+  [[ -n "$(env_value INFLUX_TOKEN)" ]] || fail "INFLUX_TOKEN for the remote InfluxDB server is required"
+  [[ -n "$(env_value INFLUX_ORG)" ]] || fail "INFLUX_ORG is required"
+  [[ -n "$(env_value INFLUX_BUCKET)" ]] || fail "INFLUX_BUCKET is required"
+  [[ -n "$radius_server" && "$radius_server" != "radius" && "$radius_server" != "localhost" ]] || fail "RADIUS_SERVER must point to an external server"
+  [[ "$radius_port" =~ ^[0-9]+$ ]] && (( radius_port >= 1 && radius_port <= 65535 )) || fail "RADIUS_PORT must be between 1 and 65535"
+  [[ -n "$(env_value RADIUS_SECRET)" ]] || fail "RADIUS_SECRET for the remote server is required"
+}
+
+prompt_remote_syslog_configuration() {
+  local current_enabled
+  local remote_host
+  local remote_port
+  local remote_protocol
+  local choice
+  local entered_value
+  local confirmation
+
+  [[ -t 0 ]] || return
+
+  current_enabled="$(env_value REMOTE_SYSLOG_ENABLED)"
+  remote_host="$(env_value REMOTE_SYSLOG_HOST)"
+  remote_port="$(env_value REMOTE_SYSLOG_PORT)"
+  remote_port="${remote_port:-514}"
+  remote_protocol="$(env_value REMOTE_SYSLOG_PROTOCOL)"
+  remote_protocol="${remote_protocol:-tcp}"
+
+  info "Remote syslog configuration"
+  case "${current_enabled,,}" in
+    true|yes|1|on)
+      read -r -p "Forward dashboard logs to a remote syslog server? [Y/n]: " choice
+      choice="${choice:-yes}"
       ;;
     *)
-      fail "RADIUS mode must be 'local' or 'remote'"
+      read -r -p "Forward dashboard logs to a remote syslog server? [y/N]: " choice
+      choice="${choice:-no}"
       ;;
   esac
 
-  printf '\nRADIUS mode: %s\n' "$selected_mode"
-  if [[ "$selected_mode" == "remote" ]]; then
-    printf 'RADIUS server: %s:%s\n' "$radius_server" "$radius_port"
-    printf 'RADIUS shared secret: configured (hidden)\n'
-  else
-    printf 'RADIUS server: local FreeRADIUS container\n'
-  fi
+  case "${choice,,}" in
+    n|no)
+      set_env_value "REMOTE_SYSLOG_ENABLED" "false"
+      info "Remote syslog forwarding disabled; the local log remains enabled"
+      return
+      ;;
+    y|yes) ;;
+    *) fail "Answer yes or no for remote syslog forwarding" ;;
+  esac
 
-  read -r -p "Apply this RADIUS configuration? [y/N]: " confirmation
+  read -r -p "Remote syslog server address (${remote_host}): " entered_value
+  remote_host="${entered_value:-$remote_host}"
+  read -r -p "Remote syslog port (${remote_port}): " entered_value
+  remote_port="${entered_value:-$remote_port}"
+  read -r -p "Protocol [tcp/udp] (${remote_protocol}): " entered_value
+  remote_protocol="${entered_value:-$remote_protocol}"
+  remote_protocol="${remote_protocol,,}"
+
+  printf '\nRemote syslog: %s:%s over %s\n' "$remote_host" "$remote_port" "$remote_protocol"
+  printf 'The local log will also remain enabled.\n'
+  read -r -p "Apply this remote syslog configuration? [y/N]: " confirmation
   case "$confirmation" in
     y|Y|yes|YES)
-      set_env_value "RADIUS_MODE" "$selected_mode"
-      set_env_value "RADIUS_SERVER" "$radius_server"
-      set_env_value "RADIUS_PORT" "$radius_port"
-      if [[ "$selected_mode" == "remote" ]]; then
-        set_env_value "RADIUS_SECRET" "$radius_secret"
-      fi
+      set_env_value "REMOTE_SYSLOG_ENABLED" "true"
+      set_env_value "REMOTE_SYSLOG_HOST" "$remote_host"
+      set_env_value "REMOTE_SYSLOG_PORT" "$remote_port"
+      set_env_value "REMOTE_SYSLOG_PROTOCOL" "$remote_protocol"
       ;;
-    *)
-      fail "RADIUS configuration was not confirmed"
-      ;;
+    *) fail "Remote syslog configuration was not confirmed" ;;
   esac
 }
 
 ensure_random_secret() {
   local key="$1"
   local length="$2"
-  local preserve_existing_data="$3"
   local current
   current="$(env_value "$key")"
 
   case "$current" in
     ""|admin|admin12345|my-super-token|public|replace-with-a-random-*)
-      if [[ "$preserve_existing_data" == true ]]; then
-        info "WARNING: ${key} is insecure, but existing InfluxDB data prevents automatic rotation"
-        return
-      fi
       current="$(random_secret "$length")"
       set_env_value "$key" "$current"
       ;;
   esac
 }
 
-prepare_local_radius() {
-  local radius_secret
-  local radius_admin_password
-  if [[ "$(env_value RADIUS_MODE)" != "local" ]]; then
-    info "Using remote RADIUS server; skipping local FreeRADIUS configuration"
-    return
+cleanup_legacy_local_configuration() {
+  if [[ -e radius/authorize || -e radius/clients.conf ]]; then
+    info "Removing obsolete local FreeRADIUS configuration"
+    sudo rm -f radius/authorize radius/clients.conf
+    sudo rmdir radius 2>/dev/null || true
   fi
-
-  radius_secret="$(env_value RADIUS_SECRET)"
-  radius_admin_password="$(env_value RADIUS_ADMIN_PASSWORD)"
-
-  info "Preparing local FreeRADIUS configuration"
-  mkdir -p radius
-
-  # Docker tworzy katalog w miejscu brakujacego bind-mountu. Naprawiamy
-  # bezpiecznie tylko pusty katalog; rmdir odmowi usuniecia danych.
-  if [[ -d radius/clients.conf ]]; then
-    info "Replacing Docker-created radius/clients.conf directory with a file"
-    sudo rmdir radius/clients.conf || fail "radius/clients.conf is a non-empty directory; move its contents and rerun the installer"
+  if [[ -d data/influxdb2 ]]; then
+    info "Legacy local InfluxDB data remains in data/influxdb2; remove it manually only after confirming that no migration is needed"
   fi
-  if [[ -d radius/authorize ]]; then
-    info "Replacing Docker-created radius/authorize directory with a file"
-    sudo rmdir radius/authorize || fail "radius/authorize is a non-empty directory; move its contents and rerun the installer"
-  fi
-
-  # Ten plik musi zawsze odpowiadać RADIUS_SECRET z .env, również po zmianie
-  # trybu remote -> local albo świadomej rotacji sekretu.
-  cat > radius/clients.conf <<RADIUS_CLIENT
-client dashboard {
-    ipaddr = 172.16.0.0/12
-    secret = ${radius_secret}
-}
-RADIUS_CLIENT
-
-  if [[ ! -f radius/authorize ]]; then
-    cat > radius/authorize <<RADIUS_USER
-admin Cleartext-Password := "${radius_admin_password}"
-RADIUS_USER
-  else
-    info "Keeping existing radius/authorize; its credentials remain unchanged"
-    ADMIN_PASSWORD_SUMMARY="defined in radius/authorize"
-  fi
-
-  # Bind-mounty zachowuja uprawnienia hosta, a FreeRADIUS dziala w kontenerze
-  # jako nieuprzywilejowany uzytkownik `freerad` i musi moc odczytac te pliki.
-  chmod 644 radius/clients.conf radius/authorize
 }
 
 configure_time_sync() {
@@ -441,13 +487,9 @@ LOGROTATE
 
 start_dashboard() {
   info "Building and starting containers"
-  if [[ "$(env_value RADIUS_MODE)" == "local" ]]; then
-    sudo docker compose --profile dashboard --profile local-radius up -d --build
-  else
-    # Usuń wcześniejszy lokalny kontener również wtedy, gdy miał restart policy.
-    sudo docker compose --profile local-radius rm -sf radius
-    sudo docker compose --profile dashboard up -d --build
-  fi
+  # --remove-orphans also stops old local InfluxDB and FreeRADIUS containers
+  # left by installations made before both services became remote-only.
+  sudo docker compose up -d --build --remove-orphans
   sudo systemctl start amp-dashboard.service
 }
 
@@ -488,12 +530,7 @@ SERVICE
 
 install_dashboard_service() {
   local docker_path
-  local radius_profile=""
   docker_path="$(command -v docker)"
-
-  if [[ "$(env_value RADIUS_MODE)" == "local" ]]; then
-    radius_profile="--profile local-radius"
-  fi
 
   info "Configuring dashboard to start automatically with Linux"
   sudo tee /etc/systemd/system/amp-dashboard.service >/dev/null <<SERVICE
@@ -507,7 +544,7 @@ Wants=network-online.target systemd-timesyncd.service
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=${PROJECT_DIR}
-ExecStart=${docker_path} compose --profile dashboard ${radius_profile} up -d
+ExecStart=${docker_path} compose up -d --remove-orphans
 
 [Install]
 WantedBy=multi-user.target
@@ -529,14 +566,19 @@ Installation finished.
 Dashboard:
   http://${dashboard_address}:8000
 
+Device identifier:
+  $(env_value "DEVICE_NAME")
+
 InfluxDB:
-  http://localhost:8086 (available only on the Linux server)
+  ${INFLUX_SUMMARY}
+  durable buffer: $(env_value "INFLUX_BUFFER_FILE")
 
 SNMP:
   UDP port $(env_value "SNMP_PORT")
 
 RADIUS:
   ${RADIUS_SUMMARY}
+  NAS-Identifier: $(env_value "RADIUS_NAS_IDENTIFIER")
 
 Time synchronization:
   systemd-timesyncd uses $(env_value "NTP_SERVER")
@@ -546,13 +588,13 @@ System log:
 
 Default login:
   username: admin
-  password: ${ADMIN_PASSWORD_SUMMARY}
+  password: managed by the remote RADIUS server
 
 Useful commands:
   cd ${PROJECT_DIR}
-  docker compose --profile dashboard logs -f app
-  docker compose --profile dashboard restart app
-  docker compose --profile dashboard down
+  docker compose logs -f app
+  docker compose restart app
+  docker compose down
   sudo systemctl status amp-dashboard.service
   sudo systemctl status amp-network-agent.service
 
@@ -569,7 +611,7 @@ systemd_is_running || fail "systemd must be running on the Linux server."
 install_system_packages
 install_docker_engine
 prepare_environment_file
-prepare_local_radius
+cleanup_legacy_local_configuration
 configure_time_sync
 configure_system_syslog
 install_network_agent_service

@@ -9,7 +9,7 @@ The agent validates interface names, IPv4 addresses, subnet, gateway and DNS,
 then invokes NetworkManager without a shell. Only Administrators may read or
 change host network configuration through the dashboard.
 
-## Debian / Raspberry Pi OS host
+## Debian Linux host
 
 The host must use NetworkManager for the interface that should be managed:
 
@@ -34,6 +34,6 @@ installs and enables both `amp-network-agent.service` and
 sudo systemctl status amp-network-agent.service
 sudo journalctl -u amp-network-agent.service -n 100
 ls -l /run/amp-dashboard/network-agent.sock
-docker compose --profile dashboard exec app python -c \
+docker compose exec app python -c \
   'import network_service; print(network_service.get_network_state())'
 ```

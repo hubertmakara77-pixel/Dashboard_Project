@@ -17,5 +17,3 @@ data/
 
 .vscode/
 .idea/
-radius/authorize
-radius/clients.conf

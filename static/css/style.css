@@ -176,7 +176,7 @@ select {
 
 .status-bar {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     background: #121b18;
     border-bottom: 1px solid #20352d;
 }
@@ -216,6 +216,30 @@ select {
 
 .standard-grid {
     width: 100%;
+}
+
+.status-warn {
+    color: #f5c96a;
+    font-weight: bold;
+}
+
+.service-status-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.service-settings-form {
+    margin-bottom: 24px;
+}
+
+.service-settings-fields,
+.service-diagnostics-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 24px;
+}
+
+.service-settings-fields {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .amp-board {
@@ -885,7 +909,9 @@ select {
     }
 
     .metric-strip,
-    .metric-secondary-row {
+    .metric-secondary-row,
+    .service-settings-fields,
+    .service-diagnostics-grid {
         grid-template-columns: 1fr;
         gap: 12px;
     }

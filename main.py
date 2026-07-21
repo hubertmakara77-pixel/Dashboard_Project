@@ -1,4 +1,5 @@
 import contextlib
+import asyncio
 import csv
 import datetime
 import hashlib
@@ -67,6 +68,12 @@ class AccessUserCreateRequest(pydantic.BaseModel):
 class AccessUserUpdateRequest(pydantic.BaseModel):
     role: typing.Literal["Administrator", "Operator", "Viewer"] | None = None
     active: bool | None = None
+
+
+class ServiceSettingsRequest(pydantic.BaseModel):
+    syslog_heartbeat_seconds: int
+    influx_buffer_max_records: int
+    influx_buffer_min_free_mb: int
 
 
 def find_access_user(username: str) -> dict | None:
@@ -319,9 +326,34 @@ def build_history_csv(points: list[dict]) -> str:
     return output.getvalue()
 
 
+heartbeat_settings_changed = asyncio.Event()
+
+
+async def syslog_heartbeat_loop() -> None:
+    while True:
+        with state.state_lock:
+            interval = int(state.service_settings["syslog_heartbeat_seconds"])
+        try:
+            if interval <= 0:
+                await heartbeat_settings_changed.wait()
+            else:
+                await asyncio.wait_for(heartbeat_settings_changed.wait(), timeout=interval)
+            heartbeat_settings_changed.clear()
+            continue
+        except TimeoutError:
+            pass
+        influx_status = influx_service.get_runtime_status()
+        syslog_service.send_lifecycle(
+            "heartbeat",
+            influx=influx_status["state"],
+            buffered_records=influx_status["pending_records"],
+        )
+
+
 @contextlib.asynccontextmanager
 async def lifespan(app: fastapi.FastAPI):
     influx_service.init_influx()
+    influx_service.start_influx_buffer_worker()
     snmp_service.init_snmp()
 
     state.stop_event.clear()
@@ -332,15 +364,24 @@ async def lifespan(app: fastapi.FastAPI):
     )
 
     thread.start()
+    syslog_service.send_lifecycle("started")
+    heartbeat_settings_changed.clear()
+    heartbeat_task = asyncio.create_task(syslog_heartbeat_loop())
 
     yield
 
     print("Shutting down application...")
 
+    heartbeat_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await heartbeat_task
+    syslog_service.send_lifecycle("stopped", reason="graceful_shutdown")
+
     state.stop_event.set()
     thread.join(timeout=2)
 
     snmp_service.close_snmp()
+    influx_service.stop_influx_buffer_worker()
     influx_service.close_influx()
 
 
@@ -376,6 +417,7 @@ def home(request: starlette.requests.Request):
 
 @app.get("/api/latest")
 def latest(_current_user: dict = fastapi.Depends(require_roles("Administrator", "Operator", "Viewer"))):
+    influx_status = influx_service.get_runtime_status()
     with state.state_lock:
         return {
             "connected": state.serial_connected,
@@ -383,20 +425,89 @@ def latest(_current_user: dict = fastapi.Depends(require_roles("Administrator", 
             "last_update": state.last_update,
             "last_command_response": state.last_command_response,
             "last_known_gain_set": state.last_known_gain_set,
-            "data": state.latest_data
+            "data": state.latest_data,
+            "influx": influx_status,
         }
 
 
 @app.get("/api/status")
 def status(_current_user: dict = fastapi.Depends(require_roles("Administrator", "Operator", "Viewer"))):
+    influx_status = influx_service.get_runtime_status()
     with state.state_lock:
         return {
             "device": config.DEVICE_NAME,
             "serial_port": config.SERIAL_PORT,
             "serial_connected": state.serial_connected,
             "serial_error": state.serial_error,
-            "influx_enabled": config.INFLUX_ENABLED
+            "influx": influx_status,
         }
+
+
+@app.get("/api/service-diagnostics")
+def service_diagnostics(
+    _current_user: dict = fastapi.Depends(require_roles("Administrator")),
+):
+    with state.state_lock:
+        service_settings = state.service_settings.copy()
+    storage = influx_service.get_buffer_storage_status()
+    return {
+        "influx": {
+            **influx_service.get_runtime_status(),
+            "url": config.INFLUX_URL,
+            "organization": config.INFLUX_ORG,
+            "bucket": config.INFLUX_BUCKET,
+            "buffer_file": config.INFLUX_BUFFER_FILE,
+            "buffer_limit": service_settings["influx_buffer_max_records"],
+            "buffer_min_free_mb": service_settings["influx_buffer_min_free_mb"],
+            "buffer_size_bytes": storage["size_bytes"],
+            "filesystem_free_bytes": storage["free_bytes"],
+            "discarded_records_since_start": storage["discarded_records_since_start"],
+            "batch_size": config.INFLUX_BUFFER_BATCH_SIZE,
+            "retry_seconds": config.INFLUX_RETRY_SECONDS,
+        },
+        "syslog": {
+            "local_enabled": config.SYSLOG_ENABLED,
+            "local_destination": f"{config.SYSLOG_HOST}:{config.SYSLOG_PORT}",
+            "remote_enabled": config.REMOTE_SYSLOG_ENABLED,
+            "remote_host": config.REMOTE_SYSLOG_HOST,
+            "remote_port": config.REMOTE_SYSLOG_PORT,
+            "remote_protocol": config.REMOTE_SYSLOG_PROTOCOL,
+            "local_file": config.SYSLOG_EXPORT_FILE,
+            "heartbeat_seconds": service_settings["syslog_heartbeat_seconds"],
+        },
+    }
+
+
+@app.put("/api/service-diagnostics/settings")
+async def update_service_diagnostics_settings(
+    request: ServiceSettingsRequest,
+    http_request: starlette.requests.Request,
+    current_user: dict = fastapi.Depends(require_roles("Administrator")),
+):
+    if request.syslog_heartbeat_seconds != 0 and request.syslog_heartbeat_seconds < 10:
+        raise fastapi.HTTPException(status_code=400, detail="Heartbeat must be 0 or at least 10 seconds")
+    if request.syslog_heartbeat_seconds > 86400:
+        raise fastapi.HTTPException(status_code=400, detail="Heartbeat cannot exceed 86400 seconds")
+    if not 1 <= request.influx_buffer_max_records <= 10000000:
+        raise fastapi.HTTPException(status_code=400, detail="Buffer limit must be between 1 and 10000000 records")
+    if not 0 <= request.influx_buffer_min_free_mb <= 1000000:
+        raise fastapi.HTTPException(status_code=400, detail="Disk reserve must be between 0 and 1000000 MiB")
+
+    with state.state_lock:
+        before = state.service_settings.copy()
+        state.service_settings.update(request.model_dump())
+        state.save_persisted_state()
+        after = state.service_settings.copy()
+
+    removed_records = influx_service.apply_buffer_limits()
+    heartbeat_settings_changed.set()
+    audit_event(
+        http_request,
+        "service_settings_updated",
+        current_user["username"],
+        audit_changes(before, after) + f"; pruned_records={removed_records}",
+    )
+    return {"status": "ok", "settings": after, "pruned_records": removed_records}
 
 
 @app.get("/api/settings")

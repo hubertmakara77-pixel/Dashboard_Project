@@ -2,13 +2,11 @@ services:
   app:
     build: .
     container_name: amp-dashboard
-    profiles:
-      - dashboard
     restart: unless-stopped
     environment:
       SERIAL_PORT: ${SERIAL_PORT:-/dev/ttyACM0}
       SERIAL_BAUDRATE: ${SERIAL_BAUDRATE:-9600}
-      DEVICE_NAME: ${DEVICE_NAME:-optical_amp_1}
+      DEVICE_NAME: ${DEVICE_NAME:?DEVICE_NAME must be configured in .env}
       HISTORY_MEMORY_LIMIT: ${HISTORY_MEMORY_LIMIT:-10000}
       PERSISTED_STATE_FILE: ${PERSISTED_STATE_FILE:-/app/data/persisted_state.json}
       LOGIN_MAX_ATTEMPTS: ${LOGIN_MAX_ATTEMPTS:-5}
@@ -16,11 +14,15 @@ services:
       SESSION_MAX_AGE_SECONDS: ${SESSION_MAX_AGE_SECONDS:-43200}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
       TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-false}
-      INFLUX_ENABLED: ${INFLUX_ENABLED:-true}
-      INFLUX_URL: ${INFLUX_URL:-http://influxdb:8086}
+      INFLUX_URL: ${INFLUX_URL:?INFLUX_URL of the remote InfluxDB server must be configured in .env}
       INFLUX_TOKEN: ${INFLUX_TOKEN:?INFLUX_TOKEN must be configured in .env}
       INFLUX_ORG: ${INFLUX_ORG:-agh}
       INFLUX_BUCKET: ${INFLUX_BUCKET:-sensors}
+      INFLUX_BUFFER_FILE: ${INFLUX_BUFFER_FILE:-/app/data/influx_buffer.db}
+      INFLUX_BUFFER_MAX_RECORDS: ${INFLUX_BUFFER_MAX_RECORDS:-250000}
+      INFLUX_BUFFER_MIN_FREE_MB: ${INFLUX_BUFFER_MIN_FREE_MB:-512}
+      INFLUX_BUFFER_BATCH_SIZE: ${INFLUX_BUFFER_BATCH_SIZE:-500}
+      INFLUX_RETRY_SECONDS: ${INFLUX_RETRY_SECONDS:-10}
       MEASUREMENT_NAME: ${MEASUREMENT_NAME:-optical_amp_status}
       SETPOINT_MEASUREMENT_NAME: ${SETPOINT_MEASUREMENT_NAME:-optical_amp_setpoint}
       SYSLOG_ENABLED: ${SYSLOG_ENABLED:-true}
@@ -29,7 +31,12 @@ services:
       SYSLOG_APP_NAME: ${SYSLOG_APP_NAME:-amp-dashboard}
       SYSLOG_FACILITY: ${SYSLOG_FACILITY:-16}
       SYSLOG_TIMEZONE: ${SYSLOG_TIMEZONE:-Europe/Warsaw}
+      SYSLOG_HEARTBEAT_SECONDS: ${SYSLOG_HEARTBEAT_SECONDS:-300}
       SYSLOG_EXPORT_FILE: ${SYSLOG_EXPORT_FILE:-/var/log/amp-dashboard/amp-dashboard.log}
+      REMOTE_SYSLOG_ENABLED: ${REMOTE_SYSLOG_ENABLED:-false}
+      REMOTE_SYSLOG_HOST: ${REMOTE_SYSLOG_HOST:-}
+      REMOTE_SYSLOG_PORT: ${REMOTE_SYSLOG_PORT:-514}
+      REMOTE_SYSLOG_PROTOCOL: ${REMOTE_SYSLOG_PROTOCOL:-tcp}
       TZ: ${TZ:-Europe/Warsaw}
       NETWORK_AGENT_SOCKET: /run/amp-dashboard/network-agent.sock
       SNMP_PORT: ${SNMP_PORT:-1161}
@@ -39,12 +46,12 @@ services:
       NTP_PORT: ${NTP_PORT:-123}
       NTP_TIMEOUT_SECONDS: ${NTP_TIMEOUT_SECONDS:-3}
       NTP_CACHE_SECONDS: ${NTP_CACHE_SECONDS:-15}
-      RADIUS_SERVER: ${RADIUS_SERVER:-radius}
+      RADIUS_SERVER: ${RADIUS_SERVER:?RADIUS_SERVER of the remote server must be configured in .env}
       RADIUS_PORT: ${RADIUS_PORT:-1812}
       RADIUS_SECRET: ${RADIUS_SECRET:?RADIUS_SECRET must be configured in .env}
       RADIUS_TIMEOUT_SECONDS: ${RADIUS_TIMEOUT_SECONDS:-3}
       RADIUS_RETRIES: ${RADIUS_RETRIES:-1}
-      RADIUS_NAS_IDENTIFIER: ${RADIUS_NAS_IDENTIFIER:-amp-dashboard}
+      RADIUS_NAS_IDENTIFIER: ${RADIUS_NAS_IDENTIFIER:?RADIUS_NAS_IDENTIFIER must be configured in .env}
     ports:
       - "8000:8000"
       - "${SNMP_PORT:-1161}:${SNMP_PORT:-1161}/udp"
@@ -56,35 +63,3 @@ services:
       - /var/log/amp-dashboard:/var/log/amp-dashboard:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    depends_on:
-      - influxdb
-
-  radius:
-    image: freeradius/freeradius-server:latest
-    container_name: freeradius
-    profiles:
-      - local-radius
-    restart: unless-stopped
-    volumes:
-      - ./radius/clients.conf:/etc/raddb/clients.conf:ro
-      - ./radius/authorize:/etc/raddb/mods-config/files/authorize:ro
-    # Port wystawiony tylko na localhost hosta - do ręcznego debugowania
-    # (np. radtest); appka i tak łączy się przez wewnętrzną sieć Dockera.
-    ports:
-      - "127.0.0.1:1812:1812/udp"
-
-  influxdb:
-    image: influxdb:2.7
-    container_name: influxdb2
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:8086:8086"
-    volumes:
-      - ./data/influxdb2:/var/lib/influxdb2
-    environment:
-      DOCKER_INFLUXDB_INIT_MODE: setup
-      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUX_INIT_USERNAME:-admin}
-      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUX_INIT_PASSWORD:?INFLUX_INIT_PASSWORD must be configured in .env}
-      DOCKER_INFLUXDB_INIT_ORG: ${INFLUX_ORG:-agh}
-      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUX_BUCKET:-sensors}
-      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUX_TOKEN:?INFLUX_TOKEN must be configured in .env}

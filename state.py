@@ -27,6 +27,12 @@ DEFAULT_SNMP_SETTINGS = {
     "trap_port": 162,
 }
 
+DEFAULT_SERVICE_SETTINGS = {
+    "syslog_heartbeat_seconds": config.SYSLOG_HEARTBEAT_SECONDS,
+    "influx_buffer_max_records": config.INFLUX_BUFFER_MAX_RECORDS,
+    "influx_buffer_min_free_mb": config.INFLUX_BUFFER_MIN_FREE_MB,
+}
+
 def load_persisted_state() -> dict:
     path = pathlib.Path(config.PERSISTED_STATE_FILE)
 
@@ -109,6 +115,21 @@ def merge_snmp_settings(saved_settings: dict | None) -> dict:
     return settings
 
 
+def merge_service_settings(saved_settings: dict | None) -> dict:
+    settings = DEFAULT_SERVICE_SETTINGS.copy()
+    if isinstance(saved_settings, dict):
+        for key in settings:
+            if key in saved_settings:
+                try:
+                    settings[key] = int(saved_settings[key])
+                except (TypeError, ValueError):
+                    pass
+    settings["syslog_heartbeat_seconds"] = max(0, settings["syslog_heartbeat_seconds"])
+    settings["influx_buffer_max_records"] = max(1, settings["influx_buffer_max_records"])
+    settings["influx_buffer_min_free_mb"] = max(0, settings["influx_buffer_min_free_mb"])
+    return settings
+
+
 persisted_state = load_persisted_state()
 
 
@@ -120,6 +141,7 @@ def save_persisted_state() -> None:
         "dashboard_settings": dashboard_settings,
         "access_users": access_users,
         "snmp_settings": snmp_settings,
+        "service_settings": service_settings,
     }
     with persist_lock:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -165,6 +187,7 @@ login_failures = {}
 dashboard_settings = merge_dashboard_settings(persisted_state.get("dashboard_settings"))
 access_users = merge_access_users(persisted_state.get("access_users"))
 snmp_settings = merge_snmp_settings(persisted_state.get("snmp_settings"))
+service_settings = merge_service_settings(persisted_state.get("service_settings"))
 
 # Usuń stare lokalne hashe haseł. Od tej wersji hasła przechowuje i sprawdza
 # wyłącznie RADIUS, a Dashboard zapisuje tylko role i dostęp do aplikacji.

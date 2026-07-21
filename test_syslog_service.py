@@ -17,7 +17,10 @@ class SyslogServiceTests(unittest.TestCase):
         sendto = socket_mock.return_value.__enter__.return_value.sendto
         sendto.assert_called_once()
         payload, destination = sendto.call_args.args
-        self.assertIn(b"amp-dashboard: changed=value", payload)
+        self.assertIn(
+            f"amp-dashboard: device={config.DEVICE_NAME}; changed=value".encode(),
+            payload,
+        )
         self.assertEqual(destination, (config.SYSLOG_HOST, config.SYSLOG_PORT))
 
     def test_disabled_syslog_does_not_send(self):
@@ -42,7 +45,10 @@ class SyslogServiceTests(unittest.TestCase):
 
         payload = socket_mock.return_value.__enter__.return_value.sendto.call_args.args[0]
         self.assertIn(b"Jul 16 23:15:00", payload)
-        self.assertIn(b"amp-dashboard: audit; user=admin", payload)
+        self.assertIn(
+            f"amp-dashboard: device={config.DEVICE_NAME}; audit; user=admin".encode(),
+            payload,
+        )
         self.assertNotIn(b"audit timestamp=", payload)
 
     def test_warning_relies_on_syslog_header_timestamp(self):
@@ -53,8 +59,28 @@ class SyslogServiceTests(unittest.TestCase):
             syslog_service.send_warning("WARNING field=PiA")
 
         payload = socket_mock.return_value.__enter__.return_value.sendto.call_args.args[0]
-        self.assertIn(b"amp-dashboard: warning; WARNING field=PiA", payload)
+        self.assertIn(
+            f"amp-dashboard: device={config.DEVICE_NAME}; warning; WARNING field=PiA".encode(),
+            payload,
+        )
         self.assertNotIn(b"warning timestamp=", payload)
+
+    def test_lifecycle_event_contains_event_and_fields(self):
+        with (
+            mock.patch.object(config, "SYSLOG_ENABLED", True),
+            mock.patch("syslog_service.socket.socket") as socket_mock,
+        ):
+            syslog_service.send_lifecycle(
+                "heartbeat",
+                influx="buffering",
+                buffered_records=12,
+            )
+
+        payload = socket_mock.return_value.__enter__.return_value.sendto.call_args.args[0]
+        self.assertIn(
+            b"lifecycle; event=heartbeat; influx=buffering; buffered_records=12",
+            payload,
+        )
 
 
 if __name__ == "__main__":
