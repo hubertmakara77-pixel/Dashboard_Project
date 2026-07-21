@@ -34,18 +34,35 @@ install_system_packages() {
 }
 
 install_docker_engine() {
+  local docker_arch
+  local docker_codename
+
   # Check for the Linux daemon, not only for the Docker client.
   if ! command -v dockerd >/dev/null 2>&1; then
     info "Installing Docker Engine inside Linux"
-    curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
-    sudo sh /tmp/get-docker.sh
+    # Configure the repository directly instead of using get.docker.com. The
+    # convenience script hides apt output and installs optional packages such
+    # as docker-model-plugin which are unnecessary on embedded devices.
+    # Force IPv4 because some appliance networks advertise unusable IPv6.
+    . /etc/os-release
+    docker_codename="${VERSION_CODENAME:-}"
+    [[ "$ID" == "debian" && -n "$docker_codename" ]] || fail "Docker installation requires Debian with VERSION_CODENAME"
+    docker_arch="$(dpkg --print-architecture)"
+    curl -fsSL https://download.docker.com/linux/debian/gpg -o /tmp/docker.asc
+    sudo install -d -m 0755 /etc/apt/keyrings
+    sudo install -m 0644 /tmp/docker.asc /etc/apt/keyrings/docker.asc
+    printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian %s stable\n' \
+      "$docker_arch" "$docker_codename" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+    sudo apt-get -o Acquire::ForceIPv4=true update
+    sudo apt-get -o Acquire::ForceIPv4=true install -y \
+      docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
   else
     info "Docker Engine is already installed"
   fi
 
   if ! docker compose version >/dev/null 2>&1; then
     info "Installing Docker Compose plugin"
-    sudo apt-get install -y docker-compose-plugin
+    sudo apt-get -o Acquire::ForceIPv4=true install -y docker-compose-plugin
   fi
 
   if systemd_is_running; then
