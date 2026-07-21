@@ -11,16 +11,18 @@ command -v apt-get >/dev/null || fail "A Debian-family system with apt is requir
 
 info "Installing prerequisites"
 apt-get -o Acquire::ForceIPv4=true update
-apt-get install -y ca-certificates curl python3
+apt-get install -y ca-certificates curl gnupg python3
 if ! command -v dockerd >/dev/null; then
   . /etc/os-release
   docker_codename="${VERSION_CODENAME:-}"
   [[ "$ID" == "debian" && -n "$docker_codename" ]] || fail "Docker installation requires Debian with VERSION_CODENAME"
   docker_arch="$(dpkg --print-architecture)"
   curl -fsSL https://download.docker.com/linux/debian/gpg -o /tmp/docker.asc
+  gpg --dearmor --yes --output /tmp/docker.gpg /tmp/docker.asc
   install -d -m 0755 /etc/apt/keyrings
-  install -m 0644 /tmp/docker.asc /etc/apt/keyrings/docker.asc
-  printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian %s stable\n' \
+  install -m 0644 /tmp/docker.gpg /etc/apt/keyrings/docker.gpg
+  rm -f /etc/apt/sources.list.d/docker.sources /etc/apt/keyrings/docker.asc
+  printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian %s stable\n' \
     "$docker_arch" "$docker_codename" > /etc/apt/sources.list.d/docker.list
   apt-get -o Acquire::ForceIPv4=true update
   apt-get -o Acquire::ForceIPv4=true install -y \

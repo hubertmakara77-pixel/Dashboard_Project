@@ -49,9 +49,11 @@ install_docker_engine() {
     [[ "$ID" == "debian" && -n "$docker_codename" ]] || fail "Docker installation requires Debian with VERSION_CODENAME"
     docker_arch="$(dpkg --print-architecture)"
     curl -fsSL https://download.docker.com/linux/debian/gpg -o /tmp/docker.asc
+    gpg --dearmor --yes --output /tmp/docker.gpg /tmp/docker.asc
     sudo install -d -m 0755 /etc/apt/keyrings
-    sudo install -m 0644 /tmp/docker.asc /etc/apt/keyrings/docker.asc
-    printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian %s stable\n' \
+    sudo install -m 0644 /tmp/docker.gpg /etc/apt/keyrings/docker.gpg
+    sudo rm -f /etc/apt/sources.list.d/docker.sources /etc/apt/keyrings/docker.asc
+    printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian %s stable\n' \
       "$docker_arch" "$docker_codename" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
     sudo apt-get -o Acquire::ForceIPv4=true update
     sudo apt-get -o Acquire::ForceIPv4=true install -y \
