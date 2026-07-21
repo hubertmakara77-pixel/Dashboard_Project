@@ -91,7 +91,7 @@ ensure_device_name() {
   fi
 
   if [[ -z "$hardware_id" && -r /etc/machine-id ]]; then
-    hardware_id="$(tr -d '-\r\n' < /etc/machine-id | head -c 8)"
+    hardware_id="$(tr -d -- '-\r\n' < /etc/machine-id | head -c 8)"
   fi
 
   if [[ ! "$hardware_id" =~ ^[0-9a-fA-F]{8}$ ]]; then
