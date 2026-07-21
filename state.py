@@ -30,7 +30,7 @@ DEFAULT_SNMP_SETTINGS = {
 DEFAULT_SERVICE_SETTINGS = {
     "syslog_heartbeat_seconds": config.SYSLOG_HEARTBEAT_SECONDS,
     "influx_buffer_max_records": config.INFLUX_BUFFER_MAX_RECORDS,
-    "influx_buffer_min_free_mb": config.INFLUX_BUFFER_MIN_FREE_MB,
+    "serial_port": config.SERIAL_PORT,
 }
 
 def load_persisted_state() -> dict:
@@ -118,15 +118,16 @@ def merge_snmp_settings(saved_settings: dict | None) -> dict:
 def merge_service_settings(saved_settings: dict | None) -> dict:
     settings = DEFAULT_SERVICE_SETTINGS.copy()
     if isinstance(saved_settings, dict):
-        for key in settings:
+        for key in ("syslog_heartbeat_seconds", "influx_buffer_max_records"):
             if key in saved_settings:
                 try:
                     settings[key] = int(saved_settings[key])
                 except (TypeError, ValueError):
                     pass
+        if isinstance(saved_settings.get("serial_port"), str):
+            settings["serial_port"] = saved_settings["serial_port"]
     settings["syslog_heartbeat_seconds"] = max(0, settings["syslog_heartbeat_seconds"])
     settings["influx_buffer_max_records"] = max(1, settings["influx_buffer_max_records"])
-    settings["influx_buffer_min_free_mb"] = max(0, settings["influx_buffer_min_free_mb"])
     return settings
 
 
@@ -177,6 +178,7 @@ serial_port = None
 state_lock = threading.Lock()
 serial_lock = threading.Lock()
 stop_event = threading.Event()
+serial_reconnect_event = threading.Event()
 
 history_buffer = collections.deque(maxlen=config.HISTORY_MEMORY_LIMIT)
 error_buffer = collections.deque(maxlen=500)

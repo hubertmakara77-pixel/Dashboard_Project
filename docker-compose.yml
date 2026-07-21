@@ -4,7 +4,7 @@ services:
     container_name: amp-dashboard
     restart: unless-stopped
     environment:
-      SERIAL_PORT: ${SERIAL_PORT:-/dev/ttyACM0}
+      SERIAL_PORT: ${SERIAL_PORT:-/host/dev/ttyACM0}
       SERIAL_BAUDRATE: ${SERIAL_BAUDRATE:-9600}
       DEVICE_NAME: ${DEVICE_NAME:?DEVICE_NAME must be configured in .env}
       HISTORY_MEMORY_LIMIT: ${HISTORY_MEMORY_LIMIT:-10000}
@@ -20,7 +20,6 @@ services:
       INFLUX_BUCKET: ${INFLUX_BUCKET:-sensors}
       INFLUX_BUFFER_FILE: ${INFLUX_BUFFER_FILE:-/app/data/influx_buffer.db}
       INFLUX_BUFFER_MAX_RECORDS: ${INFLUX_BUFFER_MAX_RECORDS:-250000}
-      INFLUX_BUFFER_MIN_FREE_MB: ${INFLUX_BUFFER_MIN_FREE_MB:-512}
       INFLUX_BUFFER_BATCH_SIZE: ${INFLUX_BUFFER_BATCH_SIZE:-500}
       INFLUX_RETRY_SECONDS: ${INFLUX_RETRY_SECONDS:-10}
       MEASUREMENT_NAME: ${MEASUREMENT_NAME:-optical_amp_status}
@@ -55,10 +54,12 @@ services:
     ports:
       - "8000:8000"
       - "${SNMP_PORT:-1161}:${SNMP_PORT:-1161}/udp"
-    devices:
-      - "${SERIAL_DEVICE:-/dev/ttyACM0}:${SERIAL_PORT:-/dev/ttyACM0}"
+    device_cgroup_rules:
+      - "c 166:* rmw"
+      - "c 188:* rmw"
     volumes:
       - ./data:/app/data
+      - /dev:/host/dev
       - /run/amp-dashboard:/run/amp-dashboard
       - /var/log/amp-dashboard:/var/log/amp-dashboard:ro
     extra_hosts:

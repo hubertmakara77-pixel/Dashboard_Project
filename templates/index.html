@@ -422,12 +422,21 @@
                             <button type="submit">Save</button>
                         </div>
                         <div class="service-settings-fields">
+                            <label class="form-field">Serial port<select id="service-serial-port-input" required></select></label>
                             <label class="form-field">Heartbeat interval (seconds; 0 disables)<input id="service-heartbeat-input" type="number" min="0" max="86400" required></label>
                             <label class="form-field">Maximum SQLite records<input id="service-buffer-limit-input" type="number" min="1" max="10000000" required></label>
-                            <label class="form-field">Minimum free disk space (MiB; 0 disables)<input id="service-buffer-reserve-input" type="number" min="0" max="1000000" required></label>
                         </div>
                     </form>
                     <div class="service-diagnostics-grid">
+                        <div class="data-panel network-panel">
+                            <div class="settings-header"><h2>Serial Connection</h2></div>
+                            <div class="network-status-grid service-status-grid">
+                                <div><span>Status</span><strong id="service-serial-state">--</strong></div>
+                                <div><span>Selected port</span><strong id="service-serial-port">--</strong></div>
+                                <div><span>Baud rate</span><strong id="service-serial-baudrate">--</strong></div>
+                                <div><span>Error</span><strong id="service-serial-error">--</strong></div>
+                            </div>
+                        </div>
                         <div class="data-panel network-panel">
                             <div class="settings-header"><h2>InfluxDB</h2><button id="refresh-services-button" type="button">Refresh</button></div>
                             <div class="network-status-grid service-status-grid">
@@ -440,7 +449,6 @@
                                 <div><span>SQLite buffer</span><strong id="service-influx-file">--</strong></div>
                                 <div><span>SQLite size</span><strong id="service-influx-size">--</strong></div>
                                 <div><span>Disk space available</span><strong id="service-influx-free">--</strong></div>
-                                <div><span>Reserved disk space</span><strong id="service-influx-reserve">--</strong></div>
                                 <div><span>Discarded since startup</span><strong id="service-influx-discarded">--</strong></div>
                                 <div><span>Retry interval</span><strong id="service-influx-retry">--</strong></div>
                             </div>

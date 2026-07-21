@@ -95,27 +95,6 @@ def _enqueue_record(measurement: str, fields: dict, timestamp: str | None) -> No
     if buffer_connection is None:
         return
 
-    min_free_bytes = max(
-        0,
-        int(state.service_settings["influx_buffer_min_free_mb"]),
-    ) * 1024 * 1024
-    try:
-        free_bytes = shutil.disk_usage(pathlib.Path(config.INFLUX_BUFFER_FILE).parent).free
-    except OSError as error:
-        _log_failure("local buffer disk status", error)
-        free_bytes = min_free_bytes + 1
-    if min_free_bytes and free_bytes <= min_free_bytes:
-        buffer_discarded_records += 1
-        if _log_failure(
-            "local buffer disk reserve",
-            RuntimeError("minimum free disk space reached; incoming record discarded"),
-        ):
-            syslog_service.send_warning(
-                "influx_buffer_disk_reserve_reached; incoming_record_discarded=true; "
-                f"free_bytes={free_bytes}; reserved_bytes={min_free_bytes}"
-            )
-        return
-
     max_records = max(1, int(state.service_settings["influx_buffer_max_records"]))
     with buffer_lock:
         try:

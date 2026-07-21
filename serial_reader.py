@@ -1,4 +1,5 @@
 import datetime
+import pathlib
 import time
 
 import serial
@@ -127,10 +128,18 @@ def format_syslog_warning(error: dict) -> str:
     )
 
 
-def serial_reader_loop():
+def available_serial_ports() -> list[str]:
+    ports = set()
+    for base in (pathlib.Path("/host/dev"), pathlib.Path("/dev")):
+        for pattern in ("ttyACM*", "ttyUSB*"):
+            ports.update(str(path) for path in base.glob(pattern))
+    return sorted(ports)
+
+
+def _serial_reader_session(port: str):
     try:
         ser = serial.Serial(
-            port=config.SERIAL_PORT,
+            port=port,
             baudrate=config.SERIAL_BAUDRATE,
             timeout=1
         )
@@ -142,7 +151,7 @@ def serial_reader_loop():
             state.serial_connected = True
             state.serial_error = None
 
-        print(f"Connected to serial port {config.SERIAL_PORT}")
+        print(f"Connected to serial port {port}")
 
         time.sleep(2)
 
@@ -225,7 +234,7 @@ def serial_reader_loop():
 
             print("Reading:", data)
 
-    except serial.SerialException as e:
+    except (serial.SerialException, OSError, TypeError) as e:
         with state.state_lock:
             state.serial_connected = False
             state.serial_error = str(e)
@@ -244,6 +253,30 @@ def serial_reader_loop():
 
         with state.state_lock:
             state.serial_connected = False
+
+
+def serial_reader_loop():
+    while not state.stop_event.is_set():
+        with state.state_lock:
+            port = str(state.service_settings["serial_port"])
+        _serial_reader_session(port)
+        if state.stop_event.is_set():
+            break
+        state.serial_reconnect_event.wait(timeout=2)
+        state.serial_reconnect_event.clear()
+
+
+def reconnect(port: str) -> None:
+    with state.state_lock:
+        state.serial_connected = False
+        state.serial_error = f"Switching to {port}"
+    state.serial_reconnect_event.set()
+    with state.serial_lock:
+        if state.serial_port is not None:
+            try:
+                state.serial_port.close()
+            except (serial.SerialException, OSError):
+                pass
 
 
 def send_gain_set(gain_set: float):

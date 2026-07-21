@@ -405,8 +405,24 @@ async function loadServiceDiagnostics() {
 		handleAuthResponse(response)
 		const data = await response.json()
 		if (!response.ok) throw new Error(data.detail || 'Could not read service diagnostics')
+		const serial = data.serial || {}
 		const influx = data.influx || {}
 		const syslog = data.syslog || {}
+		setTextIfExists('service-serial-state', serial.connected ? 'CONNECTED' : 'DISCONNECTED')
+		setTextIfExists('service-serial-port', serial.port || '--')
+		setTextIfExists('service-serial-baudrate', String(serial.baudrate ?? '--'))
+		setTextIfExists('service-serial-error', serial.error || 'None')
+		const serialPortInput = document.getElementById('service-serial-port-input')
+		if (serialPortInput) {
+			const ports = Array.from(new Set([serial.port, ...(serial.available_ports || [])].filter(Boolean)))
+			serialPortInput.replaceChildren(...ports.map(port => {
+				const option = document.createElement('option')
+				option.value = port
+				option.textContent = port
+				return option
+			}))
+			serialPortInput.value = serial.port || ports[0] || ''
+		}
 		setTextIfExists('service-influx-state', String(influx.state || '--').toUpperCase())
 		setTextIfExists('service-influx-url', influx.url || '--')
 		setTextIfExists('service-influx-org', influx.organization || '--')
@@ -416,7 +432,6 @@ async function loadServiceDiagnostics() {
 		setTextIfExists('service-influx-file', influx.buffer_file || '--')
 		setTextIfExists('service-influx-size', formatBytes(influx.buffer_size_bytes))
 		setTextIfExists('service-influx-free', formatBytes(influx.filesystem_free_bytes))
-		setTextIfExists('service-influx-reserve', `${influx.buffer_min_free_mb ?? '--'} MiB`)
 		setTextIfExists('service-influx-discarded', String(influx.discarded_records_since_start ?? 0))
 		setTextIfExists('service-influx-retry', `${influx.retry_seconds ?? '--'} s`)
 		setTextIfExists('service-syslog-local', syslog.local_enabled ? 'ENABLED' : 'DISABLED')
@@ -428,10 +443,8 @@ async function loadServiceDiagnostics() {
 		setTextIfExists('service-syslog-heartbeat', syslog.heartbeat_seconds > 0 ? `${syslog.heartbeat_seconds} s` : 'DISABLED')
 		const heartbeatInput = document.getElementById('service-heartbeat-input')
 		const bufferLimitInput = document.getElementById('service-buffer-limit-input')
-		const bufferReserveInput = document.getElementById('service-buffer-reserve-input')
 		if (heartbeatInput) heartbeatInput.value = syslog.heartbeat_seconds ?? 300
 		if (bufferLimitInput) bufferLimitInput.value = influx.buffer_limit ?? 250000
-		if (bufferReserveInput) bufferReserveInput.value = influx.buffer_min_free_mb ?? 512
 	} catch (error) {
 		setTextIfExists('service-influx-state', 'API ERROR')
 		console.error('Error loading service diagnostics:', error)
@@ -447,9 +460,9 @@ document.getElementById('service-settings-form')?.addEventListener('submit', asy
 			method: 'PUT',
 			headers: {'Content-Type': 'application/json'},
 			body: JSON.stringify({
+				serial_port: document.getElementById('service-serial-port-input').value,
 				syslog_heartbeat_seconds: Number(document.getElementById('service-heartbeat-input').value),
 				influx_buffer_max_records: Number(document.getElementById('service-buffer-limit-input').value),
-				influx_buffer_min_free_mb: Number(document.getElementById('service-buffer-reserve-input').value),
 			}),
 		})
 		handleAuthResponse(response)

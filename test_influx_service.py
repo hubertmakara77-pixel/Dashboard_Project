@@ -80,7 +80,6 @@ class InfluxResilienceTests(unittest.TestCase):
             patcher.start()
 
         state.service_settings["influx_buffer_max_records"] = 100
-        state.service_settings["influx_buffer_min_free_mb"] = 0
 
         influx_service.influxdb_client = FakeInfluxModule()
         influx_service.client = FakeClient()
@@ -174,19 +173,6 @@ class InfluxResilienceTests(unittest.TestCase):
             "SELECT timestamp FROM pending_influx_records ORDER BY id"
         ).fetchall()
         self.assertEqual([row["timestamp"] for row in rows], ["2"])
-
-    def test_disk_reserve_prevents_buffer_growth(self):
-        state.service_settings["influx_buffer_min_free_mb"] = 512
-        disk_status = mock.Mock(free=100 * 1024 * 1024)
-        with (
-            mock.patch("influx_service.shutil.disk_usage", return_value=disk_status),
-            mock.patch("influx_service.syslog_service.send_warning") as warning_mock,
-        ):
-            influx_service.write_measurement({"PiA": 1.0}, "one")
-
-        self.assertEqual(influx_service.get_pending_record_count(), 0)
-        self.assertEqual(influx_service.buffer_discarded_records, 1)
-        warning_mock.assert_called_once()
 
     def test_runtime_status_distinguishes_syncing_and_buffering(self):
         self.assertEqual(influx_service.get_runtime_status()["state"], "connected")

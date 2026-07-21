@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 import pathlib
+import re
 import secrets
 import threading
 import typing
@@ -73,7 +74,7 @@ class AccessUserUpdateRequest(pydantic.BaseModel):
 class ServiceSettingsRequest(pydantic.BaseModel):
     syslog_heartbeat_seconds: int
     influx_buffer_max_records: int
-    influx_buffer_min_free_mb: int
+    serial_port: str
 
 
 def find_access_user(username: str) -> dict | None:
@@ -436,7 +437,7 @@ def status(_current_user: dict = fastapi.Depends(require_roles("Administrator", 
     with state.state_lock:
         return {
             "device": config.DEVICE_NAME,
-            "serial_port": config.SERIAL_PORT,
+            "serial_port": state.service_settings["serial_port"],
             "serial_connected": state.serial_connected,
             "serial_error": state.serial_error,
             "influx": influx_status,
@@ -451,6 +452,13 @@ def service_diagnostics(
         service_settings = state.service_settings.copy()
     storage = influx_service.get_buffer_storage_status()
     return {
+        "serial": {
+            "port": service_settings["serial_port"],
+            "available_ports": serial_reader.available_serial_ports(),
+            "baudrate": config.SERIAL_BAUDRATE,
+            "connected": state.serial_connected,
+            "error": state.serial_error,
+        },
         "influx": {
             **influx_service.get_runtime_status(),
             "url": config.INFLUX_URL,
@@ -458,7 +466,6 @@ def service_diagnostics(
             "bucket": config.INFLUX_BUCKET,
             "buffer_file": config.INFLUX_BUFFER_FILE,
             "buffer_limit": service_settings["influx_buffer_max_records"],
-            "buffer_min_free_mb": service_settings["influx_buffer_min_free_mb"],
             "buffer_size_bytes": storage["size_bytes"],
             "filesystem_free_bytes": storage["free_bytes"],
             "discarded_records_since_start": storage["discarded_records_since_start"],
@@ -490,16 +497,22 @@ async def update_service_diagnostics_settings(
         raise fastapi.HTTPException(status_code=400, detail="Heartbeat cannot exceed 86400 seconds")
     if not 1 <= request.influx_buffer_max_records <= 10000000:
         raise fastapi.HTTPException(status_code=400, detail="Buffer limit must be between 1 and 10000000 records")
-    if not 0 <= request.influx_buffer_min_free_mb <= 1000000:
-        raise fastapi.HTTPException(status_code=400, detail="Disk reserve must be between 0 and 1000000 MiB")
+    serial_port = request.serial_port.strip()
+    if not re.fullmatch(r"/(?:host/)?dev/tty(?:ACM|USB)[0-9]+", serial_port):
+        raise fastapi.HTTPException(status_code=400, detail="Select an available USB serial port")
+    available_ports = serial_reader.available_serial_ports()
+    if serial_port not in available_ports:
+        raise fastapi.HTTPException(status_code=400, detail="Selected serial port is not currently available")
 
     with state.state_lock:
         before = state.service_settings.copy()
-        state.service_settings.update(request.model_dump())
+        state.service_settings.update({**request.model_dump(), "serial_port": serial_port})
         state.save_persisted_state()
         after = state.service_settings.copy()
 
     removed_records = influx_service.apply_buffer_limits()
+    if before["serial_port"] != serial_port:
+        serial_reader.reconnect(serial_port)
     heartbeat_settings_changed.set()
     audit_event(
         http_request,

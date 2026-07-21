@@ -140,8 +140,8 @@ prepare_environment_file() {
   # jedynym źródłem haseł, więc usuń także pozostawioną wartość z .env.
   sed -i '/^INITIAL_ADMIN_PASSWORD=/d' .env
 
-  set_env_value "SERIAL_DEVICE" "$serial_device"
-  set_env_value "SERIAL_PORT" "$serial_device"
+  set_env_value "SERIAL_PORT" "$([[ "$serial_device" == "/dev/null" ]] && printf '/host/dev/ttyACM0' || printf '/host%s' "$serial_device")"
+  sed -i '/^SERIAL_DEVICE=/d' .env
   ensure_device_name
   if [[ -z "$(env_value SNMP_PORT)" ]]; then
     set_env_value "SNMP_PORT" "1161"
@@ -167,14 +167,13 @@ prepare_environment_file() {
   set_env_default "REMOTE_SYSLOG_PORT" "514"
   set_env_default "REMOTE_SYSLOG_PROTOCOL" "tcp"
   set_env_default "SYSLOG_HEARTBEAT_SECONDS" "300"
-  set_env_default "INFLUX_BUFFER_MIN_FREE_MB" "512"
   validate_remote_services_configuration
   INFLUX_SUMMARY="remote server $(env_value INFLUX_URL), org $(env_value INFLUX_ORG), bucket $(env_value INFLUX_BUCKET)"
   RADIUS_SUMMARY="remote server $(env_value RADIUS_SERVER):$(env_value RADIUS_PORT)"
 
   # Remove obsolete local-service settings from configurations created by
   # earlier installer versions. Existing InfluxDB data is intentionally kept.
-  sed -i '/^INFLUX_INIT_USERNAME=/d; /^INFLUX_INIT_PASSWORD=/d; /^RADIUS_MODE=/d; /^RADIUS_ADMIN_PASSWORD=/d' .env
+  sed -i '/^INFLUX_INIT_USERNAME=/d; /^INFLUX_INIT_PASSWORD=/d; /^INFLUX_BUFFER_MIN_FREE_MB=/d; /^RADIUS_MODE=/d; /^RADIUS_ADMIN_PASSWORD=/d' .env
 
   mkdir -p data
   chmod 600 .env
@@ -617,8 +616,8 @@ Useful commands:
   sudo systemctl status amp-dashboard.service
   sudo systemctl status amp-network-agent.service
 
-If a serial adapter is connected later, rerun this installer so that .env is
-updated from /dev/null to /dev/ttyACM0 or /dev/ttyUSB0.
+An administrator can select a connected /dev/ttyACM* or /dev/ttyUSB* adapter
+from Service Settings without rerunning this installer.
 
 You may need to close and reopen the Linux shell once before docker commands
 work without sudo. The dashboard is already running.
