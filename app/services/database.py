@@ -447,3 +447,51 @@ def query_history(range_value: str, start: str | None = None, end: str | None = 
                 point[field] = row[field]
         points.append(point)
     return points
+
+
+def query_raw_history(range_value: str, start: str | None = None, end: str | None = None):
+    """Return every stored sample in the selected period without aggregation."""
+    init_database()
+    if connection is None:
+        return None
+
+    try:
+        start_ms = _parse_boundary(start)
+        if start_ms is None:
+            range_start = _range_start(range_value)
+            start_ms = round(range_start.timestamp() * 1000) if range_start else None
+        end_ms = _parse_boundary(end)
+
+        clauses = []
+        parameters = []
+        if start_ms is not None:
+            clauses.append("timestamp_ms >= ?")
+            parameters.append(start_ms)
+        if end_ms is not None:
+            clauses.append("timestamp_ms <= ?")
+            parameters.append(end_ms)
+        where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        sql = f"""
+            SELECT timestamp_ms, {FIELD_COLUMNS}
+            FROM samples
+            {where_clause}
+            ORDER BY timestamp_ms ASC, id ASC
+        """
+        with database_lock:
+            rows = connection.execute(sql, parameters).fetchall()
+    except (TypeError, ValueError, sqlite3.Error) as error:
+        _set_error("raw history query", error)
+        return None
+
+    points = []
+    for row in rows:
+        point = {
+            "time": datetime.datetime.fromtimestamp(
+                row["timestamp_ms"] / 1000, datetime.timezone.utc
+            ).isoformat()
+        }
+        for field in HISTORY_FIELDS:
+            if row[field] is not None:
+                point[field] = row[field]
+        points.append(point)
+    return points

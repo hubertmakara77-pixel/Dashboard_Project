@@ -91,6 +91,30 @@ class DatabaseServiceTests(unittest.TestCase):
         self.assertEqual(points[0]["PiA"], 2.0)
         self.assertEqual(points[0]["PoA"], 4.0)
 
+    def test_raw_history_returns_every_sample_without_aggregation(self):
+        database_service.write_measurement(
+            {"PiA": 1.0, "PoA": 3.0}, "2026-07-17T10:15:30+00:00"
+        )
+        database_service.write_measurement(
+            {"PiA": 3.0, "PoA": 5.0}, "2026-07-17T10:15:30.500000+00:00"
+        )
+
+        points = database_service.query_raw_history(
+            "5m",
+            start="2026-07-17T10:15:00+00:00",
+            end="2026-07-17T10:16:00+00:00",
+        )
+
+        self.assertEqual(len(points), 2)
+        self.assertEqual([point["PiA"] for point in points], [1.0, 3.0])
+        self.assertEqual(
+            [point["time"] for point in points],
+            [
+                "2026-07-17T10:15:30+00:00",
+                "2026-07-17T10:15:30.500000+00:00",
+            ],
+        )
+
     def test_setpoint_is_stored_as_separate_measurement(self):
         database_service.write_setpoint(12.5, "2026-07-17T10:15:30+00:00")
         row = database_service.connection.execute(

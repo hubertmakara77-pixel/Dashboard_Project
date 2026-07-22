@@ -58,6 +58,13 @@ def _read_history(range_value: str, start: str | None, end: str | None) -> list[
     return points
 
 
+def _read_raw_history(range_value: str, start: str | None, end: str | None) -> list[dict]:
+    points = database_service.query_raw_history(range_value, start, end)
+    if points is None:
+        raise fastapi.HTTPException(status_code=503, detail="Local database is unavailable")
+    return points
+
+
 @router.get("/api/history")
 def history(
     range: str = "5m",
@@ -88,7 +95,7 @@ def export_history_csv(
     ),
 ):
     range, start, end = _normalize_request(range, start, end)
-    points = _read_history(range, start, end)
+    points = _read_raw_history(range, start, end)
     output = io.StringIO()
     output.write("sep=;\r\n")
     writer = csv.DictWriter(
