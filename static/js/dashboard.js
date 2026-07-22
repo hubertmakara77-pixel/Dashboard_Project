@@ -1120,12 +1120,19 @@ function resizeChartInCard(card) {
 	}
 }
 
+function getChartSizeIcon(expanded) {
+	const path = expanded
+		? 'M8 3v5H3 M16 3v5h5 M8 21v-5H3 M16 21v-5h5'
+		: 'M8 3H3v5 M16 3h5v5 M3 16v5h5 M21 16v5h-5'
+	return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${path}"></path></svg>`
+}
+
 function setChartExpanded(card, expanded) {
 	card.classList.toggle('expanded', expanded)
 	const button = card.querySelector('.chart-expand-button')
 	const title = card.querySelector('h3')?.textContent || 'chart'
 	if (button) {
-		button.innerHTML = expanded ? '&#x2921;' : '&#x2922;'
+		button.innerHTML = getChartSizeIcon(expanded)
 		button.setAttribute('aria-label', `${expanded ? 'Reduce' : 'Expand'} ${title} chart`)
 		button.title = expanded ? 'Reduce chart' : 'Expand chart'
 		button.setAttribute('aria-pressed', String(expanded))
@@ -1135,6 +1142,8 @@ function setChartExpanded(card, expanded) {
 
 function setupChartExpansion() {
 	document.querySelectorAll('.chart-expand-button').forEach(button => {
+		button.innerHTML = getChartSizeIcon(false)
+		button.setAttribute('aria-pressed', 'false')
 		button.addEventListener('click', () => {
 			const card = button.closest('.chart-card')
 			if (!card) return

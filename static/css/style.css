@@ -596,6 +596,13 @@ select {
     border-color: #57c08a;
 }
 
+.chart-expand-button svg {
+    display: block;
+    width: 17px;
+    height: 17px;
+    stroke: currentColor;
+}
+
 .chart-card.expanded {
     order: 1;
     grid-column: 1 / -1;
