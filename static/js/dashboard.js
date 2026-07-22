@@ -381,12 +381,6 @@ async function loadNtpStatus(force = false) {
 document.getElementById('refresh-ntp-button')?.addEventListener('click', () => loadNtpStatus(true))
 
 function updateDatabaseStatus(database = {}) {
-	const state = String(database.state || 'error').toUpperCase()
-	const statusElement = document.getElementById('status-database')
-	if (statusElement) {
-		statusElement.textContent = state
-		statusElement.className = database.ready ? 'status-ok' : 'status-error'
-	}
 	setTextIfExists('status-database-records', String(database.records ?? 0))
 }
 

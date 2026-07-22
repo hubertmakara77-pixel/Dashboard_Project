@@ -14,6 +14,62 @@ fail() {
   exit 1
 }
 
+prepare_privilege_escalation() {
+  if [[ "$EUID" -eq 0 ]]; then
+    # Keep the rest of the installer identical for root and sudo users.
+    sudo() {
+      "$@"
+    }
+  elif ! command -v sudo >/dev/null 2>&1; then
+    fail "Run this installer as root or install sudo first."
+  fi
+}
+
+prompt_value() {
+  local variable_name="$1"
+  local label="$2"
+  local default_value="$3"
+  local entered_value
+
+  if [[ -n "$default_value" ]]; then
+    read -r -p "${label} [${default_value}]: " entered_value
+  else
+    read -r -p "${label}: " entered_value
+  fi
+  printf -v "$variable_name" '%s' "${entered_value:-$default_value}"
+}
+
+prompt_secret() {
+  local variable_name="$1"
+  local label="$2"
+  local current_value="$3"
+  local entered_value
+
+  if [[ -n "$current_value" ]]; then
+    read -r -s -p "${label} [Enter keeps current]: " entered_value
+  else
+    read -r -s -p "${label}: " entered_value
+  fi
+  printf '\n'
+  printf -v "$variable_name" '%s' "${entered_value:-$current_value}"
+}
+
+confirm() {
+  local question="$1"
+  local default_answer="${2:-no}"
+  local suffix="[y/N]"
+  local answer
+
+  [[ "$default_answer" == "yes" ]] && suffix="[Y/n]"
+  read -r -p "${question} ${suffix}: " answer
+  answer="${answer:-$default_answer}"
+  case "${answer,,}" in
+    y|yes) return 0 ;;
+    n|no) return 1 ;;
+    *) fail "Answer yes or no." ;;
+  esac
+}
+
 require_linux() {
   [[ "$(uname -s)" == "Linux" ]] || fail "This installer requires Linux."
 
@@ -27,14 +83,30 @@ systemd_is_running() {
 }
 
 install_system_packages() {
-  info "Installing required system packages"
+  local packages=(ca-certificates curl gnupg iproute2 logrotate python3 rsyslog systemd-timesyncd)
+  local missing_packages=()
+  local package
+
+  for package in "${packages[@]}"; do
+    if ! dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q '^install ok installed$'; then
+      missing_packages+=("$package")
+    fi
+  done
+
+  if (( ${#missing_packages[@]} == 0 )); then
+    info "Required system packages are already installed"
+    return
+  fi
+
+  info "Installing missing system packages: ${missing_packages[*]}"
   sudo apt-get update
-  sudo apt-get install -y ca-certificates curl gnupg iproute2 logrotate python3 rsyslog systemd-timesyncd
+  sudo apt-get install -y "${missing_packages[@]}"
 }
 
 install_docker_engine() {
   local docker_arch
   local docker_codename
+  local docker_user
 
   # Check for the Linux daemon, not only for the Docker client.
   if ! command -v dockerd >/dev/null 2>&1; then
@@ -72,7 +144,13 @@ install_docker_engine() {
     sudo service docker start
   fi
 
-  sudo usermod -aG docker "$USER" || true
+  docker_user="${SUDO_USER:-}"
+  if [[ -z "$docker_user" || "$docker_user" == "root" ]]; then
+    docker_user="$(stat -c '%U' "$PROJECT_DIR" 2>/dev/null || true)"
+  fi
+  if [[ -n "$docker_user" && "$docker_user" != "root" ]] && id "$docker_user" >/dev/null 2>&1; then
+    sudo usermod -aG docker "$docker_user"
+  fi
 }
 
 detect_serial_device() {
@@ -211,7 +289,7 @@ set_env_default() {
 }
 
 prompt_radius_configuration() {
-  local radius_server radius_port radius_secret entered_value confirmation
+  local radius_server radius_port radius_secret
 
   [[ -t 0 ]] || return
 
@@ -222,29 +300,20 @@ prompt_radius_configuration() {
   radius_secret="$(env_value RADIUS_SECRET)"
 
   info "Remote RADIUS configuration"
-  read -r -p "RADIUS server address (${radius_server}): " entered_value
-  radius_server="${entered_value:-$radius_server}"
-  read -r -p "RADIUS UDP port (${radius_port}): " entered_value
-  radius_port="${entered_value:-$radius_port}"
-  if [[ -n "$radius_secret" ]]; then
-    read -r -s -p "RADIUS shared secret (Enter keeps the current secret): " entered_value
-  else
-    read -r -s -p "RADIUS shared secret: " entered_value
-  fi
-  printf '\n'
-  radius_secret="${entered_value:-$radius_secret}"
+  prompt_value radius_server "RADIUS server address" "$radius_server"
+  prompt_value radius_port "RADIUS UDP port" "$radius_port"
+  prompt_secret radius_secret "RADIUS shared secret" "$radius_secret"
 
-  printf '\nRADIUS: %s:%s\n' "$radius_server" "$radius_port"
-  printf 'RADIUS shared secret: configured (hidden)\n'
-  read -r -p "Apply this remote services configuration? [y/N]: " confirmation
-  case "$confirmation" in
-    y|Y|yes|YES)
-      set_env_value "RADIUS_SERVER" "$radius_server"
-      set_env_value "RADIUS_PORT" "$radius_port"
-      set_env_value "RADIUS_SECRET" "$radius_secret"
-      ;;
-    *) fail "RADIUS configuration was not confirmed" ;;
-  esac
+  [[ -n "$radius_server" ]] || fail "RADIUS server address is required."
+  [[ "$radius_port" =~ ^[0-9]+$ ]] && (( radius_port >= 1 && radius_port <= 65535 )) || fail "RADIUS port must be between 1 and 65535."
+  [[ -n "$radius_secret" ]] || fail "RADIUS shared secret is required."
+
+  printf '\n[amp-dashboard] RADIUS: %s:%s\n' "$radius_server" "$radius_port"
+  printf '[amp-dashboard] Shared secret: configured (hidden)\n'
+  confirm "Apply RADIUS configuration?" no || fail "RADIUS configuration was not confirmed."
+  set_env_value "RADIUS_SERVER" "$radius_server"
+  set_env_value "RADIUS_PORT" "$radius_port"
+  set_env_value "RADIUS_SECRET" "$radius_secret"
 }
 
 validate_radius_configuration() {
@@ -263,8 +332,6 @@ prompt_remote_syslog_configuration() {
   local remote_port
   local remote_protocol
   local choice
-  local entered_value
-  local confirmation
 
   [[ -t 0 ]] || return
 
@@ -278,12 +345,18 @@ prompt_remote_syslog_configuration() {
   info "Remote syslog configuration"
   case "${current_enabled,,}" in
     true|yes|1|on)
-      read -r -p "Forward dashboard logs to a remote syslog server? [Y/n]: " choice
-      choice="${choice:-yes}"
+      if confirm "Forward dashboard logs to a remote syslog server?" yes; then
+        choice="yes"
+      else
+        choice="no"
+      fi
       ;;
     *)
-      read -r -p "Forward dashboard logs to a remote syslog server? [y/N]: " choice
-      choice="${choice:-no}"
+      if confirm "Forward dashboard logs to a remote syslog server?" no; then
+        choice="yes"
+      else
+        choice="no"
+      fi
       ;;
   esac
 
@@ -294,29 +367,24 @@ prompt_remote_syslog_configuration() {
       return
       ;;
     y|yes) ;;
-    *) fail "Answer yes or no for remote syslog forwarding" ;;
   esac
 
-  read -r -p "Remote syslog server address (${remote_host}): " entered_value
-  remote_host="${entered_value:-$remote_host}"
-  read -r -p "Remote syslog port (${remote_port}): " entered_value
-  remote_port="${entered_value:-$remote_port}"
-  read -r -p "Protocol [tcp/udp] (${remote_protocol}): " entered_value
-  remote_protocol="${entered_value:-$remote_protocol}"
+  prompt_value remote_host "Remote syslog server address" "$remote_host"
+  prompt_value remote_port "Remote syslog port" "$remote_port"
+  prompt_value remote_protocol "Remote syslog protocol (tcp/udp)" "$remote_protocol"
   remote_protocol="${remote_protocol,,}"
 
-  printf '\nRemote syslog: %s:%s over %s\n' "$remote_host" "$remote_port" "$remote_protocol"
-  printf 'The local log will also remain enabled.\n'
-  read -r -p "Apply this remote syslog configuration? [y/N]: " confirmation
-  case "$confirmation" in
-    y|Y|yes|YES)
-      set_env_value "REMOTE_SYSLOG_ENABLED" "true"
-      set_env_value "REMOTE_SYSLOG_HOST" "$remote_host"
-      set_env_value "REMOTE_SYSLOG_PORT" "$remote_port"
-      set_env_value "REMOTE_SYSLOG_PROTOCOL" "$remote_protocol"
-      ;;
-    *) fail "Remote syslog configuration was not confirmed" ;;
-  esac
+  [[ -n "$remote_host" ]] || fail "Remote syslog server address is required."
+  [[ "$remote_port" =~ ^[0-9]+$ ]] && (( remote_port >= 1 && remote_port <= 65535 )) || fail "Remote syslog port must be between 1 and 65535."
+  [[ "$remote_protocol" == "tcp" || "$remote_protocol" == "udp" ]] || fail "Remote syslog protocol must be tcp or udp."
+
+  printf '\n[amp-dashboard] Remote syslog: %s:%s over %s\n' "$remote_host" "$remote_port" "$remote_protocol"
+  printf '[amp-dashboard] Local logging: enabled\n'
+  confirm "Apply remote syslog configuration?" no || fail "Remote syslog configuration was not confirmed."
+  set_env_value "REMOTE_SYSLOG_ENABLED" "true"
+  set_env_value "REMOTE_SYSLOG_HOST" "$remote_host"
+  set_env_value "REMOTE_SYSLOG_PORT" "$remote_port"
+  set_env_value "REMOTE_SYSLOG_PROTOCOL" "$remote_protocol"
 }
 
 ensure_random_secret() {
@@ -464,11 +532,12 @@ LOGROTATE
 }
 
 start_dashboard() {
-  info "Building and starting containers"
-  # --remove-orphans also stops old local InfluxDB and FreeRADIUS containers
-  # left by installations made before both services became remote-only.
-  sudo docker compose up -d --build --remove-orphans
-  sudo systemctl start amp-dashboard.service
+  info "Building dashboard image"
+  sudo docker compose build
+  info "Starting dashboard service"
+  # The systemd unit uses --remove-orphans, which also stops containers left
+  # by installations from before InfluxDB and FreeRADIUS became external.
+  sudo systemctl restart amp-dashboard.service
 }
 
 install_network_agent_service() {
@@ -503,7 +572,8 @@ WantedBy=multi-user.target
 SERVICE
 
   sudo systemctl daemon-reload
-  sudo systemctl enable --now amp-network-agent.service
+  sudo systemctl enable amp-network-agent.service
+  sudo systemctl restart amp-network-agent.service
 }
 
 install_dashboard_service() {
@@ -547,7 +617,7 @@ Dashboard:
 Device identifier:
   $(env_value "DEVICE_NAME")
 
-Local database:
+Data storage:
   SQLite file $(env_value "DATABASE_FILE")
   maximum records: $(env_value "DATABASE_MAX_RECORDS")
 
@@ -585,6 +655,7 @@ SUMMARY
 }
 
 require_linux
+prepare_privilege_escalation
 systemd_is_running || fail "systemd must be running on the Linux server."
 install_system_packages
 install_docker_engine
