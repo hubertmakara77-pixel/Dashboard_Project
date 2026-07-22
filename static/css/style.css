@@ -532,7 +532,7 @@ select {
 
 .charts-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 20px;
 }
 
@@ -545,6 +545,8 @@ select {
 .chart-card {
     position: relative;
     order: 2;
+    min-width: 0;
+    width: 100%;
     height: 430px;
     background: #121b18;
     border: 1px solid #20352d;
@@ -602,7 +604,14 @@ select {
     box-shadow: 0 12px 36px rgb(0 0 0 / 35%);
 }
 
+.chart-card:not(.expanded) {
+    grid-column: auto;
+}
+
 .chart-card canvas {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
     width: 100%;
     height: 350px;
 }

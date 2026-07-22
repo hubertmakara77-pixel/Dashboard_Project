@@ -13,6 +13,7 @@ let currentUser = null
 let selectedStart = null
 let selectedEnd = null
 let latestNetwork = null
+const chartSeriesVisibility = new Map()
 
 function formatDbm(value) {
 	if (value === null || value === undefined) return '-- dBm'
@@ -1038,6 +1039,10 @@ async function updateStatisticsTable() {
 function createOrUpdateChart(existingChart, canvasId, labels, fullTimestamps, datasets, yLabel) {
 	const canvas = document.getElementById(canvasId)
 	if (!canvas || typeof Chart === 'undefined') return existingChart
+	datasets.forEach(dataset => {
+		const savedVisibility = chartSeriesVisibility.get(`${canvasId}:${dataset.label}`)
+		if (savedVisibility !== undefined) dataset.hidden = !savedVisibility
+	})
 
 	if (existingChart === null) {
 		const chart = new Chart(canvas, {
@@ -1059,6 +1064,14 @@ function createOrUpdateChart(existingChart, canvasId, labels, fullTimestamps, da
 					},
 					legend: {
 						labels: { usePointStyle: true },
+						onClick: (_event, legendItem, legend) => {
+							const index = legendItem.datasetIndex
+							const dataset = legend.chart.data.datasets[index]
+							const visible = !legend.chart.isDatasetVisible(index)
+							chartSeriesVisibility.set(`${canvasId}:${dataset.label}`, visible)
+							legend.chart.setDatasetVisibility(index, visible)
+							legend.chart.update()
+						},
 						onHover: event => {
 							if (event.native && event.native.target) event.native.target.style.cursor = 'pointer'
 						},
@@ -1086,6 +1099,10 @@ function createOrUpdateChart(existingChart, canvasId, labels, fullTimestamps, da
 
 	existingChart.data.labels = labels
 	existingChart.data.datasets = datasets
+	datasets.forEach((dataset, index) => {
+		const savedVisibility = chartSeriesVisibility.get(`${canvasId}:${dataset.label}`)
+		if (savedVisibility !== undefined) existingChart.setDatasetVisibility(index, savedVisibility)
+	})
 	existingChart.fullTimestamps = fullTimestamps
 	existingChart.update()
 	return existingChart
@@ -1095,7 +1112,12 @@ function resizeChartInCard(card) {
 	const canvas = card.querySelector('canvas')
 	if (!canvas || typeof Chart === 'undefined' || typeof Chart.getChart !== 'function') return
 	const chart = Chart.getChart(canvas)
-	if (chart) window.requestAnimationFrame(() => chart.resize())
+	if (chart) {
+		window.requestAnimationFrame(() => {
+			window.requestAnimationFrame(() => chart.resize())
+		})
+		window.setTimeout(() => chart.resize(), 200)
+	}
 }
 
 function setChartExpanded(card, expanded) {
@@ -1103,7 +1125,7 @@ function setChartExpanded(card, expanded) {
 	const button = card.querySelector('.chart-expand-button')
 	const title = card.querySelector('h3')?.textContent || 'chart'
 	if (button) {
-		button.textContent = expanded ? '⤡' : '⤢'
+		button.innerHTML = expanded ? '&#x2921;' : '&#x2922;'
 		button.setAttribute('aria-label', `${expanded ? 'Reduce' : 'Expand'} ${title} chart`)
 		button.title = expanded ? 'Reduce chart' : 'Expand chart'
 		button.setAttribute('aria-pressed', String(expanded))
