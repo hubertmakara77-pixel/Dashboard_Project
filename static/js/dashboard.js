@@ -868,7 +868,57 @@ function setupAccessControl() {
 }
 
 function getLabels(points) {
-	return points.map(point => new Date(point.time).toLocaleTimeString())
+	return points.map(point => formatChartTimestamp(point.time))
+}
+
+function formatChartTimestamp(value) {
+	const date = new Date(value)
+	if (Number.isNaN(date.getTime())) return value || ''
+
+	const pad = number => String(number).padStart(2, '0')
+	return [
+		date.getFullYear(),
+		pad(date.getMonth() + 1),
+		pad(date.getDate()),
+	].join('-') + ` ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+
+function addHistoryGapMarkers(points) {
+	if (points.length < 2) return points
+
+	const datedPoints = points.map(point => ({ point, timestamp: new Date(point.time).getTime() }))
+	const intervals = []
+	for (let index = 1; index < datedPoints.length; index += 1) {
+		const interval = datedPoints[index].timestamp - datedPoints[index - 1].timestamp
+		if (Number.isFinite(interval) && interval > 0) intervals.push(interval)
+	}
+	if (!intervals.length) return points
+
+	intervals.sort((left, right) => left - right)
+	// A lower quartile represents the normal sampling cadence without letting
+	// one or more long outages inflate the threshold used to detect a gap.
+	const typicalInterval = intervals[Math.floor((intervals.length - 1) * 0.25)]
+	const bucketMs = {
+		'5m': 1000,
+		'1h': 10000,
+		'24h': 60000,
+		'7d': 600000,
+		'30d': 1800000,
+		'all': 3600000,
+	}[selectedRange] || 1000
+	const gapThreshold = Math.max(bucketMs, typicalInterval) * 2.5
+	const result = [datedPoints[0].point]
+
+	for (let index = 1; index < datedPoints.length; index += 1) {
+		const previous = datedPoints[index - 1]
+		const current = datedPoints[index]
+		if (current.timestamp - previous.timestamp > gapThreshold) {
+			result.push({ time: new Date((previous.timestamp + current.timestamp) / 2).toISOString() })
+		}
+		result.push(current.point)
+	}
+
+	return result
 }
 
 function getValues(points, field) {
@@ -974,7 +1024,25 @@ function createOrUpdateChart(existingChart, canvasId, labels, datasets, yLabel) 
 				animation: false,
 				responsive: true,
 				maintainAspectRatio: false,
+				plugins: {
+					legend: {
+						labels: { usePointStyle: true },
+						onHover: event => {
+							if (event.native && event.native.target) event.native.target.style.cursor = 'pointer'
+						},
+						onLeave: event => {
+							if (event.native && event.native.target) event.native.target.style.cursor = 'default'
+						},
+					},
+				},
 				scales: {
+					x: {
+						ticks: {
+							autoSkip: true,
+							maxRotation: 90,
+							minRotation: 90,
+						},
+					},
 					y: { title: { display: true, text: yLabel } },
 				},
 			},
@@ -987,6 +1055,44 @@ function createOrUpdateChart(existingChart, canvasId, labels, datasets, yLabel) 
 	return existingChart
 }
 
+function resizeChartInCard(card) {
+	const canvas = card.querySelector('canvas')
+	if (!canvas || typeof Chart === 'undefined' || typeof Chart.getChart !== 'function') return
+	const chart = Chart.getChart(canvas)
+	if (chart) window.requestAnimationFrame(() => chart.resize())
+}
+
+function setChartExpanded(card, expanded) {
+	card.classList.toggle('expanded', expanded)
+	const button = card.querySelector('.chart-expand-button')
+	const title = card.querySelector('h3')?.textContent || 'chart'
+	if (button) {
+		button.setAttribute('aria-label', `${expanded ? 'Reduce' : 'Expand'} ${title} chart`)
+		button.title = expanded ? 'Reduce chart' : 'Expand chart'
+		button.setAttribute('aria-pressed', String(expanded))
+	}
+	resizeChartInCard(card)
+}
+
+function setupChartExpansion() {
+	document.querySelectorAll('.chart-expand-button').forEach(button => {
+		button.addEventListener('click', () => {
+			const card = button.closest('.chart-card')
+			if (!card) return
+			const shouldExpand = !card.classList.contains('expanded')
+			document.querySelectorAll('.chart-card.expanded').forEach(expandedCard => {
+				if (expandedCard !== card) setChartExpanded(expandedCard, false)
+			})
+			setChartExpanded(card, shouldExpand)
+		})
+	})
+
+	document.addEventListener('keydown', event => {
+		if (event.key !== 'Escape') return
+		document.querySelectorAll('.chart-card.expanded').forEach(card => setChartExpanded(card, false))
+	})
+}
+
 async function updateOverviewCharts() {
 	if (!currentUser) return
 
@@ -995,7 +1101,7 @@ async function updateOverviewCharts() {
 		handleAuthResponse(response)
 		if (!response.ok) throw new Error('HTTP error ' + response.status)
 		const json = await response.json()
-		const points = json.points || []
+		const points = addHistoryGapMarkers(json.points || [])
 		const labels = getLabels(points)
 
 		powerChart = createOrUpdateChart(
@@ -1003,10 +1109,10 @@ async function updateOverviewCharts() {
 			'power-chart',
 			labels,
 			[
-				{ label: 'PiA', data: getValues(points, 'PiA') },
-				{ label: 'PoA', data: getValues(points, 'PoA') },
-				{ label: 'PiB', data: getValues(points, 'PiB') },
-				{ label: 'PoB', data: getValues(points, 'PoB') },
+				{ label: 'PiA', data: getValues(points, 'PiA'), spanGaps: false },
+				{ label: 'PoA', data: getValues(points, 'PoA'), spanGaps: false },
+				{ label: 'PiB', data: getValues(points, 'PiB'), spanGaps: false },
+				{ label: 'PoB', data: getValues(points, 'PoB'), spanGaps: false },
 			],
 			'Power [dBm]',
 		)
@@ -1016,8 +1122,8 @@ async function updateOverviewCharts() {
 			'gain-chart',
 			labels,
 			[
-				{ label: 'Gain set', data: getValues(points, 'gain_set') },
-				{ label: 'Gain actual', data: getValues(points, 'gain_actual') },
+				{ label: 'Gain set', data: getValues(points, 'gain_set'), spanGaps: false },
+				{ label: 'Gain actual', data: getValues(points, 'gain_actual'), spanGaps: false },
 			],
 			'Gain [dB]',
 		)
@@ -1026,7 +1132,7 @@ async function updateOverviewCharts() {
 			deltaChart,
 			'delta-chart',
 			labels,
-			[{ label: 'Gain delta', data: getValues(points, 'gain_delta') }],
+			[{ label: 'Gain delta', data: getValues(points, 'gain_delta'), spanGaps: false }],
 			'Delta [dB]',
 		)
 
@@ -1034,7 +1140,7 @@ async function updateOverviewCharts() {
 			temperatureChart,
 			'temperature-chart',
 			labels,
-			[{ label: 'Temperature', data: getValues(points, 'temperature') }],
+			[{ label: 'Temperature', data: getValues(points, 'temperature'), spanGaps: false }],
 			'Temperature [C]',
 		)
 	} catch (error) {
@@ -1217,6 +1323,7 @@ setupSettingsButtons()
 setupRangeButtons()
 setupAccessControl()
 setupAuth()
+setupChartExpansion()
 
 checkAuth().then(isAuthenticated => {
 	if (isAuthenticated) {
