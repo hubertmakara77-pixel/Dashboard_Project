@@ -4,8 +4,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-import config
-import state
+from app.core import config, state
 
 
 class StateSecurityTests(unittest.TestCase):

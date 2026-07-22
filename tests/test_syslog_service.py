@@ -2,15 +2,15 @@ import datetime
 import unittest
 from unittest import mock
 
-import config
-import syslog_service
+from app.core import config
+from app.services import syslog as syslog_service
 
 
 class SyslogServiceTests(unittest.TestCase):
     def test_message_is_sent_to_system_syslog_over_udp(self):
         with (
             mock.patch.object(config, "SYSLOG_ENABLED", True),
-            mock.patch("syslog_service.socket.socket") as socket_mock,
+            mock.patch("app.services.syslog.socket.socket") as socket_mock,
         ):
             syslog_service.send_syslog("changed=value", syslog_service.SEVERITY_INFO)
 
@@ -26,7 +26,7 @@ class SyslogServiceTests(unittest.TestCase):
     def test_disabled_syslog_does_not_send(self):
         with (
             mock.patch.object(config, "SYSLOG_ENABLED", False),
-            mock.patch("syslog_service.socket.socket") as socket_mock,
+            mock.patch("app.services.syslog.socket.socket") as socket_mock,
         ):
             syslog_service.send_syslog("ignored", syslog_service.SEVERITY_INFO)
 
@@ -38,8 +38,8 @@ class SyslogServiceTests(unittest.TestCase):
         )
         with (
             mock.patch.object(config, "SYSLOG_ENABLED", True),
-            mock.patch("syslog_service.local_now", return_value=fixed_time),
-            mock.patch("syslog_service.socket.socket") as socket_mock,
+            mock.patch("app.services.syslog.local_now", return_value=fixed_time),
+            mock.patch("app.services.syslog.socket.socket") as socket_mock,
         ):
             syslog_service.send_audit("settings_updated", "admin", "127.0.0.1")
 
@@ -54,7 +54,7 @@ class SyslogServiceTests(unittest.TestCase):
     def test_warning_relies_on_syslog_header_timestamp(self):
         with (
             mock.patch.object(config, "SYSLOG_ENABLED", True),
-            mock.patch("syslog_service.socket.socket") as socket_mock,
+            mock.patch("app.services.syslog.socket.socket") as socket_mock,
         ):
             syslog_service.send_warning("WARNING field=PiA")
 
@@ -68,7 +68,7 @@ class SyslogServiceTests(unittest.TestCase):
     def test_lifecycle_event_contains_event_and_fields(self):
         with (
             mock.patch.object(config, "SYSLOG_ENABLED", True),
-            mock.patch("syslog_service.socket.socket") as socket_mock,
+            mock.patch("app.services.syslog.socket.socket") as socket_mock,
         ):
             syslog_service.send_lifecycle(
                 "heartbeat",

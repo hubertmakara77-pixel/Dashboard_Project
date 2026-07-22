@@ -1,7 +1,12 @@
 import json
 import unittest
 
-from network_agent import CommandResult, NetworkAgentError, apply_network_settings, get_network_state
+from tools.network_agent import (
+    CommandResult,
+    NetworkAgentError,
+    apply_network_settings,
+    get_network_state,
+)
 
 ADDRESSES = [{"ifname": "lo", "operstate": "UNKNOWN", "addr_info": [{"family": "inet", "local": "127.0.0.1", "prefixlen": 8}]}, {"ifname": "eth0", "address": "dc:a6:32:00:00:01", "operstate": "UP", "addr_info": [{"family": "inet", "local": "192.168.10.20", "prefixlen": 24}]}]
 ROUTES = [{"dst": "default", "gateway": "192.168.10.1", "dev": "eth0"}]

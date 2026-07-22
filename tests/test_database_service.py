@@ -3,9 +3,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import config
-import database_service
-import state
+from app.core import config, state
+from app.services import database as database_service
 
 
 class DatabaseServiceTests(unittest.TestCase):
@@ -39,15 +38,14 @@ class DatabaseServiceTests(unittest.TestCase):
 
         self.assertEqual(database_service.get_record_count(), 1)
         row = database_service.connection.execute(
-            "SELECT measurement, timestamp, fields_json FROM measurements"
+            "SELECT timestamp_ms, PiA FROM samples"
         ).fetchone()
-        self.assertEqual(row["measurement"], config.MEASUREMENT_NAME)
-        self.assertEqual(row["timestamp"], timestamp)
-        self.assertIn('"PiA":1.0', row["fields_json"])
+        self.assertEqual(row["timestamp_ms"], 1784283330000)
+        self.assertEqual(row["PiA"], 1.0)
 
     def test_record_limit_discards_oldest_measurement(self):
         state.service_settings["database_max_records"] = 2
-        with mock.patch("database_service.syslog_service.send_warning") as warning_mock:
+        with mock.patch("app.services.database.syslog_service.send_warning") as warning_mock:
             for second in range(3):
                 database_service.write_measurement(
                     {"PiA": float(second)},
@@ -55,11 +53,11 @@ class DatabaseServiceTests(unittest.TestCase):
                 )
 
         rows = database_service.connection.execute(
-            "SELECT timestamp FROM measurements ORDER BY id"
+            "SELECT timestamp_ms FROM samples ORDER BY id"
         ).fetchall()
         self.assertEqual(
-            [row["timestamp"] for row in rows],
-            ["2026-07-17T10:15:31+00:00", "2026-07-17T10:15:32+00:00"],
+            [row["timestamp_ms"] for row in rows],
+            [1784283331000, 1784283332000],
         )
         warning_mock.assert_called_once()
         self.assertEqual(database_service.discarded_records, 1)
@@ -96,10 +94,59 @@ class DatabaseServiceTests(unittest.TestCase):
     def test_setpoint_is_stored_as_separate_measurement(self):
         database_service.write_setpoint(12.5, "2026-07-17T10:15:30+00:00")
         row = database_service.connection.execute(
-            "SELECT measurement, fields_json FROM measurements"
+            "SELECT timestamp_ms, gain_set FROM setpoint_events"
         ).fetchone()
-        self.assertEqual(row["measurement"], config.SETPOINT_MEASUREMENT_NAME)
-        self.assertIn('"gain_set":12.5', row["fields_json"])
+        self.assertEqual(row["timestamp_ms"], 1784283330000)
+        self.assertEqual(row["gain_set"], 12.5)
+
+    def test_legacy_json_database_is_migrated_without_data_loss(self):
+        database_service.close_database()
+        legacy = database_service.sqlite3.connect(config.DATABASE_FILE)
+        legacy.execute(
+            """
+            CREATE TABLE measurements (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                measurement TEXT NOT NULL,
+                device TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                timestamp_epoch REAL NOT NULL,
+                fields_json TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            )
+            """
+        )
+        legacy.execute(
+            """
+            INSERT INTO measurements
+                (measurement, device, timestamp, timestamp_epoch, fields_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "optical_amp_status",
+                config.DEVICE_NAME,
+                "2026-07-17T10:15:30+00:00",
+                1784283330.0,
+                '{"PiA":1.25,"PoA":4.5}',
+                1784283330,
+            ),
+        )
+        legacy.commit()
+        legacy.close()
+
+        database_service.init_database()
+
+        row = database_service.connection.execute(
+            "SELECT timestamp_ms, PiA, PoA FROM samples"
+        ).fetchone()
+        self.assertEqual(dict(row), {
+            "timestamp_ms": 1784283330000,
+            "PiA": 1.25,
+            "PoA": 4.5,
+        })
+        old_table = database_service.connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='measurements'"
+        ).fetchone()
+        self.assertIsNone(old_table)
 
     def test_runtime_status_reports_ready_database(self):
         database_service.write_measurement(

@@ -5,7 +5,7 @@ from pyrad.client import Client, Timeout
 from pyrad.dictionary import Dictionary
 import pyrad.packet
 
-import config
+from app.core import config
 
 logger = logging.getLogger(__name__)
 

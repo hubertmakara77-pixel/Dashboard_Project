@@ -3,7 +3,7 @@ import json
 import pathlib
 import threading
 
-import config
+from app.core import config
 
 
 persist_lock = threading.Lock()
@@ -176,7 +176,6 @@ latest_snmp_data = {}
 serial_connected = False
 serial_error = None
 last_update = None
-last_command_response = None
 last_known_gain_set = float(persisted_state.get("last_known_gain_set", 15.0))
 
 serial_port = None
@@ -186,7 +185,6 @@ serial_lock = threading.Lock()
 stop_event = threading.Event()
 serial_reconnect_event = threading.Event()
 
-history_buffer = collections.deque(maxlen=config.HISTORY_MEMORY_LIMIT)
 error_buffer = collections.deque(maxlen=500)
 active_warning_keys = set()
 auth_sessions = {}

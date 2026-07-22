@@ -476,7 +476,7 @@ install_network_agent_service() {
   python_path="$(command -v python3)"
 
   info "Installing host network agent"
-  sudo install -D -m 0755 "${PROJECT_DIR}/network_agent.py" /usr/local/lib/amp-dashboard/network_agent.py
+  sudo install -D -m 0755 "${PROJECT_DIR}/tools/network_agent.py" /usr/local/lib/amp-dashboard/network_agent.py
   sudo tee /etc/systemd/system/amp-network-agent.service >/dev/null <<SERVICE
 [Unit]
 Description=Optical amplifier host network agent

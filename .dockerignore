@@ -1,7 +1,16 @@
 __pycache__/
 *.pyc
 .git/
+.agents/
+.gitignore
+.gitattributes
+.dockerignore
 .env
+.env.example
 data/
 persisted_state.json
-network_agent.py
+tools/
+install_dashboard.sh
+server_setup/
+tests/
+*.md

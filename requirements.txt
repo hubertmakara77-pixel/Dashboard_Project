@@ -3,7 +3,4 @@ uvicorn
 pyserial
 jinja2
 pysnmp
-itsdangerous
-python-multipart
 pyrad>=2.5.4
-tzdata

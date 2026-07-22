@@ -4,7 +4,7 @@ import struct
 import threading
 import time
 
-import config
+from app.core import config
 
 NTP_EPOCH_OFFSET = 2_208_988_800  # seconds between 1900-01-01 (NTP epoch) and 1970-01-01 (Unix epoch)
 _PACKET = b"\x1b" + 47 * b"\0"  # LI=0, VN=3, Mode=3 (client), reszta pól wyzerowana

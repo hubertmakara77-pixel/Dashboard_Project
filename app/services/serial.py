@@ -4,12 +4,10 @@ import time
 
 import serial
 
-import config
-import database_service
-import parser
-import state
-import snmp_service
-import syslog_service
+from app.core import config, parser, state
+from app.services import database as database_service
+from app.services import snmp as snmp_service
+from app.services import syslog as syslog_service
 
 
 MEASUREMENT_FIELDS = {"PiA", "PiB", "PoA", "PoB"}
@@ -177,11 +175,6 @@ def _serial_reader_session(port: str):
 
             if is_command_response(data):
                 with state.state_lock:
-                    state.last_command_response = {
-                        "time": now,
-                        **data
-                    }
-
                     if "gain_set" in data:
                         state.last_known_gain_set = float(data["gain_set"])
                         state.save_persisted_gain_set(state.last_known_gain_set)
@@ -214,11 +207,6 @@ def _serial_reader_session(port: str):
 
                     if key not in state.active_warning_keys:
                         syslog_warnings.append(error)
-
-                state.history_buffer.append({
-                    "time": now,
-                    **data
-                })
 
                 state.active_warning_keys = current_warning_keys
 

@@ -3,7 +3,7 @@ import pathlib
 import socket
 import zoneinfo
 
-import config
+from app.core import config
 
 
 FACILITY_LOCAL0 = config.SYSLOG_FACILITY

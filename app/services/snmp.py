@@ -10,15 +10,14 @@ from pysnmp.entity.rfc3413 import cmdrsp, context
 from pysnmp.carrier.asyncio.dgram import udp
 from pysnmp.proto import rfc1902
 
-import config
-import state
+from app.core import state
 
 OID_BASE_STR = '1.3.6.1.4.1.99999'
 TRAP_OID = f"{OID_BASE_STR}.4.1"
 
 # Kompletna mapa OID -> pole z danych z Arduino.
 # .1.1.0        = status połączenia z portem szeregowym
-# .2.<n>.0      = amplifier measurements (see snmp_probe.py)
+# .2.<n>.0      = amplifier measurements (see tools/snmp_probe.py)
 STATUS_OID = f"{OID_BASE_STR}.1.1.0"
 
 FIELD_OID_MAP = {
