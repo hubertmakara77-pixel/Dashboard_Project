@@ -868,19 +868,42 @@ function setupAccessControl() {
 }
 
 function getLabels(points) {
-	return points.map(point => formatChartTimestamp(point.time))
+	const dates = points
+		.map(point => new Date(point.time))
+		.filter(date => !Number.isNaN(date.getTime()))
+	if (!dates.length) return points.map(() => '')
+
+	const first = dates[0]
+	const last = dates[dates.length - 1]
+	const sameYear = first.getFullYear() === last.getFullYear()
+	const sameDay = sameYear
+		&& first.getMonth() === last.getMonth()
+		&& first.getDate() === last.getDate()
+
+	return points.map(point => formatChartTimestamp(point.time, sameDay, sameYear))
 }
 
-function formatChartTimestamp(value) {
+function formatChartTimestamp(value, timeOnly = false, omitYear = false) {
 	const date = new Date(value)
 	if (Number.isNaN(date.getTime())) return value || ''
 
 	const pad = number => String(number).padStart(2, '0')
-	return [
-		date.getFullYear(),
-		pad(date.getMonth() + 1),
-		pad(date.getDate()),
-	].join('-') + ` ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+	const time = `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+	if (timeOnly) return time
+
+	const dateParts = [pad(date.getDate()), pad(date.getMonth() + 1)]
+	if (!omitYear) dateParts.push(String(date.getFullYear()).slice(-2))
+	return `${dateParts.join('.')} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function getFullTimestamps(points) {
+	return points.map(point => {
+		const date = new Date(point.time)
+		if (Number.isNaN(date.getTime())) return point.time || ''
+		const pad = number => String(number).padStart(2, '0')
+		return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} `
+			+ `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+	})
 }
 
 function addHistoryGapMarkers(points) {
@@ -1012,12 +1035,12 @@ async function updateStatisticsTable() {
 	}
 }
 
-function createOrUpdateChart(existingChart, canvasId, labels, datasets, yLabel) {
+function createOrUpdateChart(existingChart, canvasId, labels, fullTimestamps, datasets, yLabel) {
 	const canvas = document.getElementById(canvasId)
 	if (!canvas || typeof Chart === 'undefined') return existingChart
 
 	if (existingChart === null) {
-		return new Chart(canvas, {
+		const chart = new Chart(canvas, {
 			type: 'line',
 			data: { labels: labels, datasets: datasets },
 			options: {
@@ -1025,6 +1048,15 @@ function createOrUpdateChart(existingChart, canvasId, labels, datasets, yLabel) 
 				responsive: true,
 				maintainAspectRatio: false,
 				plugins: {
+					tooltip: {
+						callbacks: {
+							title: items => {
+								if (!items.length) return ''
+								return items[0].chart.fullTimestamps?.[items[0].dataIndex]
+									|| items[0].label
+							},
+						},
+					},
 					legend: {
 						labels: { usePointStyle: true },
 						onHover: event => {
@@ -1039,18 +1071,22 @@ function createOrUpdateChart(existingChart, canvasId, labels, datasets, yLabel) 
 					x: {
 						ticks: {
 							autoSkip: true,
-							maxRotation: 90,
-							minRotation: 90,
+							maxTicksLimit: 8,
+							maxRotation: 0,
+							minRotation: 0,
 						},
 					},
 					y: { title: { display: true, text: yLabel } },
 				},
 			},
 		})
+		chart.fullTimestamps = fullTimestamps
+		return chart
 	}
 
 	existingChart.data.labels = labels
 	existingChart.data.datasets = datasets
+	existingChart.fullTimestamps = fullTimestamps
 	existingChart.update()
 	return existingChart
 }
@@ -1101,11 +1137,13 @@ async function updateOverviewCharts() {
 		const json = await response.json()
 		const points = addHistoryGapMarkers(json.points || [])
 		const labels = getLabels(points)
+		const fullTimestamps = getFullTimestamps(points)
 
 		powerChart = createOrUpdateChart(
 			powerChart,
 			'power-chart',
 			labels,
+			fullTimestamps,
 			[
 				{ label: 'PiA', data: getValues(points, 'PiA'), spanGaps: false },
 				{ label: 'PoA', data: getValues(points, 'PoA'), spanGaps: false },
@@ -1119,6 +1157,7 @@ async function updateOverviewCharts() {
 			gainChart,
 			'gain-chart',
 			labels,
+			fullTimestamps,
 			[
 				{ label: 'Gain set', data: getValues(points, 'gain_set'), spanGaps: false },
 				{ label: 'Gain actual', data: getValues(points, 'gain_actual'), spanGaps: false },
@@ -1130,6 +1169,7 @@ async function updateOverviewCharts() {
 			deltaChart,
 			'delta-chart',
 			labels,
+			fullTimestamps,
 			[{ label: 'Gain delta', data: getValues(points, 'gain_delta'), spanGaps: false }],
 			'Delta [dB]',
 		)
@@ -1138,6 +1178,7 @@ async function updateOverviewCharts() {
 			temperatureChart,
 			'temperature-chart',
 			labels,
+			fullTimestamps,
 			[{ label: 'Temperature', data: getValues(points, 'temperature'), spanGaps: false }],
 			'Temperature [C]',
 		)
