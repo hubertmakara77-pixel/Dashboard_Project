@@ -1067,6 +1067,7 @@ function setChartExpanded(card, expanded) {
 	const button = card.querySelector('.chart-expand-button')
 	const title = card.querySelector('h3')?.textContent || 'chart'
 	if (button) {
+		button.textContent = expanded ? '⤡' : '⤢'
 		button.setAttribute('aria-label', `${expanded ? 'Reduce' : 'Expand'} ${title} chart`)
 		button.title = expanded ? 'Reduce chart' : 'Expand chart'
 		button.setAttribute('aria-pressed', String(expanded))
@@ -1080,9 +1081,6 @@ function setupChartExpansion() {
 			const card = button.closest('.chart-card')
 			if (!card) return
 			const shouldExpand = !card.classList.contains('expanded')
-			document.querySelectorAll('.chart-card.expanded').forEach(expandedCard => {
-				if (expandedCard !== card) setChartExpanded(expandedCard, false)
-			})
 			setChartExpanded(card, shouldExpand)
 		})
 	})

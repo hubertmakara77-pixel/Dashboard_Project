@@ -544,6 +544,7 @@ select {
 
 .chart-card {
     position: relative;
+    order: 2;
     height: 430px;
     background: #121b18;
     border: 1px solid #20352d;
@@ -594,9 +595,11 @@ select {
 }
 
 .chart-card.expanded {
+    order: 1;
     grid-column: 1 / -1;
-    height: 880px;
+    height: 72vh;
     border-color: #3d6e5a;
+    box-shadow: 0 12px 36px rgb(0 0 0 / 35%);
 }
 
 .chart-card canvas {
@@ -605,7 +608,7 @@ select {
 }
 
 .chart-card.expanded canvas {
-    height: 800px;
+    height: calc(100% - 42px);
 }
 
 .settings-header {
