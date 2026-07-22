@@ -26,8 +26,8 @@ function formatDb(value) {
 }
 
 function formatTemperature(value) {
-	if (value === null || value === undefined) return '-- C'
-	return Number(value).toFixed(2) + ' C'
+	if (value === null || value === undefined) return '-- \u00B0C'
+	return Number(value).toFixed(2) + ' \u00B0C'
 }
 
 function formatTime(value) {
@@ -1002,7 +1002,7 @@ async function updateStatisticsTable() {
 			['gain_set', 'Gain Setpoint', 'dB'],
 			['gain_actual', 'Actual Gain', 'dB'],
 			['gain_delta', 'Gain Delta', 'dB'],
-			['temperature', 'Temperature', 'C'],
+			['temperature', 'Temperature', '\u00B0C'],
 		]
 
 		const rows = fields
@@ -1211,7 +1211,7 @@ async function updateOverviewCharts() {
 			labels,
 			fullTimestamps,
 			[{ label: 'Temperature', data: getValues(points, 'temperature'), spanGaps: false }],
-			'Temperature [C]',
+			'Temperature [\u00B0C]',
 		)
 	} catch (error) {
 		console.error('Error fetching /api/history:', error)

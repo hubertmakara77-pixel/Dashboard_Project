@@ -176,7 +176,7 @@ select {
 
 .status-bar {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     background: #121b18;
     border-bottom: 1px solid #20352d;
 }
