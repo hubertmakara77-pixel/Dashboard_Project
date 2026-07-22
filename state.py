@@ -29,7 +29,7 @@ DEFAULT_SNMP_SETTINGS = {
 
 DEFAULT_SERVICE_SETTINGS = {
     "syslog_heartbeat_seconds": config.SYSLOG_HEARTBEAT_SECONDS,
-    "influx_buffer_max_records": config.INFLUX_BUFFER_MAX_RECORDS,
+    "database_max_records": config.DATABASE_MAX_RECORDS,
     "serial_port": config.SERIAL_PORT,
 }
 
@@ -118,7 +118,7 @@ def merge_snmp_settings(saved_settings: dict | None) -> dict:
 def merge_service_settings(saved_settings: dict | None) -> dict:
     settings = DEFAULT_SERVICE_SETTINGS.copy()
     if isinstance(saved_settings, dict):
-        for key in ("syslog_heartbeat_seconds", "influx_buffer_max_records"):
+        for key in ("syslog_heartbeat_seconds", "database_max_records"):
             if key in saved_settings:
                 try:
                     settings[key] = int(saved_settings[key])
@@ -126,8 +126,14 @@ def merge_service_settings(saved_settings: dict | None) -> dict:
                     pass
         if isinstance(saved_settings.get("serial_port"), str):
             settings["serial_port"] = saved_settings["serial_port"]
+        # Preserve the limit selected with the previous InfluxDB-buffer version.
+        if "database_max_records" not in saved_settings and "influx_buffer_max_records" in saved_settings:
+            try:
+                settings["database_max_records"] = int(saved_settings["influx_buffer_max_records"])
+            except (TypeError, ValueError):
+                pass
     settings["syslog_heartbeat_seconds"] = max(0, settings["syslog_heartbeat_seconds"])
-    settings["influx_buffer_max_records"] = max(1, settings["influx_buffer_max_records"])
+    settings["database_max_records"] = max(1, settings["database_max_records"])
     return settings
 
 

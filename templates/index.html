@@ -65,8 +65,8 @@
                 <div class="status-item">Last update: <span id="status-last-update">--</span></div>
                 <div class="status-item">System time: <span id="status-system-time">--</span></div>
                 <div class="status-item">Device status: <span id="status-connection" class="status-error">DISCONNECTED</span></div>
-                <div class="status-item">Remote database: <span id="status-influx" class="status-error">DISCONNECTED</span></div>
-                <div class="status-item">Buffered records: <span id="status-influx-pending">--</span></div>
+                <div class="status-item">Local database: <span id="status-database" class="status-error">ERROR</span></div>
+                <div class="status-item">Stored records: <span id="status-database-records">--</span></div>
             </div>
 
             <main class="content">
@@ -424,7 +424,7 @@
                         <div class="service-settings-fields">
                             <label class="form-field">Serial port<select id="service-serial-port-input" required></select></label>
                             <label class="form-field">Heartbeat interval (seconds; 0 disables)<input id="service-heartbeat-input" type="number" min="0" max="86400" required></label>
-                            <label class="form-field">Maximum SQLite records<input id="service-buffer-limit-input" type="number" min="1" max="10000000" required></label>
+                            <label class="form-field">Maximum stored records<input id="service-database-limit-input" type="number" min="1" max="10000000" required></label>
                         </div>
                     </form>
                     <div class="service-diagnostics-grid">
@@ -438,19 +438,16 @@
                             </div>
                         </div>
                         <div class="data-panel network-panel">
-                            <div class="settings-header"><h2>InfluxDB</h2><button id="refresh-services-button" type="button">Refresh</button></div>
+                            <div class="settings-header"><h2>SQLite Database</h2><button id="refresh-services-button" type="button">Refresh</button></div>
                             <div class="network-status-grid service-status-grid">
-                                <div><span>Status</span><strong id="service-influx-state">--</strong></div>
-                                <div><span>Server URL</span><strong id="service-influx-url">--</strong></div>
-                                <div><span>Organization</span><strong id="service-influx-org">--</strong></div>
-                                <div><span>Bucket</span><strong id="service-influx-bucket">--</strong></div>
-                                <div><span>Pending records</span><strong id="service-influx-pending">--</strong></div>
-                                <div><span>Buffer limit</span><strong id="service-influx-limit">--</strong></div>
-                                <div><span>SQLite buffer</span><strong id="service-influx-file">--</strong></div>
-                                <div><span>SQLite size</span><strong id="service-influx-size">--</strong></div>
-                                <div><span>Disk space available</span><strong id="service-influx-free">--</strong></div>
-                                <div><span>Discarded since startup</span><strong id="service-influx-discarded">--</strong></div>
-                                <div><span>Retry interval</span><strong id="service-influx-retry">--</strong></div>
+                                <div><span>Status</span><strong id="service-database-state">--</strong></div>
+                                <div><span>Stored records</span><strong id="service-database-records">--</strong></div>
+                                <div><span>Record limit</span><strong id="service-database-limit">--</strong></div>
+                                <div><span>Database file</span><strong id="service-database-file">--</strong></div>
+                                <div><span>Database size</span><strong id="service-database-size">--</strong></div>
+                                <div><span>Disk space available</span><strong id="service-database-free">--</strong></div>
+                                <div><span>Discarded since startup</span><strong id="service-database-discarded">--</strong></div>
+                                <div><span>Last error</span><strong id="service-database-error">--</strong></div>
                             </div>
                         </div>
                         <div class="data-panel network-panel">

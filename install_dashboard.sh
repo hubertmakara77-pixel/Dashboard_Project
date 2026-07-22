@@ -2,7 +2,6 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INFLUX_SUMMARY=""
 RADIUS_SUMMARY=""
 cd "$PROJECT_DIR"
 
@@ -133,7 +132,7 @@ prepare_environment_file() {
     info "Updating serial device in existing .env"
   fi
 
-  prompt_remote_services_configuration
+  prompt_radius_configuration
   prompt_remote_syslog_configuration
 
   # Hasło Dashboardu z poprzednich wersji nie jest już używane. RADIUS jest
@@ -148,10 +147,8 @@ prepare_environment_file() {
   fi
 
   ensure_random_secret "SNMP_COMMUNITY" 24
-  set_env_default "INFLUX_BUFFER_FILE" "/app/data/influx_buffer.db"
-  set_env_default "INFLUX_BUFFER_MAX_RECORDS" "250000"
-  set_env_default "INFLUX_BUFFER_BATCH_SIZE" "500"
-  set_env_default "INFLUX_RETRY_SECONDS" "10"
+  set_env_default "DATABASE_FILE" "/app/data/measurements.db"
+  set_env_default "DATABASE_MAX_RECORDS" "250000"
   set_env_default "RADIUS_PORT" "1812"
   set_env_default "RADIUS_TIMEOUT_SECONDS" "3"
   set_env_default "RADIUS_RETRIES" "1"
@@ -167,13 +164,11 @@ prepare_environment_file() {
   set_env_default "REMOTE_SYSLOG_PORT" "514"
   set_env_default "REMOTE_SYSLOG_PROTOCOL" "tcp"
   set_env_default "SYSLOG_HEARTBEAT_SECONDS" "300"
-  validate_remote_services_configuration
-  INFLUX_SUMMARY="remote server $(env_value INFLUX_URL), org $(env_value INFLUX_ORG), bucket $(env_value INFLUX_BUCKET)"
+  validate_radius_configuration
   RADIUS_SUMMARY="remote server $(env_value RADIUS_SERVER):$(env_value RADIUS_PORT)"
 
-  # Remove obsolete local-service settings from configurations created by
-  # earlier installer versions. Existing InfluxDB data is intentionally kept.
-  sed -i '/^INFLUX_INIT_USERNAME=/d; /^INFLUX_INIT_PASSWORD=/d; /^INFLUX_BUFFER_MIN_FREE_MB=/d; /^RADIUS_MODE=/d; /^RADIUS_ADMIN_PASSWORD=/d' .env
+  # Remove settings from obsolete InfluxDB and local RADIUS versions.
+  sed -i '/^INFLUX_/d; /^MEASUREMENT_NAME=/d; /^SETPOINT_MEASUREMENT_NAME=/d; /^RADIUS_MODE=/d; /^RADIUS_ADMIN_PASSWORD=/d' .env
 
   mkdir -p data
   chmod 600 .env
@@ -215,39 +210,16 @@ set_env_default() {
   fi
 }
 
-prompt_remote_services_configuration() {
-  local influx_url influx_token influx_org influx_bucket
+prompt_radius_configuration() {
   local radius_server radius_port radius_secret entered_value confirmation
 
   [[ -t 0 ]] || return
 
-  influx_url="$(env_value INFLUX_URL)"
-  [[ "$influx_url" == "http://influxdb:8086" ]] && influx_url=""
-  influx_token="$(env_value INFLUX_TOKEN)"
-  influx_org="$(env_value INFLUX_ORG)"
-  influx_org="${influx_org:-agh}"
-  influx_bucket="$(env_value INFLUX_BUCKET)"
-  influx_bucket="${influx_bucket:-sensors}"
   radius_server="$(env_value RADIUS_SERVER)"
   [[ "$radius_server" == "radius" ]] && radius_server=""
   radius_port="$(env_value RADIUS_PORT)"
   radius_port="${radius_port:-1812}"
   radius_secret="$(env_value RADIUS_SECRET)"
-
-  info "Remote InfluxDB configuration"
-  read -r -p "InfluxDB URL, e.g. http://192.168.1.60:8086 (${influx_url}): " entered_value
-  influx_url="${entered_value:-$influx_url}"
-  read -r -p "InfluxDB organization (${influx_org}): " entered_value
-  influx_org="${entered_value:-$influx_org}"
-  read -r -p "InfluxDB bucket (${influx_bucket}): " entered_value
-  influx_bucket="${entered_value:-$influx_bucket}"
-  if [[ -n "$influx_token" ]]; then
-    read -r -s -p "InfluxDB API token (Enter keeps the current token): " entered_value
-  else
-    read -r -s -p "InfluxDB API token: " entered_value
-  fi
-  printf '\n'
-  influx_token="${entered_value:-$influx_token}"
 
   info "Remote RADIUS configuration"
   read -r -p "RADIUS server address (${radius_server}): " entered_value
@@ -262,36 +234,24 @@ prompt_remote_services_configuration() {
   printf '\n'
   radius_secret="${entered_value:-$radius_secret}"
 
-  printf '\nInfluxDB: %s (org=%s, bucket=%s)\n' "$influx_url" "$influx_org" "$influx_bucket"
-  printf 'InfluxDB token: configured (hidden)\n'
-  printf 'RADIUS: %s:%s\n' "$radius_server" "$radius_port"
+  printf '\nRADIUS: %s:%s\n' "$radius_server" "$radius_port"
   printf 'RADIUS shared secret: configured (hidden)\n'
   read -r -p "Apply this remote services configuration? [y/N]: " confirmation
   case "$confirmation" in
     y|Y|yes|YES)
-      set_env_value "INFLUX_URL" "$influx_url"
-      set_env_value "INFLUX_TOKEN" "$influx_token"
-      set_env_value "INFLUX_ORG" "$influx_org"
-      set_env_value "INFLUX_BUCKET" "$influx_bucket"
       set_env_value "RADIUS_SERVER" "$radius_server"
       set_env_value "RADIUS_PORT" "$radius_port"
       set_env_value "RADIUS_SECRET" "$radius_secret"
       ;;
-    *) fail "Remote services configuration was not confirmed" ;;
+    *) fail "RADIUS configuration was not confirmed" ;;
   esac
 }
 
-validate_remote_services_configuration() {
-  local influx_url radius_server radius_port
-  influx_url="$(env_value INFLUX_URL)"
+validate_radius_configuration() {
+  local radius_server radius_port
   radius_server="$(env_value RADIUS_SERVER)"
   radius_port="$(env_value RADIUS_PORT)"
 
-  [[ "$influx_url" =~ ^https?:// ]] || fail "INFLUX_URL must be the HTTP(S) URL of the remote InfluxDB server"
-  [[ "$influx_url" != "http://influxdb:8086" && "$influx_url" != "http://localhost:8086" ]] || fail "INFLUX_URL must point to an external server"
-  [[ -n "$(env_value INFLUX_TOKEN)" ]] || fail "INFLUX_TOKEN for the remote InfluxDB server is required"
-  [[ -n "$(env_value INFLUX_ORG)" ]] || fail "INFLUX_ORG is required"
-  [[ -n "$(env_value INFLUX_BUCKET)" ]] || fail "INFLUX_BUCKET is required"
   [[ -n "$radius_server" && "$radius_server" != "radius" && "$radius_server" != "localhost" ]] || fail "RADIUS_SERVER must point to an external server"
   [[ "$radius_port" =~ ^[0-9]+$ ]] && (( radius_port >= 1 && radius_port <= 65535 )) || fail "RADIUS_PORT must be between 1 and 65535"
   [[ -n "$(env_value RADIUS_SECRET)" ]] || fail "RADIUS_SECRET for the remote server is required"
@@ -380,7 +340,7 @@ cleanup_legacy_local_configuration() {
     sudo rmdir radius 2>/dev/null || true
   fi
   if [[ -d data/influxdb2 ]]; then
-    info "Legacy local InfluxDB data remains in data/influxdb2; remove it manually only after confirming that no migration is needed"
+    info "Legacy InfluxDB data remains in data/influxdb2 and is not used by the dashboard"
   fi
 }
 
@@ -587,9 +547,9 @@ Dashboard:
 Device identifier:
   $(env_value "DEVICE_NAME")
 
-InfluxDB:
-  ${INFLUX_SUMMARY}
-  durable buffer: $(env_value "INFLUX_BUFFER_FILE")
+Local database:
+  SQLite file $(env_value "DATABASE_FILE")
+  maximum records: $(env_value "DATABASE_MAX_RECORDS")
 
 SNMP:
   UDP port $(env_value "SNMP_PORT")

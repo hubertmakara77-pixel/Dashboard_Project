@@ -5,7 +5,7 @@ import time
 import serial
 
 import config
-import influx_service
+import database_service
 import parser
 import state
 import snmp_service
@@ -222,8 +222,8 @@ def _serial_reader_session(port: str):
 
                 state.active_warning_keys = current_warning_keys
 
-            # Ten sam czas odbioru probki trafia do pamieci, warningow i InfluxDB.
-            influx_service.write_measurement(data, now)
+            # Ten sam czas odbioru probki trafia do pamieci, warningow i SQLite.
+            database_service.write_measurement(data, now)
 
             for error in syslog_warnings:
                 syslog_service.send_warning(format_syslog_warning(error))
@@ -291,4 +291,4 @@ def send_gain_set(gain_set: float):
         state.last_known_gain_set = float(gain_set)
         state.save_persisted_gain_set(state.last_known_gain_set)
 
-    influx_service.write_setpoint(gain_set, timestamp)
+    database_service.write_setpoint(gain_set, timestamp)

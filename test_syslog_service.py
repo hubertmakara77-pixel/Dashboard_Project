@@ -72,13 +72,13 @@ class SyslogServiceTests(unittest.TestCase):
         ):
             syslog_service.send_lifecycle(
                 "heartbeat",
-                influx="buffering",
-                buffered_records=12,
+                database="ready",
+                stored_records=12,
             )
 
         payload = socket_mock.return_value.__enter__.return_value.sendto.call_args.args[0]
         self.assertIn(
-            b"lifecycle; event=heartbeat; influx=buffering; buffered_records=12",
+            b"lifecycle; event=heartbeat; database=ready; stored_records=12",
             payload,
         )
 

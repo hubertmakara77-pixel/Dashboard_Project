@@ -380,14 +380,14 @@ async function loadNtpStatus(force = false) {
 
 document.getElementById('refresh-ntp-button')?.addEventListener('click', () => loadNtpStatus(true))
 
-function updateInfluxStatus(influx = {}) {
-	const state = String(influx.state || 'disconnected').toUpperCase()
-	const statusElement = document.getElementById('status-influx')
+function updateDatabaseStatus(database = {}) {
+	const state = String(database.state || 'error').toUpperCase()
+	const statusElement = document.getElementById('status-database')
 	if (statusElement) {
 		statusElement.textContent = state
-		statusElement.className = influx.state === 'connected' ? 'status-ok' : (influx.state === 'syncing' || influx.state === 'buffering' ? 'status-warn' : 'status-error')
+		statusElement.className = database.ready ? 'status-ok' : 'status-error'
 	}
-	setTextIfExists('status-influx-pending', String(influx.pending_records ?? 0))
+	setTextIfExists('status-database-records', String(database.records ?? 0))
 }
 
 function formatBytes(bytes) {
@@ -399,14 +399,14 @@ function formatBytes(bytes) {
 }
 
 async function loadServiceDiagnostics() {
-	if (!isAdministrator() || !document.getElementById('service-influx-state')) return
+	if (!isAdministrator() || !document.getElementById('service-database-state')) return
 	try {
 		const response = await fetch('/api/service-diagnostics')
 		handleAuthResponse(response)
 		const data = await response.json()
 		if (!response.ok) throw new Error(data.detail || 'Could not read service diagnostics')
 		const serial = data.serial || {}
-		const influx = data.influx || {}
+		const database = data.database || {}
 		const syslog = data.syslog || {}
 		setTextIfExists('service-serial-state', serial.connected ? 'CONNECTED' : 'DISCONNECTED')
 		setTextIfExists('service-serial-port', serial.port || '--')
@@ -423,17 +423,14 @@ async function loadServiceDiagnostics() {
 			}))
 			serialPortInput.value = serial.port || ports[0] || ''
 		}
-		setTextIfExists('service-influx-state', String(influx.state || '--').toUpperCase())
-		setTextIfExists('service-influx-url', influx.url || '--')
-		setTextIfExists('service-influx-org', influx.organization || '--')
-		setTextIfExists('service-influx-bucket', influx.bucket || '--')
-		setTextIfExists('service-influx-pending', String(influx.pending_records ?? 0))
-		setTextIfExists('service-influx-limit', String(influx.buffer_limit ?? '--'))
-		setTextIfExists('service-influx-file', influx.buffer_file || '--')
-		setTextIfExists('service-influx-size', formatBytes(influx.buffer_size_bytes))
-		setTextIfExists('service-influx-free', formatBytes(influx.filesystem_free_bytes))
-		setTextIfExists('service-influx-discarded', String(influx.discarded_records_since_start ?? 0))
-		setTextIfExists('service-influx-retry', `${influx.retry_seconds ?? '--'} s`)
+		setTextIfExists('service-database-state', String(database.state || '--').toUpperCase())
+		setTextIfExists('service-database-records', String(database.records ?? 0))
+		setTextIfExists('service-database-limit', String(database.record_limit ?? '--'))
+		setTextIfExists('service-database-file', database.file || '--')
+		setTextIfExists('service-database-size', formatBytes(database.size_bytes))
+		setTextIfExists('service-database-free', formatBytes(database.filesystem_free_bytes))
+		setTextIfExists('service-database-discarded', String(database.discarded_records_since_start ?? 0))
+		setTextIfExists('service-database-error', database.error || 'None')
 		setTextIfExists('service-syslog-local', syslog.local_enabled ? 'ENABLED' : 'DISABLED')
 		setTextIfExists('service-syslog-destination', syslog.local_destination || '--')
 		setTextIfExists('service-syslog-file', syslog.local_file || '--')
@@ -442,11 +439,11 @@ async function loadServiceDiagnostics() {
 		setTextIfExists('service-syslog-protocol', syslog.remote_enabled ? String(syslog.remote_protocol).toUpperCase() : '--')
 		setTextIfExists('service-syslog-heartbeat', syslog.heartbeat_seconds > 0 ? `${syslog.heartbeat_seconds} s` : 'DISABLED')
 		const heartbeatInput = document.getElementById('service-heartbeat-input')
-		const bufferLimitInput = document.getElementById('service-buffer-limit-input')
+		const databaseLimitInput = document.getElementById('service-database-limit-input')
 		if (heartbeatInput) heartbeatInput.value = syslog.heartbeat_seconds ?? 300
-		if (bufferLimitInput) bufferLimitInput.value = influx.buffer_limit ?? 250000
+		if (databaseLimitInput) databaseLimitInput.value = database.record_limit ?? 250000
 	} catch (error) {
-		setTextIfExists('service-influx-state', 'API ERROR')
+		setTextIfExists('service-database-state', 'API ERROR')
 		console.error('Error loading service diagnostics:', error)
 	}
 }
@@ -462,13 +459,13 @@ document.getElementById('service-settings-form')?.addEventListener('submit', asy
 			body: JSON.stringify({
 				serial_port: document.getElementById('service-serial-port-input').value,
 				syslog_heartbeat_seconds: Number(document.getElementById('service-heartbeat-input').value),
-				influx_buffer_max_records: Number(document.getElementById('service-buffer-limit-input').value),
+				database_max_records: Number(document.getElementById('service-database-limit-input').value),
 			}),
 		})
 		handleAuthResponse(response)
 		const result = await response.json()
 		if (!response.ok) throw new Error(result.detail || 'Could not save service settings')
-		const suffix = result.pruned_records ? ` ${result.pruned_records} oldest buffered records were removed.` : ''
+		const suffix = result.pruned_records ? ` ${result.pruned_records} oldest database records were removed.` : ''
 		showNotification(`Service settings saved.${suffix}`)
 		await loadServiceDiagnostics()
 	} catch (error) {
@@ -624,7 +621,7 @@ async function updateDashboard() {
 
 		setTextIfExists('status-last-update', formatTime(json.last_update))
 		setTextIfExists('status-system-time', new Date().toLocaleTimeString())
-		updateInfluxStatus(json.influx)
+		updateDatabaseStatus(json.database)
 
 		const statusEl = document.getElementById('status-connection')
 
@@ -639,7 +636,7 @@ async function updateDashboard() {
 		const statusEl = document.getElementById('status-connection')
 		statusEl.textContent = 'API ERROR'
 		statusEl.className = 'status-error'
-		updateInfluxStatus({ state: 'disconnected', pending_records: '--' })
+		updateDatabaseStatus({ state: 'error', ready: false, records: '--' })
 		console.error('Error fetching /api/latest:', error)
 	}
 }

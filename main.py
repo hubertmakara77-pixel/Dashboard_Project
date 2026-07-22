@@ -19,7 +19,7 @@ import pydantic
 import starlette.requests
 
 import config
-import influx_service
+import database_service
 import network_service
 import ntp_service
 import radius_service
@@ -73,7 +73,7 @@ class AccessUserUpdateRequest(pydantic.BaseModel):
 
 class ServiceSettingsRequest(pydantic.BaseModel):
     syslog_heartbeat_seconds: int
-    influx_buffer_max_records: int
+    database_max_records: int
     serial_port: str
 
 
@@ -343,18 +343,17 @@ async def syslog_heartbeat_loop() -> None:
             continue
         except TimeoutError:
             pass
-        influx_status = influx_service.get_runtime_status()
+        database_status = database_service.get_runtime_status()
         syslog_service.send_lifecycle(
             "heartbeat",
-            influx=influx_status["state"],
-            buffered_records=influx_status["pending_records"],
+            database=database_status["state"],
+            stored_records=database_status["records"],
         )
 
 
 @contextlib.asynccontextmanager
 async def lifespan(app: fastapi.FastAPI):
-    influx_service.init_influx()
-    influx_service.start_influx_buffer_worker()
+    database_service.init_database()
     snmp_service.init_snmp()
 
     state.stop_event.clear()
@@ -382,8 +381,7 @@ async def lifespan(app: fastapi.FastAPI):
     thread.join(timeout=2)
 
     snmp_service.close_snmp()
-    influx_service.stop_influx_buffer_worker()
-    influx_service.close_influx()
+    database_service.close_database()
 
 
 app = fastapi.FastAPI(lifespan=lifespan)
@@ -418,7 +416,7 @@ def home(request: starlette.requests.Request):
 
 @app.get("/api/latest")
 def latest(_current_user: dict = fastapi.Depends(require_roles("Administrator", "Operator", "Viewer"))):
-    influx_status = influx_service.get_runtime_status()
+    database_status = database_service.get_runtime_status()
     with state.state_lock:
         return {
             "connected": state.serial_connected,
@@ -427,20 +425,20 @@ def latest(_current_user: dict = fastapi.Depends(require_roles("Administrator", 
             "last_command_response": state.last_command_response,
             "last_known_gain_set": state.last_known_gain_set,
             "data": state.latest_data,
-            "influx": influx_status,
+            "database": database_status,
         }
 
 
 @app.get("/api/status")
 def status(_current_user: dict = fastapi.Depends(require_roles("Administrator", "Operator", "Viewer"))):
-    influx_status = influx_service.get_runtime_status()
+    database_status = database_service.get_runtime_status()
     with state.state_lock:
         return {
             "device": config.DEVICE_NAME,
             "serial_port": state.service_settings["serial_port"],
             "serial_connected": state.serial_connected,
             "serial_error": state.serial_error,
-            "influx": influx_status,
+            "database": database_status,
         }
 
 
@@ -450,7 +448,7 @@ def service_diagnostics(
 ):
     with state.state_lock:
         service_settings = state.service_settings.copy()
-    storage = influx_service.get_buffer_storage_status()
+    storage = database_service.get_storage_status()
     return {
         "serial": {
             "port": service_settings["serial_port"],
@@ -459,18 +457,13 @@ def service_diagnostics(
             "connected": state.serial_connected,
             "error": state.serial_error,
         },
-        "influx": {
-            **influx_service.get_runtime_status(),
-            "url": config.INFLUX_URL,
-            "organization": config.INFLUX_ORG,
-            "bucket": config.INFLUX_BUCKET,
-            "buffer_file": config.INFLUX_BUFFER_FILE,
-            "buffer_limit": service_settings["influx_buffer_max_records"],
-            "buffer_size_bytes": storage["size_bytes"],
+        "database": {
+            **database_service.get_runtime_status(),
+            "file": config.DATABASE_FILE,
+            "record_limit": service_settings["database_max_records"],
+            "size_bytes": storage["size_bytes"],
             "filesystem_free_bytes": storage["free_bytes"],
             "discarded_records_since_start": storage["discarded_records_since_start"],
-            "batch_size": config.INFLUX_BUFFER_BATCH_SIZE,
-            "retry_seconds": config.INFLUX_RETRY_SECONDS,
         },
         "syslog": {
             "local_enabled": config.SYSLOG_ENABLED,
@@ -495,8 +488,8 @@ async def update_service_diagnostics_settings(
         raise fastapi.HTTPException(status_code=400, detail="Heartbeat must be 0 or at least 10 seconds")
     if request.syslog_heartbeat_seconds > 86400:
         raise fastapi.HTTPException(status_code=400, detail="Heartbeat cannot exceed 86400 seconds")
-    if not 1 <= request.influx_buffer_max_records <= 10000000:
-        raise fastapi.HTTPException(status_code=400, detail="Buffer limit must be between 1 and 10000000 records")
+    if not 1 <= request.database_max_records <= 10000000:
+        raise fastapi.HTTPException(status_code=400, detail="Database limit must be between 1 and 10000000 records")
     serial_port = request.serial_port.strip()
     if not re.fullmatch(r"/(?:host/)?dev/tty(?:ACM|USB)[0-9]+", serial_port):
         raise fastapi.HTTPException(status_code=400, detail="Select an available USB serial port")
@@ -510,7 +503,7 @@ async def update_service_diagnostics_settings(
         state.save_persisted_state()
         after = state.service_settings.copy()
 
-    removed_records = influx_service.apply_buffer_limits()
+    removed_records = database_service.apply_record_limit()
     if before["serial_port"] != serial_port:
         serial_reader.reconnect(serial_port)
     heartbeat_settings_changed.set()
@@ -916,15 +909,15 @@ def history(
     _current_user: dict = fastapi.Depends(require_roles("Administrator", "Operator", "Viewer")),
 ):
     range, start, end = normalize_history_request(range, start, end)
-    influx_points = influx_service.query_history_from_influx(range, start, end)
+    database_points = database_service.query_history(range, start, end)
 
-    if influx_points is not None:
+    if database_points is not None:
         return {
-            "source": "influx",
+            "source": "sqlite",
             "range": range,
             "start": start,
             "end": end,
-            "points": influx_points
+            "points": database_points
         }
 
     memory_points = query_history_from_memory(range, start, end)
@@ -947,8 +940,8 @@ def export_history_csv(
     current_user: dict = fastapi.Depends(require_roles("Administrator", "Operator", "Viewer")),
 ):
     range, start, end = normalize_history_request(range, start, end)
-    influx_points = influx_service.query_history_from_influx(range, start, end)
-    points = influx_points if influx_points is not None else query_history_from_memory(range, start, end)
+    database_points = database_service.query_history(range, start, end)
+    points = database_points if database_points is not None else query_history_from_memory(range, start, end)
     csv_text = build_history_csv(points)
 
     audit_event(
