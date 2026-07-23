@@ -3,20 +3,25 @@ const tabPanels = document.querySelectorAll('.tab-panel')
 const currentTitle = document.getElementById('current-tab-title')
 
 let dashboardSettings = null
-let selectedRange = '5m'
+let overviewRange = '5m'
+let statisticsRange = '5m'
 let powerChart = null
 let gainChart = null
 let deltaChart = null
 let temperatureChart = null
 let gainInputEdited = false
 let currentUser = null
-let selectedStart = null
-let selectedEnd = null
+let overviewStart = null
+let overviewEnd = null
+let statisticsStart = null
+let statisticsEnd = null
 let latestNetwork = null
 let lastOverviewChartRefresh = 0
 let lastStatisticsRefresh = 0
 let statisticsRequestController = null
 let statisticsRequestSequence = 0
+let overviewRequestController = null
+let overviewRequestSequence = 0
 const chartSeriesVisibility = new Map()
 
 function historyRefreshInterval(rangeValue) {
@@ -62,30 +67,26 @@ function localDateTimeToIso(value) {
 	return date.toISOString()
 }
 
-function buildHistoryQuery() {
-	const params = new URLSearchParams({ range: selectedRange })
+function buildRangeQuery(rangeValue, startValue, endValue) {
+	const params = new URLSearchParams({ range: rangeValue })
 
-	if (selectedStart) {
-		params.set('start', selectedStart)
+	if (startValue) {
+		params.set('start', startValue)
 	}
 
-	if (selectedEnd) {
-		params.set('end', selectedEnd)
+	if (endValue) {
+		params.set('end', endValue)
 	}
 
 	return params.toString()
 }
 
-function syncCustomRangeInputs(sourceContainer) {
-	const startValue = sourceContainer.querySelector('.custom-start-input')?.value || ''
-	const endValue = sourceContainer.querySelector('.custom-end-input')?.value || ''
+function buildOverviewQuery() {
+	return buildRangeQuery(overviewRange, overviewStart, overviewEnd)
+}
 
-	document.querySelectorAll('.custom-start-input').forEach(input => {
-		input.value = startValue
-	})
-	document.querySelectorAll('.custom-end-input').forEach(input => {
-		input.value = endValue
-	})
+function buildStatisticsQuery() {
+	return buildRangeQuery(statisticsRange, statisticsStart, statisticsEnd)
 }
 
 function escapeHtml(value) {
@@ -883,35 +884,6 @@ function setupAccessControl() {
 	}
 }
 
-function getLabels(points) {
-	const dates = points
-		.map(point => new Date(point.time))
-		.filter(date => !Number.isNaN(date.getTime()))
-	if (!dates.length) return points.map(() => '')
-
-	const first = dates[0]
-	const last = dates[dates.length - 1]
-	const sameYear = first.getFullYear() === last.getFullYear()
-	const sameDay = sameYear
-		&& first.getMonth() === last.getMonth()
-		&& first.getDate() === last.getDate()
-
-	return points.map(point => formatChartTimestamp(point.time, sameDay, sameYear))
-}
-
-function formatChartTimestamp(value, timeOnly = false, omitYear = false) {
-	const date = new Date(value)
-	if (Number.isNaN(date.getTime())) return value || ''
-
-	const pad = number => String(number).padStart(2, '0')
-	const time = `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
-	if (timeOnly) return time
-
-	const dateParts = [pad(date.getDate()), pad(date.getMonth() + 1)]
-	if (!omitYear) dateParts.push(String(date.getFullYear()).slice(-2))
-	return `${dateParts.join('.')} ${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
-
 function getFullTimestamps(points) {
 	return points.map(point => {
 		const date = new Date(point.time)
@@ -922,7 +894,44 @@ function getFullTimestamps(points) {
 	})
 }
 
-function addHistoryGapMarkers(points) {
+function formatTimeAxisTick(value, rangeValue) {
+	const date = new Date(Number(value))
+	if (Number.isNaN(date.getTime())) return ''
+	const pad = number => String(number).padStart(2, '0')
+	const time = `${pad(date.getHours())}:${pad(date.getMinutes())}`
+	if (rangeValue === '5m' || rangeValue === '1h') {
+		return rangeValue === '5m' ? `${time}:${pad(date.getSeconds())}` : time
+	}
+	if (rangeValue === '24h') return time
+	return `${pad(date.getDate())}.${pad(date.getMonth() + 1)} ${time}`
+}
+
+function getOverviewTimeBounds(points) {
+	const durations = {
+		'5m': 5 * 60 * 1000,
+		'1h': 60 * 60 * 1000,
+		'24h': 24 * 60 * 60 * 1000,
+		'7d': 7 * 24 * 60 * 60 * 1000,
+		'30d': 30 * 24 * 60 * 60 * 1000,
+	}
+	const pointTimes = points
+		.map(point => new Date(point.time).getTime())
+		.filter(Number.isFinite)
+	const requestedEnd = overviewEnd ? new Date(overviewEnd).getTime() : Date.now()
+	const requestedStart = overviewStart
+		? new Date(overviewStart).getTime()
+		: requestedEnd - (durations[overviewRange] || 0)
+
+	if (overviewRange !== 'all' || overviewStart || overviewEnd) {
+		return {
+			min: Number.isFinite(requestedStart) ? requestedStart : pointTimes[0],
+			max: Number.isFinite(requestedEnd) ? requestedEnd : pointTimes.at(-1),
+		}
+	}
+	return { min: pointTimes[0], max: pointTimes.at(-1) }
+}
+
+function addHistoryGapMarkers(points, rangeValue) {
 	if (points.length < 2) return points
 
 	const datedPoints = points.map(point => ({ point, timestamp: new Date(point.time).getTime() }))
@@ -944,7 +953,7 @@ function addHistoryGapMarkers(points) {
 		'7d': 600000,
 		'30d': 1800000,
 		'all': 3600000,
-	}[selectedRange] || 1000
+	}[rangeValue] || 1000
 	const gapThreshold = Math.max(bucketMs, typicalInterval) * 2.5
 	const result = [datedPoints[0].point]
 
@@ -974,7 +983,7 @@ async function updateStatisticsTable() {
 	if (statisticsRequestController) statisticsRequestController.abort()
 	statisticsRequestController = new AbortController()
 	const requestController = statisticsRequestController
-	const query = buildHistoryQuery()
+	const query = buildStatisticsQuery()
 	const source = document.getElementById('statistics-source')
 	if (source) source.textContent = 'Loading\u2026'
 	// Mark the refresh as started immediately. Otherwise the timer starts
@@ -994,7 +1003,7 @@ async function updateStatisticsTable() {
 		const body = document.getElementById('statistics-table-body')
 
 		if (source) {
-			const rangeText = selectedStart || selectedEnd ? 'custom range' : json.range
+			const rangeText = statisticsStart || statisticsEnd ? 'custom range' : json.range
 			source.textContent = `${Number(json.sample_count || 0)} raw samples, ${rangeText}`
 		}
 
@@ -1053,10 +1062,23 @@ async function updateStatisticsTable() {
 	}
 }
 
-function createOrUpdateChart(existingChart, canvasId, labels, fullTimestamps, datasets, yLabel) {
+function createOrUpdateChart(
+	existingChart,
+	canvasId,
+	points,
+	fullTimestamps,
+	datasets,
+	yLabel,
+	timeBounds,
+) {
 	const canvas = document.getElementById(canvasId)
 	if (!canvas || typeof Chart === 'undefined') return existingChart
+	const timeValues = points.map(point => new Date(point.time).getTime())
 	datasets.forEach(dataset => {
+		dataset.data = dataset.data.map((value, index) => ({
+			x: timeValues[index],
+			y: value,
+		}))
 		const savedVisibility = chartSeriesVisibility.get(`${canvasId}:${dataset.label}`)
 		if (savedVisibility !== undefined) dataset.hidden = !savedVisibility
 	})
@@ -1064,7 +1086,7 @@ function createOrUpdateChart(existingChart, canvasId, labels, fullTimestamps, da
 	if (existingChart === null) {
 		const chart = new Chart(canvas, {
 			type: 'line',
-			data: { labels: labels, datasets: datasets },
+			data: { datasets: datasets },
 			options: {
 				animation: false,
 				responsive: true,
@@ -1099,11 +1121,15 @@ function createOrUpdateChart(existingChart, canvasId, labels, fullTimestamps, da
 				},
 				scales: {
 					x: {
+						type: 'linear',
+						min: timeBounds.min,
+						max: timeBounds.max,
 						ticks: {
 							autoSkip: true,
 							maxTicksLimit: 8,
 							maxRotation: 0,
 							minRotation: 0,
+							callback: value => formatTimeAxisTick(value, overviewRange),
 						},
 					},
 					y: { title: { display: true, text: yLabel } },
@@ -1114,8 +1140,10 @@ function createOrUpdateChart(existingChart, canvasId, labels, fullTimestamps, da
 		return chart
 	}
 
-	existingChart.data.labels = labels
 	existingChart.data.datasets = datasets
+	existingChart.options.scales.x.min = timeBounds.min
+	existingChart.options.scales.x.max = timeBounds.max
+	existingChart.options.scales.x.ticks.callback = value => formatTimeAxisTick(value, overviewRange)
 	datasets.forEach((dataset, index) => {
 		const savedVisibility = chartSeriesVisibility.get(`${canvasId}:${dataset.label}`)
 		if (savedVisibility !== undefined) existingChart.setDatasetVisibility(index, savedVisibility)
@@ -1178,19 +1206,30 @@ function setupChartExpansion() {
 async function updateOverviewCharts() {
 	if (!currentUser) return
 
+	const requestSequence = ++overviewRequestSequence
+	if (overviewRequestController) overviewRequestController.abort()
+	overviewRequestController = new AbortController()
+	const requestController = overviewRequestController
+	const loadingStatus = document.getElementById('overview-loading-status')
+	if (loadingStatus) loadingStatus.textContent = 'Loading\u2026'
+	lastOverviewChartRefresh = Date.now()
+
 	try {
-		const response = await fetch('/api/history?' + buildHistoryQuery())
+		const response = await fetch('/api/history?' + buildOverviewQuery(), {
+			signal: requestController.signal,
+		})
 		handleAuthResponse(response)
 		if (!response.ok) throw new Error('HTTP error ' + response.status)
 		const json = await response.json()
-		const points = addHistoryGapMarkers(json.points || [])
-		const labels = getLabels(points)
+		if (requestSequence !== overviewRequestSequence) return
+		const points = addHistoryGapMarkers(json.points || [], overviewRange)
 		const fullTimestamps = getFullTimestamps(points)
+		const timeBounds = getOverviewTimeBounds(points)
 
 		powerChart = createOrUpdateChart(
 			powerChart,
 			'power-chart',
-			labels,
+			points,
 			fullTimestamps,
 			[
 				{ label: 'PiA', data: getValues(points, 'PiA'), spanGaps: false },
@@ -1199,77 +1238,113 @@ async function updateOverviewCharts() {
 				{ label: 'PoB', data: getValues(points, 'PoB'), spanGaps: false },
 			],
 			'Power [dBm]',
+			timeBounds,
 		)
 
 		gainChart = createOrUpdateChart(
 			gainChart,
 			'gain-chart',
-			labels,
+			points,
 			fullTimestamps,
 			[
 				{ label: 'Gain set', data: getValues(points, 'gain_set'), spanGaps: false },
 				{ label: 'Gain actual', data: getValues(points, 'gain_actual'), spanGaps: false },
 			],
 			'Gain [dB]',
+			timeBounds,
 		)
 
 		deltaChart = createOrUpdateChart(
 			deltaChart,
 			'delta-chart',
-			labels,
+			points,
 			fullTimestamps,
 			[{ label: 'Gain delta', data: getValues(points, 'gain_delta'), spanGaps: false }],
 			'Delta [dB]',
+			timeBounds,
 		)
 
 		temperatureChart = createOrUpdateChart(
 			temperatureChart,
 			'temperature-chart',
-			labels,
+			points,
 			fullTimestamps,
 			[{ label: 'Temperature', data: getValues(points, 'temperature'), spanGaps: false }],
 			'Temperature [\u00B0C]',
+			timeBounds,
 		)
 		lastOverviewChartRefresh = Date.now()
+		if (loadingStatus) loadingStatus.textContent = ''
 	} catch (error) {
+		if (error.name === 'AbortError') return
+		if (requestSequence !== overviewRequestSequence) return
+		if (loadingStatus) loadingStatus.textContent = 'Could not load data'
 		console.error('Error fetching /api/history:', error)
+	} finally {
+		if (requestSequence === overviewRequestSequence) {
+			overviewRequestController = null
+		}
 	}
 }
 
 function setupRangeButtons() {
 	document.querySelectorAll('.range-button').forEach(button => {
 		button.addEventListener('click', () => {
-			selectedRange = button.dataset.range
-			selectedStart = null
-			selectedEnd = null
-			document.querySelectorAll('.range-button').forEach(item => item.classList.remove('active'))
-			document
-				.querySelectorAll(`.range-button[data-range="${selectedRange}"]`)
-				.forEach(item => item.classList.add('active'))
-			updateOverviewCharts()
-			updateStatisticsTable()
+			const panel = button.closest('.tab-panel')
+			const isStatistics = panel?.dataset.tab === 'statistics'
+			const rangeValue = button.dataset.range
+			panel.querySelectorAll('.range-button').forEach(item => item.classList.remove('active'))
+			button.classList.add('active')
+			if (isStatistics) {
+				statisticsRange = rangeValue
+				statisticsStart = null
+				statisticsEnd = null
+				updateStatisticsTable()
+			} else {
+				overviewRange = rangeValue
+				overviewStart = null
+				overviewEnd = null
+				updateOverviewCharts()
+			}
 		})
 	})
 
 	document.querySelectorAll('.apply-custom-range-button').forEach(button => {
 		button.addEventListener('click', () => {
 			const container = button.closest('.monitors-header')
-			selectedStart = localDateTimeToIso(container.querySelector('.custom-start-input').value)
-			selectedEnd = localDateTimeToIso(container.querySelector('.custom-end-input').value)
-			syncCustomRangeInputs(container)
-			document.querySelectorAll('.range-button').forEach(item => item.classList.remove('active'))
-			updateOverviewCharts()
-			updateStatisticsTable()
+			const panel = button.closest('.tab-panel')
+			const startValue = localDateTimeToIso(container.querySelector('.custom-start-input').value)
+			const endValue = localDateTimeToIso(container.querySelector('.custom-end-input').value)
+			panel.querySelectorAll('.range-button').forEach(item => item.classList.remove('active'))
+			if (panel.dataset.tab === 'statistics') {
+				statisticsStart = startValue
+				statisticsEnd = endValue
+				updateStatisticsTable()
+			} else {
+				overviewStart = startValue
+				overviewEnd = endValue
+				updateOverviewCharts()
+			}
 		})
 	})
 
 	document.querySelectorAll('.export-csv-button').forEach(button => {
 		button.addEventListener('click', () => {
 			const container = button.closest('.monitors-header')
-			selectedStart = localDateTimeToIso(container.querySelector('.custom-start-input').value) || selectedStart
-			selectedEnd = localDateTimeToIso(container.querySelector('.custom-end-input').value) || selectedEnd
-			syncCustomRangeInputs(container)
-			window.location.href = '/api/history/export.csv?' + buildHistoryQuery()
+			const panel = button.closest('.tab-panel')
+			const startValue = localDateTimeToIso(container.querySelector('.custom-start-input').value)
+			const endValue = localDateTimeToIso(container.querySelector('.custom-end-input').value)
+			let query
+			if (panel.dataset.tab === 'statistics') {
+				statisticsStart = startValue || statisticsStart
+				statisticsEnd = endValue || statisticsEnd
+				query = buildStatisticsQuery()
+			} else {
+				overviewStart = startValue || overviewStart
+				overviewEnd = endValue || overviewEnd
+				query = buildOverviewQuery()
+			}
+			window.location.href = '/api/history/export.csv?' + query
 		})
 	})
 }
@@ -1427,7 +1502,8 @@ setInterval(() => {
 	const overviewTab = document.querySelector('.tab-panel[data-tab="overview"]')
 	if (overviewTab
 		&& overviewTab.classList.contains('active')
-		&& Date.now() - lastOverviewChartRefresh >= historyRefreshInterval(selectedRange)) {
+		&& !overviewRequestController
+		&& Date.now() - lastOverviewChartRefresh >= historyRefreshInterval(overviewRange)) {
 		updateOverviewCharts()
 	}
 	const snmpTab = document.querySelector('.tab-panel[data-tab="snmp-settings"]')
@@ -1442,7 +1518,7 @@ setInterval(() => {
 	if (statisticsTab
 		&& statisticsTab.classList.contains('active')
 		&& !statisticsRequestController
-		&& Date.now() - lastStatisticsRefresh >= historyRefreshInterval(selectedRange)) {
+		&& Date.now() - lastStatisticsRefresh >= historyRefreshInterval(statisticsRange)) {
 		updateStatisticsTable()
 	}
 }, 3000)

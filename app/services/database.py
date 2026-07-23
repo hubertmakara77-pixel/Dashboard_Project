@@ -35,6 +35,7 @@ HISTORY_FIELDS = (
 )
 FIELD_COLUMNS = ", ".join(HISTORY_FIELDS)
 FIELD_PLACEHOLDERS = ", ".join("?" for _ in HISTORY_FIELDS)
+HOUR_MS = 60 * 60 * 1000
 
 
 def _timestamp_ms(timestamp: str | None) -> int:
@@ -128,6 +129,154 @@ def _create_schema(opened_connection: sqlite3.Connection) -> None:
         END
         """
     )
+    opened_connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS hourly_statistics (
+            bucket_ms INTEGER PRIMARY KEY,
+            sample_count INTEGER NOT NULL,
+            statistics_json TEXT NOT NULL
+        )
+        """
+    )
+
+
+def _empty_statistics_state() -> dict:
+    return {
+        field: {
+            "count": 0,
+            "sum": 0.0,
+            "min": None,
+            "max": None,
+            "max_delta": 0.0,
+            "first": None,
+            "last": None,
+        }
+        for field in HISTORY_FIELDS
+    }
+
+
+def _consume_statistics_row(
+    statistics: dict,
+    row: sqlite3.Row,
+    first_row: bool,
+) -> None:
+    for field in HISTORY_FIELDS:
+        value = row[field]
+        field_state = statistics[field]
+        if first_row:
+            field_state["first"] = value
+        previous = field_state["last"]
+        if value is not None:
+            numeric_value = float(value)
+            field_state["count"] += 1
+            field_state["sum"] += numeric_value
+            field_state["min"] = (
+                numeric_value
+                if field_state["min"] is None
+                else min(field_state["min"], numeric_value)
+            )
+            field_state["max"] = (
+                numeric_value
+                if field_state["max"] is None
+                else max(field_state["max"], numeric_value)
+            )
+            if previous is not None:
+                field_state["max_delta"] = max(
+                    field_state["max_delta"],
+                    abs(numeric_value - previous),
+                )
+        field_state["last"] = value
+
+
+def _store_hourly_statistics(
+    opened_connection: sqlite3.Connection,
+    bucket_ms: int,
+    sample_count: int,
+    statistics: dict,
+) -> None:
+    opened_connection.execute(
+        """
+        INSERT INTO hourly_statistics (bucket_ms, sample_count, statistics_json)
+        VALUES (?, ?, ?)
+        ON CONFLICT(bucket_ms) DO UPDATE SET
+            sample_count = excluded.sample_count,
+            statistics_json = excluded.statistics_json
+        """,
+        (bucket_ms, sample_count, json.dumps(statistics, separators=(",", ":"))),
+    )
+
+
+def _rebuild_hourly_bucket(
+    opened_connection: sqlite3.Connection,
+    bucket_ms: int,
+) -> None:
+    rows = opened_connection.execute(
+        f"""
+        SELECT {FIELD_COLUMNS}
+        FROM samples
+        WHERE timestamp_ms >= ? AND timestamp_ms < ?
+        ORDER BY timestamp_ms ASC, id ASC
+        """,
+        (bucket_ms, bucket_ms + HOUR_MS),
+    )
+    statistics = _empty_statistics_state()
+    sample_count = 0
+    for row in rows:
+        _consume_statistics_row(statistics, row, sample_count == 0)
+        sample_count += 1
+    if sample_count:
+        _store_hourly_statistics(
+            opened_connection, bucket_ms, sample_count, statistics
+        )
+    else:
+        opened_connection.execute(
+            "DELETE FROM hourly_statistics WHERE bucket_ms = ?", (bucket_ms,)
+        )
+
+
+def _backfill_hourly_statistics(opened_connection: sqlite3.Connection) -> None:
+    """Build persistent summaries once for completed historical hours."""
+    bounds = opened_connection.execute(
+        "SELECT MIN(timestamp_ms), MAX(timestamp_ms) FROM samples"
+    ).fetchone()
+    if bounds[0] is None:
+        return
+    last_bucket_ms = (int(bounds[1]) // HOUR_MS) * HOUR_MS
+    summarized_buckets = {
+        row[0]
+        for row in opened_connection.execute(
+            "SELECT bucket_ms FROM hourly_statistics"
+        )
+    }
+    rows = opened_connection.execute(
+        f"""
+        SELECT timestamp_ms, {FIELD_COLUMNS}
+        FROM samples
+        WHERE timestamp_ms < ?
+        ORDER BY timestamp_ms ASC, id ASC
+        """,
+        (last_bucket_ms,),
+    )
+    current_bucket = None
+    current_count = 0
+    statistics = None
+    for row in rows:
+        bucket_ms = (int(row["timestamp_ms"]) // HOUR_MS) * HOUR_MS
+        if bucket_ms != current_bucket:
+            if current_bucket is not None and current_bucket not in summarized_buckets:
+                _store_hourly_statistics(
+                    opened_connection, current_bucket, current_count, statistics
+                )
+            current_bucket = bucket_ms
+            current_count = 0
+            statistics = _empty_statistics_state()
+        if bucket_ms not in summarized_buckets:
+            _consume_statistics_row(statistics, row, current_count == 0)
+            current_count += 1
+    if current_bucket is not None and current_bucket not in summarized_buckets:
+        _store_hourly_statistics(
+            opened_connection, current_bucket, current_count, statistics
+        )
 
 
 def _legacy_measurements_exist(opened_connection: sqlite3.Connection) -> bool:
@@ -197,9 +346,14 @@ def init_database() -> None:
             opened_connection.execute("PRAGMA journal_mode=WAL")
             opened_connection.execute("PRAGMA synchronous=NORMAL")
             with opened_connection:
+                schema_version = opened_connection.execute(
+                    "PRAGMA user_version"
+                ).fetchone()[0]
                 _create_schema(opened_connection)
                 _migrate_legacy_measurements(opened_connection)
-                opened_connection.execute("PRAGMA user_version=2")
+                if schema_version < 3:
+                    _backfill_hourly_statistics(opened_connection)
+                opened_connection.execute("PRAGMA user_version=3")
             connection = opened_connection
             last_error = None
         except (OSError, sqlite3.Error) as error:
@@ -241,6 +395,17 @@ def _prune_to_limit(max_records: int) -> int:
             """,
             (records_to_remove,),
         )
+        remaining_bounds = connection.execute(
+            "SELECT MIN(timestamp_ms), MAX(timestamp_ms) FROM samples"
+        ).fetchone()
+        if remaining_bounds[0] is None:
+            connection.execute("DELETE FROM hourly_statistics")
+        else:
+            first_bucket_ms = (int(remaining_bounds[0]) // HOUR_MS) * HOUR_MS
+            connection.execute(
+                "DELETE FROM hourly_statistics WHERE bucket_ms <= ?",
+                (first_bucket_ms,),
+            )
         discarded_records += records_to_remove
     return records_to_remove
 
@@ -262,11 +427,30 @@ def write_measurement(data: dict, timestamp: str | None = None) -> bool:
     max_records = max(1, int(state.service_settings["database_max_records"]))
     with database_lock:
         try:
+            previous_last_timestamp = connection.execute(
+                "SELECT MAX(timestamp_ms) FROM samples"
+            ).fetchone()[0]
             connection.execute(
                 f"INSERT INTO samples (timestamp_ms, {FIELD_COLUMNS}) "
                 f"VALUES (?, {FIELD_PLACEHOLDERS})",
                 (timestamp_value, *values),
             )
+            inserted_bucket_ms = (timestamp_value // HOUR_MS) * HOUR_MS
+            if previous_last_timestamp is not None:
+                previous_bucket_ms = (
+                    int(previous_last_timestamp) // HOUR_MS
+                ) * HOUR_MS
+                if inserted_bucket_ms > previous_bucket_ms:
+                    _rebuild_hourly_bucket(connection, previous_bucket_ms)
+                elif inserted_bucket_ms < previous_bucket_ms:
+                    # Historical/out-of-order inserts may target a bucket that
+                    # is already summarized.
+                    summarized = connection.execute(
+                        "SELECT 1 FROM hourly_statistics WHERE bucket_ms = ?",
+                        (inserted_bucket_ms,),
+                    ).fetchone()
+                    if summarized:
+                        _rebuild_hourly_bucket(connection, inserted_bucket_ms)
             removed = _prune_to_limit(max_records)
             connection.commit()
             last_error = None
@@ -485,55 +669,94 @@ def query_history(
     return result if include_metadata else points
 
 
+def _query_raw_statistics_segment(
+    opened_connection: sqlite3.Connection,
+    start_ms: int,
+    end_ms: int,
+) -> dict:
+    statistics = _empty_statistics_state()
+    sample_count = 0
+    rows = opened_connection.execute(
+        f"""
+        SELECT {FIELD_COLUMNS}
+        FROM samples
+        WHERE timestamp_ms >= ? AND timestamp_ms <= ?
+        ORDER BY timestamp_ms ASC, id ASC
+        """,
+        (start_ms, end_ms),
+    )
+    for row in rows:
+        _consume_statistics_row(statistics, row, sample_count == 0)
+        sample_count += 1
+    return {"sample_count": sample_count, "statistics": statistics}
+
+
+def _merge_statistics_segments(segments: list[dict]) -> dict:
+    combined = _empty_statistics_state()
+    sample_count = 0
+    has_previous_segment = False
+    for segment in segments:
+        if not segment["sample_count"]:
+            continue
+        sample_count += segment["sample_count"]
+        for field in HISTORY_FIELDS:
+            source = segment["statistics"][field]
+            target = combined[field]
+            if source["count"]:
+                target["count"] += source["count"]
+                target["sum"] += source["sum"]
+                target["min"] = (
+                    source["min"]
+                    if target["min"] is None
+                    else min(target["min"], source["min"])
+                )
+                target["max"] = (
+                    source["max"]
+                    if target["max"] is None
+                    else max(target["max"], source["max"])
+                )
+                target["max_delta"] = max(
+                    target["max_delta"], source["max_delta"]
+                )
+            if has_previous_segment:
+                previous = target["last"]
+                current = source["first"]
+                if previous is not None and current is not None:
+                    target["max_delta"] = max(
+                        target["max_delta"], abs(current - previous)
+                    )
+            else:
+                target["first"] = source["first"]
+            target["last"] = source["last"]
+        has_previous_segment = True
+
+    result = {}
+    for field, field_state in combined.items():
+        if field_state["count"]:
+            result[field] = {
+                "min": field_state["min"],
+                "max": field_state["max"],
+                "average": field_state["sum"] / field_state["count"],
+                "max_delta": field_state["max_delta"],
+            }
+    return {"sample_count": sample_count, "statistics": result}
+
+
 def query_statistics(range_value: str, start: str | None = None, end: str | None = None):
-    """Calculate exact statistics from raw samples on a read-only WAL connection."""
+    """Calculate exact statistics using hourly summaries plus raw boundary rows."""
     init_database()
     if connection is None:
         return None
 
+    read_connection = None
     try:
-        start_ms = _parse_boundary(start)
-        if start_ms is None:
+        requested_start_ms = _parse_boundary(start)
+        if requested_start_ms is None:
             range_start = _range_start(range_value)
-            start_ms = round(range_start.timestamp() * 1000) if range_start else None
-        end_ms = _parse_boundary(end)
-
-        clauses = []
-        parameters = []
-        if start_ms is not None:
-            clauses.append("timestamp_ms >= ?")
-            parameters.append(start_ms)
-        if end_ms is not None:
-            clauses.append("timestamp_ms <= ?")
-            parameters.append(end_ms)
-        where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-
-        lag_values = ", ".join(
-            f"LAG({field}) OVER sample_order AS previous_{field}"
-            for field in HISTORY_FIELDS
-        )
-        aggregates = []
-        for field in HISTORY_FIELDS:
-            aggregates.extend(
-                (
-                    f"COUNT({field}) AS count_{field}",
-                    f"MIN({field}) AS min_{field}",
-                    f"MAX({field}) AS max_{field}",
-                    f"AVG({field}) AS average_{field}",
-                    f"MAX(ABS({field} - previous_{field})) AS max_delta_{field}",
-                )
+            requested_start_ms = (
+                round(range_start.timestamp() * 1000) if range_start else None
             )
-        aggregate_sql = ", ".join(aggregates)
-        sql = f"""
-            WITH ordered AS (
-                SELECT {FIELD_COLUMNS}, {lag_values}
-                FROM samples
-                {where_clause}
-                WINDOW sample_order AS (ORDER BY timestamp_ms ASC, id ASC)
-            )
-            SELECT COUNT(*) AS sample_count, {aggregate_sql}
-            FROM ordered
-        """
+        requested_end_ms = _parse_boundary(end)
 
         database_uri = pathlib.Path(config.DATABASE_FILE).resolve().as_uri() + "?mode=ro"
         read_connection = sqlite3.connect(
@@ -545,25 +768,81 @@ def query_statistics(range_value: str, start: str | None = None, end: str | None
         read_connection.row_factory = sqlite3.Row
         read_connection.execute("PRAGMA query_only=ON")
         read_connection.execute("PRAGMA busy_timeout=5000")
-        row = read_connection.execute(sql, parameters).fetchone()
+        bounds = read_connection.execute(
+            "SELECT MIN(timestamp_ms), MAX(timestamp_ms) FROM samples"
+        ).fetchone()
+        if bounds[0] is None:
+            read_connection.close()
+            return {"sample_count": 0, "statistics": {}}
+
+        start_ms = max(
+            int(bounds[0]),
+            requested_start_ms if requested_start_ms is not None else int(bounds[0]),
+        )
+        end_ms = min(
+            int(bounds[1]),
+            requested_end_ms if requested_end_ms is not None else int(bounds[1]),
+        )
+        if start_ms > end_ms:
+            read_connection.close()
+            return {"sample_count": 0, "statistics": {}}
+
+        first_full_bucket = ((start_ms + HOUR_MS - 1) // HOUR_MS) * HOUR_MS
+        last_full_bucket = (((end_ms + 1) // HOUR_MS) - 1) * HOUR_MS
+        segments = []
+        if first_full_bucket > last_full_bucket:
+            segments.append(
+                _query_raw_statistics_segment(read_connection, start_ms, end_ms)
+            )
+        else:
+            if start_ms < first_full_bucket:
+                segments.append(
+                    _query_raw_statistics_segment(
+                        read_connection, start_ms, first_full_bucket - 1
+                    )
+                )
+
+            summaries = {
+                int(row["bucket_ms"]): {
+                    "sample_count": int(row["sample_count"]),
+                    "statistics": json.loads(row["statistics_json"]),
+                }
+                for row in read_connection.execute(
+                    """
+                    SELECT bucket_ms, sample_count, statistics_json
+                    FROM hourly_statistics
+                    WHERE bucket_ms >= ? AND bucket_ms <= ?
+                    ORDER BY bucket_ms ASC
+                    """,
+                    (first_full_bucket, last_full_bucket),
+                )
+            }
+            bucket_ms = first_full_bucket
+            while bucket_ms <= last_full_bucket:
+                segment = summaries.get(bucket_ms)
+                if segment is None:
+                    segment = _query_raw_statistics_segment(
+                        read_connection, bucket_ms, bucket_ms + HOUR_MS - 1
+                    )
+                segments.append(segment)
+                bucket_ms += HOUR_MS
+
+            suffix_start_ms = last_full_bucket + HOUR_MS
+            if suffix_start_ms <= end_ms:
+                segments.append(
+                    _query_raw_statistics_segment(
+                        read_connection, suffix_start_ms, end_ms
+                    )
+                )
+
+        result = _merge_statistics_segments(segments)
         read_connection.close()
-    except (OSError, TypeError, ValueError, sqlite3.Error) as error:
+        return result
+    except (OSError, TypeError, ValueError, json.JSONDecodeError, sqlite3.Error) as error:
         _set_error("statistics query", error)
-        if "read_connection" in locals():
+        if read_connection is not None:
             read_connection.close()
         return None
-
-    statistics = {}
-    for field in HISTORY_FIELDS:
-        if not row[f"count_{field}"]:
-            continue
-        statistics[field] = {
-            "min": row[f"min_{field}"],
-            "max": row[f"max_{field}"],
-            "average": row[f"average_{field}"],
-            "max_delta": row[f"max_delta_{field}"] or 0,
-        }
-    return {"sample_count": row["sample_count"], "statistics": statistics}
 
 
 def query_raw_history(range_value: str, start: str | None = None, end: str | None = None):

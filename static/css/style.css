@@ -86,6 +86,11 @@ select {
 }
 
 .sidebar {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: 100vh;
+    overflow-y: auto;
     background: rgb(0, 106, 60);
     border-right: 1px solid rgba(255, 255, 255, 0.12);
     padding: 20px 15px;
@@ -537,9 +542,18 @@ select {
 }
 
 .charts-filter-hint {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
     margin: 0 0 10px;
     color: #7f948b;
     font-size: 13px;
+}
+
+.loading-status {
+    min-width: 72px;
+    color: #a9b9b2;
+    text-align: right;
 }
 
 .chart-card {
@@ -954,6 +968,9 @@ select {
     }
 
     .sidebar {
+        position: static;
+        height: auto;
+        overflow-y: visible;
         border-right: none;
         border-bottom: 1px solid #20352d;
     }

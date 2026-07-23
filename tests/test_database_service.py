@@ -142,6 +142,84 @@ class DatabaseServiceTests(unittest.TestCase):
         self.assertEqual(result["statistics"]["PiA"]["max_delta"], 8.0)
         self.assertEqual(result["statistics"]["PoA"]["max_delta"], 4.0)
 
+    def test_statistics_combine_hourly_summaries_and_raw_boundaries(self):
+        samples = (
+            ("2026-07-17T10:00:00+00:00", 1.0),
+            ("2026-07-17T10:59:59+00:00", 9.0),
+            ("2026-07-17T11:00:00+00:00", 3.0),
+            ("2026-07-17T11:30:00+00:00", 7.0),
+            ("2026-07-17T12:00:00+00:00", 5.0),
+        )
+        for timestamp, value in samples:
+            database_service.write_measurement({"PiA": value}, timestamp)
+
+        summaries = database_service.connection.execute(
+            "SELECT bucket_ms FROM hourly_statistics ORDER BY bucket_ms"
+        ).fetchall()
+        self.assertEqual(len(summaries), 2)
+
+        result = database_service.query_statistics(
+            "all",
+            start="2026-07-17T10:00:00+00:00",
+            end="2026-07-17T12:00:00+00:00",
+        )
+
+        self.assertEqual(result["sample_count"], 5)
+        self.assertEqual(result["statistics"]["PiA"]["min"], 1.0)
+        self.assertEqual(result["statistics"]["PiA"]["max"], 9.0)
+        self.assertEqual(result["statistics"]["PiA"]["average"], 5.0)
+        self.assertEqual(result["statistics"]["PiA"]["max_delta"], 8.0)
+
+    def test_statistics_keep_exact_custom_range_edges(self):
+        samples = (
+            ("2026-07-17T10:00:00+00:00", 100.0),
+            ("2026-07-17T10:15:00+00:00", 2.0),
+            ("2026-07-17T10:45:00+00:00", 6.0),
+            ("2026-07-17T11:00:00+00:00", 4.0),
+        )
+        for timestamp, value in samples:
+            database_service.write_measurement({"PiA": value}, timestamp)
+
+        result = database_service.query_statistics(
+            "all",
+            start="2026-07-17T10:10:00+00:00",
+            end="2026-07-17T11:00:00+00:00",
+        )
+
+        self.assertEqual(result["sample_count"], 3)
+        self.assertEqual(result["statistics"]["PiA"]["min"], 2.0)
+        self.assertEqual(result["statistics"]["PiA"]["max"], 6.0)
+        self.assertEqual(result["statistics"]["PiA"]["average"], 4.0)
+        self.assertEqual(result["statistics"]["PiA"]["max_delta"], 4.0)
+
+    def test_existing_database_builds_hourly_summaries_once(self):
+        database_service.write_measurement(
+            {"PiA": 1.0}, "2026-07-17T10:00:00+00:00"
+        )
+        database_service.write_measurement(
+            {"PiA": 5.0}, "2026-07-17T11:00:00+00:00"
+        )
+        database_service.connection.execute("DELETE FROM hourly_statistics")
+        database_service.connection.execute("PRAGMA user_version=2")
+        database_service.connection.commit()
+        database_service.close_database()
+
+        database_service.init_database()
+
+        summary = database_service.connection.execute(
+            "SELECT sample_count, statistics_json FROM hourly_statistics"
+        ).fetchone()
+        self.assertIsNotNone(summary)
+        self.assertEqual(summary["sample_count"], 1)
+        self.assertEqual(
+            database_service.json.loads(summary["statistics_json"])["PiA"]["max"],
+            1.0,
+        )
+        self.assertEqual(
+            database_service.connection.execute("PRAGMA user_version").fetchone()[0],
+            3,
+        )
+
     def test_raw_history_returns_every_sample_without_aggregation(self):
         database_service.write_measurement(
             {"PiA": 1.0, "PoA": 3.0}, "2026-07-17T10:15:30+00:00"
