@@ -15,6 +15,8 @@ let selectedEnd = null
 let latestNetwork = null
 let lastOverviewChartRefresh = 0
 let lastStatisticsRefresh = 0
+let statisticsRequestController = null
+let statisticsRequestSequence = 0
 const chartSeriesVisibility = new Map()
 
 function historyRefreshInterval(rangeValue) {
@@ -968,15 +970,28 @@ function getValues(points, field) {
 async function updateStatisticsTable() {
 	if (!currentUser) return
 
+	const requestSequence = ++statisticsRequestSequence
+	if (statisticsRequestController) statisticsRequestController.abort()
+	statisticsRequestController = new AbortController()
+	const requestController = statisticsRequestController
+	const query = buildHistoryQuery()
+	const source = document.getElementById('statistics-source')
+	if (source) source.textContent = 'Loading\u2026'
+	// Mark the refresh as started immediately. Otherwise the timer starts
+	// duplicate expensive queries while the first one is still running.
+	lastStatisticsRefresh = Date.now()
+
 	try {
-		const response = await fetch('/api/statistics?' + buildHistoryQuery())
+		const response = await fetch('/api/statistics?' + query, {
+			signal: requestController.signal,
+		})
 		handleAuthResponse(response)
 		if (!response.ok) throw new Error('HTTP error ' + response.status)
 		const json = await response.json()
+		if (requestSequence !== statisticsRequestSequence) return
 		const statistics = json.statistics || {}
 		lastStatisticsRefresh = Date.now()
 		const body = document.getElementById('statistics-table-body')
-		const source = document.getElementById('statistics-source')
 
 		if (source) {
 			const rangeText = selectedStart || selectedEnd ? 'custom range' : json.range
@@ -1027,7 +1042,14 @@ async function updateStatisticsTable() {
 
 		body.innerHTML = rows
 	} catch (error) {
+		if (error.name === 'AbortError') return
+		if (requestSequence !== statisticsRequestSequence) return
+		if (source) source.textContent = 'Could not load statistics'
 		console.error('Error fetching statistics:', error)
+	} finally {
+		if (requestSequence === statisticsRequestSequence) {
+			statisticsRequestController = null
+		}
 	}
 }
 
@@ -1419,6 +1441,7 @@ setInterval(() => {
 	const statisticsTab = document.querySelector('.tab-panel[data-tab="statistics"]')
 	if (statisticsTab
 		&& statisticsTab.classList.contains('active')
+		&& !statisticsRequestController
 		&& Date.now() - lastStatisticsRefresh >= historyRefreshInterval(selectedRange)) {
 		updateStatisticsTable()
 	}
