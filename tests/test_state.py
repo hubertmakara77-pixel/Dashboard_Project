@@ -8,6 +8,19 @@ from app.core import config, state
 
 
 class StateSecurityTests(unittest.TestCase):
+    def test_temperature_thresholds_are_added_to_existing_settings(self):
+        settings = state.merge_dashboard_settings({
+            "warn_limits": {
+                "PiA": {"min": -20.0, "max": 5.0},
+            },
+        })
+
+        self.assertEqual(settings["warn_limits"]["PiA"], {"min": -20.0, "max": 5.0})
+        self.assertEqual(
+            settings["warn_limits"]["temperature"],
+            {"min": None, "max": None},
+        )
+
     def test_fresh_install_creates_admin_authorization_without_password(self):
         users = state.merge_access_users(None)
         self.assertEqual(users[0]["username"], "admin")

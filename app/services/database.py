@@ -1,6 +1,7 @@
 import datetime
 import json
 import logging
+import math
 import pathlib
 import shutil
 import sqlite3
@@ -145,11 +146,9 @@ def _empty_statistics_state() -> dict:
         field: {
             "count": 0,
             "sum": 0.0,
+            "sum_squares": 0.0,
             "min": None,
             "max": None,
-            "max_delta": 0.0,
-            "first": None,
-            "last": None,
         }
         for field in HISTORY_FIELDS
     }
@@ -158,18 +157,15 @@ def _empty_statistics_state() -> dict:
 def _consume_statistics_row(
     statistics: dict,
     row: sqlite3.Row,
-    first_row: bool,
 ) -> None:
     for field in HISTORY_FIELDS:
         value = row[field]
         field_state = statistics[field]
-        if first_row:
-            field_state["first"] = value
-        previous = field_state["last"]
         if value is not None:
             numeric_value = float(value)
             field_state["count"] += 1
             field_state["sum"] += numeric_value
+            field_state["sum_squares"] += numeric_value * numeric_value
             field_state["min"] = (
                 numeric_value
                 if field_state["min"] is None
@@ -180,12 +176,6 @@ def _consume_statistics_row(
                 if field_state["max"] is None
                 else max(field_state["max"], numeric_value)
             )
-            if previous is not None:
-                field_state["max_delta"] = max(
-                    field_state["max_delta"],
-                    abs(numeric_value - previous),
-                )
-        field_state["last"] = value
 
 
 def _store_hourly_statistics(
@@ -222,7 +212,7 @@ def _rebuild_hourly_bucket(
     statistics = _empty_statistics_state()
     sample_count = 0
     for row in rows:
-        _consume_statistics_row(statistics, row, sample_count == 0)
+        _consume_statistics_row(statistics, row)
         sample_count += 1
     if sample_count:
         _store_hourly_statistics(
@@ -271,7 +261,7 @@ def _backfill_hourly_statistics(opened_connection: sqlite3.Connection) -> None:
             current_count = 0
             statistics = _empty_statistics_state()
         if bucket_ms not in summarized_buckets:
-            _consume_statistics_row(statistics, row, current_count == 0)
+            _consume_statistics_row(statistics, row)
             current_count += 1
     if current_bucket is not None and current_bucket not in summarized_buckets:
         _store_hourly_statistics(
@@ -351,9 +341,10 @@ def init_database() -> None:
                 ).fetchone()[0]
                 _create_schema(opened_connection)
                 _migrate_legacy_measurements(opened_connection)
-                if schema_version < 3:
+                if schema_version < 4:
+                    opened_connection.execute("DELETE FROM hourly_statistics")
                     _backfill_hourly_statistics(opened_connection)
-                opened_connection.execute("PRAGMA user_version=3")
+                opened_connection.execute("PRAGMA user_version=4")
             connection = opened_connection
             last_error = None
         except (OSError, sqlite3.Error) as error:
@@ -686,7 +677,7 @@ def _query_raw_statistics_segment(
         (start_ms, end_ms),
     )
     for row in rows:
-        _consume_statistics_row(statistics, row, sample_count == 0)
+        _consume_statistics_row(statistics, row)
         sample_count += 1
     return {"sample_count": sample_count, "statistics": statistics}
 
@@ -694,7 +685,6 @@ def _query_raw_statistics_segment(
 def _merge_statistics_segments(segments: list[dict]) -> dict:
     combined = _empty_statistics_state()
     sample_count = 0
-    has_previous_segment = False
     for segment in segments:
         if not segment["sample_count"]:
             continue
@@ -705,6 +695,7 @@ def _merge_statistics_segments(segments: list[dict]) -> dict:
             if source["count"]:
                 target["count"] += source["count"]
                 target["sum"] += source["sum"]
+                target["sum_squares"] += source["sum_squares"]
                 target["min"] = (
                     source["min"]
                     if target["min"] is None
@@ -715,29 +706,20 @@ def _merge_statistics_segments(segments: list[dict]) -> dict:
                     if target["max"] is None
                     else max(target["max"], source["max"])
                 )
-                target["max_delta"] = max(
-                    target["max_delta"], source["max_delta"]
-                )
-            if has_previous_segment:
-                previous = target["last"]
-                current = source["first"]
-                if previous is not None and current is not None:
-                    target["max_delta"] = max(
-                        target["max_delta"], abs(current - previous)
-                    )
-            else:
-                target["first"] = source["first"]
-            target["last"] = source["last"]
-        has_previous_segment = True
 
     result = {}
     for field, field_state in combined.items():
         if field_state["count"]:
+            average = field_state["sum"] / field_state["count"]
+            variance = max(
+                0.0,
+                field_state["sum_squares"] / field_state["count"] - average * average,
+            )
             result[field] = {
                 "min": field_state["min"],
                 "max": field_state["max"],
-                "average": field_state["sum"] / field_state["count"],
-                "max_delta": field_state["max_delta"],
+                "average": average,
+                "standard_deviation": math.sqrt(variance),
             }
     return {"sample_count": sample_count, "statistics": result}
 

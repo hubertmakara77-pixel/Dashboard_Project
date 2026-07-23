@@ -595,13 +595,10 @@ select {
     min-width: 0;
     width: 100%;
     height: 430px;
-    background:
-        radial-gradient(circle at 12% 0%, rgb(30 72 54 / 34%) 0%, transparent 42%),
-        linear-gradient(145deg, #16231e 0%, #111a17 52%, #0d1412 100%);
+    background: #121b18;
     border: 1px solid #20352d;
     border-radius: 8px;
     padding: 18px;
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / 3%);
     transition: height 180ms ease, border-color 180ms ease;
 }
 

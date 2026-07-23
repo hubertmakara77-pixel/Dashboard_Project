@@ -16,6 +16,7 @@ DEFAULT_DASHBOARD_SETTINGS = {
         "PoA": {"min": None, "max": None},
         "PiB": {"min": None, "max": None},
         "PoB": {"min": None, "max": None},
+        "temperature": {"min": None, "max": None},
     },
 }
 

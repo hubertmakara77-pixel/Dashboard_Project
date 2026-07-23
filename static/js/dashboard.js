@@ -571,6 +571,11 @@ async function saveSettings() {
 
 		warnLimits[field][side] = valueOrNull(input)
 	})
+	Object.entries(warnLimits).forEach(([field, limits]) => {
+		if (limits.min !== null && limits.max !== null && limits.min >= limits.max) {
+			throw new Error(`${field}: MIN threshold must be lower than MAX threshold.`)
+		}
+	})
 
 	const response = await fetch('/api/settings', {
 		method: 'POST',
@@ -910,6 +915,14 @@ function formatTimeAxisTick(value, timeBounds) {
 	return spanMs <= 5 * 60 * 1000 ? `${time}:${pad(date.getSeconds())}` : time
 }
 
+function getTimeAxisTitle(timeBounds) {
+	const spanMs = Math.max(0, Number(timeBounds.max) - Number(timeBounds.min))
+	const dayMs = 24 * 60 * 60 * 1000
+	if (spanMs > 365 * dayMs) return 'Month (MM.YYYY)'
+	if (spanMs > dayMs) return 'Date (DD.MM)'
+	return 'Time (24-hour)'
+}
+
 function getOverviewTimeBounds(points) {
 	const durations = {
 		'5m': 5 * 60 * 1000,
@@ -984,6 +997,29 @@ function getValues(points, field) {
 	})
 }
 
+function getStatisticsLimits(field) {
+	if (!dashboardSettings) return null
+	if (field === 'gain_delta') {
+		const tolerance = Number(dashboardSettings.gain_tolerance)
+		return Number.isFinite(tolerance)
+			? { min: -Math.abs(tolerance), max: Math.abs(tolerance) }
+			: null
+	}
+	const limits = dashboardSettings.warn_limits?.[field]
+	if (!limits || (limits.min === null && limits.max === null)) return null
+	return limits
+}
+
+function formatOutsideLimits(field, statistics) {
+	const limits = getStatisticsLimits(field)
+	if (!limits) return '--'
+	const below = limits.min !== null && Number(statistics.min) < Number(limits.min)
+	const above = limits.max !== null && Number(statistics.max) > Number(limits.max)
+	if (!below && !above) return '<span class="status-ok">No</span>'
+	const reason = below && above ? 'below MIN and above MAX' : below ? 'below MIN' : 'above MAX'
+	return `<span class="status-error">Yes (${reason})</span>`
+}
+
 async function updateStatisticsTable() {
 	if (!currentUser) return
 
@@ -1040,7 +1076,7 @@ async function updateStatisticsTable() {
 					return `
                     <tr>
                         <td>${label}</td>
-                        <td colspan="4">No data</td>
+                        <td colspan="5">No data</td>
                     </tr>
                 `
 				}
@@ -1051,7 +1087,8 @@ async function updateStatisticsTable() {
                     <td>${formatPlainNumber(stats.min)}${unit ? ' ' + unit : ''}</td>
                     <td>${formatPlainNumber(stats.max)}${unit ? ' ' + unit : ''}</td>
                     <td>${formatPlainNumber(stats.average)}${unit ? ' ' + unit : ''}</td>
-					<td>${formatPlainNumber(stats.max_delta)}${unit ? ' ' + unit : ''}</td>
+					<td>${formatPlainNumber(stats.standard_deviation)}${unit ? ' ' + unit : ''}</td>
+					<td>${formatOutsideLimits(field, stats)}</td>
                 </tr>
             `
 			})
@@ -1133,6 +1170,10 @@ function createOrUpdateChart(
 						type: 'linear',
 						min: timeBounds.min,
 						max: timeBounds.max,
+						title: {
+							display: true,
+							text: getTimeAxisTitle(timeBounds),
+						},
 						afterBuildTicks: scale => {
 							const interval = (scale.max - scale.min) / 4
 							scale.ticks = Array.from(
@@ -1158,6 +1199,7 @@ function createOrUpdateChart(
 	existingChart.data.datasets = datasets
 	existingChart.options.scales.x.min = timeBounds.min
 	existingChart.options.scales.x.max = timeBounds.max
+	existingChart.options.scales.x.title.text = getTimeAxisTitle(timeBounds)
 	existingChart.options.scales.x.ticks.callback = value => formatTimeAxisTick(value, timeBounds)
 	datasets.forEach((dataset, index) => {
 		const savedVisibility = chartSeriesVisibility.get(`${canvasId}:${dataset.label}`)

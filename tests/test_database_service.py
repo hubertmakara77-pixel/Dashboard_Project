@@ -139,8 +139,12 @@ class DatabaseServiceTests(unittest.TestCase):
         self.assertEqual(result["statistics"]["PiA"]["min"], 1.0)
         self.assertEqual(result["statistics"]["PiA"]["max"], 9.0)
         self.assertEqual(result["statistics"]["PiA"]["average"], 13 / 3)
-        self.assertEqual(result["statistics"]["PiA"]["max_delta"], 8.0)
-        self.assertEqual(result["statistics"]["PoA"]["max_delta"], 4.0)
+        self.assertAlmostEqual(
+            result["statistics"]["PiA"]["standard_deviation"], 3.39934634239519
+        )
+        self.assertAlmostEqual(
+            result["statistics"]["PoA"]["standard_deviation"], 2.494438257849294
+        )
 
     def test_statistics_combine_hourly_summaries_and_raw_boundaries(self):
         samples = (
@@ -168,7 +172,9 @@ class DatabaseServiceTests(unittest.TestCase):
         self.assertEqual(result["statistics"]["PiA"]["min"], 1.0)
         self.assertEqual(result["statistics"]["PiA"]["max"], 9.0)
         self.assertEqual(result["statistics"]["PiA"]["average"], 5.0)
-        self.assertEqual(result["statistics"]["PiA"]["max_delta"], 8.0)
+        self.assertAlmostEqual(
+            result["statistics"]["PiA"]["standard_deviation"], 2.8284271247461903
+        )
 
     def test_statistics_keep_exact_custom_range_edges(self):
         samples = (
@@ -190,7 +196,9 @@ class DatabaseServiceTests(unittest.TestCase):
         self.assertEqual(result["statistics"]["PiA"]["min"], 2.0)
         self.assertEqual(result["statistics"]["PiA"]["max"], 6.0)
         self.assertEqual(result["statistics"]["PiA"]["average"], 4.0)
-        self.assertEqual(result["statistics"]["PiA"]["max_delta"], 4.0)
+        self.assertAlmostEqual(
+            result["statistics"]["PiA"]["standard_deviation"], 1.632993161855452
+        )
 
     def test_existing_database_builds_hourly_summaries_once(self):
         database_service.write_measurement(
@@ -200,7 +208,7 @@ class DatabaseServiceTests(unittest.TestCase):
             {"PiA": 5.0}, "2026-07-17T11:00:00+00:00"
         )
         database_service.connection.execute("DELETE FROM hourly_statistics")
-        database_service.connection.execute("PRAGMA user_version=2")
+        database_service.connection.execute("PRAGMA user_version=3")
         database_service.connection.commit()
         database_service.close_database()
 
@@ -217,7 +225,7 @@ class DatabaseServiceTests(unittest.TestCase):
         )
         self.assertEqual(
             database_service.connection.execute("PRAGMA user_version").fetchone()[0],
-            3,
+            4,
         )
 
     def test_raw_history_returns_every_sample_without_aggregation(self):

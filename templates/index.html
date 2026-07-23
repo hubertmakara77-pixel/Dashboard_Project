@@ -173,6 +173,11 @@
                                         <input data-limit-field="PoB" data-limit-side="min" type="number" step="0.01" placeholder="min" data-operator-control>
                                         <input data-limit-field="PoB" data-limit-side="max" type="number" step="0.01" placeholder="max" data-operator-control>
                                     </div>
+                                    <div class="limit-row">
+                                        <span>Temperature [&deg;C]</span>
+                                        <input data-limit-field="temperature" data-limit-side="min" type="number" step="0.1" placeholder="min" data-operator-control>
+                                        <input data-limit-field="temperature" data-limit-side="max" type="number" step="0.1" placeholder="max" data-operator-control>
+                                    </div>
                             </div>
                             <div class="settings-actions">
                                 <button id="save-settings-button" type="button" data-operator-control>Save</button>
@@ -271,7 +276,8 @@
                                     <th>Min</th>
                                     <th>Max</th>
                                     <th>Average</th>
-                                    <th>Max delta</th>
+                                    <th>Std deviation</th>
+                                    <th>Outside limits</th>
                                 </tr>
                             </thead>
                             <tbody id="statistics-table-body">
