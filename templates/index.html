@@ -443,42 +443,43 @@
                 </section>
 
                 <section class="tab-panel" data-tab="service-diagnostics" data-admin-only>
-                    <form id="service-settings-form" class="control-strip service-settings-form">
-                        <div class="settings-header control-save-header">
-                            <h2>Service Settings</h2>
-                            <button type="submit">Save</button>
+                    <div class="service-page-header">
+                        <div>
+                            <h2>Service Diagnostics</h2>
+                            <p>Runtime status and local service configuration for this device.</p>
                         </div>
-                        <div class="service-settings-fields">
-                            <label class="form-field">Serial port<select id="service-serial-port-input" required></select></label>
-                            <label class="form-field">Heartbeat interval (seconds; 0 disables)<input id="service-heartbeat-input" type="number" min="0" max="86400" required></label>
-                            <label class="form-field">Maximum stored records<input id="service-database-limit-input" type="number" min="1" max="10000000" required></label>
-                        </div>
-                    </form>
+                        <button id="refresh-services-button" type="button">Refresh status</button>
+                    </div>
+
                     <div class="service-diagnostics-grid">
                         <div class="data-panel network-panel">
-                            <div class="settings-header"><h2>Serial Connection</h2></div>
+                            <div class="settings-header"><h2>Data Acquisition</h2></div>
                             <div class="network-status-grid service-status-grid">
                                 <div><span>Status</span><strong id="service-serial-state">--</strong></div>
                                 <div><span>Selected port</span><strong id="service-serial-port">--</strong></div>
                                 <div><span>Baud rate</span><strong id="service-serial-baudrate">--</strong></div>
-                                <div><span>Error</span><strong id="service-serial-error">--</strong></div>
+                                <div><span>Last error</span><strong id="service-serial-error">--</strong></div>
                             </div>
                         </div>
                         <div class="data-panel network-panel">
-                            <div class="settings-header"><h2>SQLite Database</h2><button id="refresh-services-button" type="button">Refresh</button></div>
+                            <div class="settings-header"><h2>History Storage</h2></div>
                             <div class="network-status-grid service-status-grid">
                                 <div><span>Status</span><strong id="service-database-state">--</strong></div>
                                 <div><span>Stored records</span><strong id="service-database-records">--</strong></div>
-                                <div><span>Record limit</span><strong id="service-database-limit">--</strong></div>
-                                <div><span>Database file</span><strong id="service-database-file">--</strong></div>
+                                <div><span>Retention policy</span><strong id="service-database-limit">--</strong></div>
+                                <div><span>Current write rate</span><strong id="service-database-write-rate">--</strong></div>
+                                <div><span>Estimated history capacity</span><strong id="service-database-retention">--</strong></div>
+                                <div><span>Time until oldest data is removed</span><strong id="service-database-time-to-limit">--</strong></div>
+                                <div><span>Estimated time until disk is full</span><strong id="service-database-disk-time">--</strong></div>
                                 <div><span>Database size</span><strong id="service-database-size">--</strong></div>
                                 <div><span>Disk space available</span><strong id="service-database-free">--</strong></div>
-                                <div><span>Discarded since startup</span><strong id="service-database-discarded">--</strong></div>
+                                <div><span>Removed since startup</span><strong id="service-database-discarded">--</strong></div>
                                 <div><span>Last error</span><strong id="service-database-error">--</strong></div>
+                                <div class="service-wide-status"><span>Database file</span><strong id="service-database-file">--</strong></div>
                             </div>
                         </div>
                         <div class="data-panel network-panel">
-                            <div class="settings-header"><h2>Rsyslog</h2></div>
+                            <div class="settings-header"><h2>System Logging</h2></div>
                             <div class="network-status-grid service-status-grid">
                                 <div><span>Local logging</span><strong id="service-syslog-local">--</strong></div>
                                 <div><span>Local destination</span><strong id="service-syslog-destination">--</strong></div>
@@ -491,6 +492,45 @@
                             <p class="network-warning">Remote forwarding status means configured, not delivery confirmation. Rsyslog queues messages while the receiver is unavailable.</p>
                         </div>
                     </div>
+
+                    <form id="service-settings-form" class="control-strip service-settings-form">
+                        <div class="settings-header control-save-header">
+                            <div>
+                                <h2>Service Configuration</h2>
+                                <p class="settings-description">Changes are stored on this device and applied immediately.</p>
+                            </div>
+                            <button type="submit">Save changes</button>
+                        </div>
+                        <div class="service-settings-sections">
+                            <fieldset class="service-settings-section">
+                                <legend>Data acquisition</legend>
+                                <label class="form-field">Serial port<select id="service-serial-port-input" required></select></label>
+                            </fieldset>
+                            <fieldset class="service-settings-section">
+                                <legend>History retention</legend>
+                                <label class="setting-toggle">
+                                    <input id="service-unlimited-history-input" type="checkbox">
+                                    <span><strong>Unlimited history</strong><small>Keep records until the disk is full.</small></span>
+                                </label>
+                                <label id="service-database-limit-field" class="form-field">
+                                    Maximum stored records
+                                    <input id="service-database-limit-input" type="number" min="1" max="10000000" required>
+                                </label>
+                                <p id="service-database-limit-preview" class="settings-description">--</p>
+                            </fieldset>
+                            <fieldset class="service-settings-section">
+                                <legend>Syslog heartbeat</legend>
+                                <label class="setting-toggle">
+                                    <input id="service-heartbeat-enabled-input" type="checkbox">
+                                    <span><strong>Enable heartbeat</strong><small>Periodically announce that this device is online.</small></span>
+                                </label>
+                                <label id="service-heartbeat-field" class="form-field">
+                                    Interval (seconds)
+                                    <input id="service-heartbeat-input" type="number" min="10" max="86400" required>
+                                </label>
+                            </fieldset>
+                        </div>
+                    </form>
                 </section>
             </main>
         </div>

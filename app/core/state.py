@@ -134,7 +134,7 @@ def merge_service_settings(saved_settings: dict | None) -> dict:
             except (TypeError, ValueError):
                 pass
     settings["syslog_heartbeat_seconds"] = max(0, settings["syslog_heartbeat_seconds"])
-    settings["database_max_records"] = max(1, settings["database_max_records"])
+    settings["database_max_records"] = max(0, settings["database_max_records"])
     return settings
 
 

@@ -22,6 +22,8 @@ let statisticsRequestController = null
 let statisticsRequestSequence = 0
 let overviewRequestController = null
 let overviewRequestSequence = 0
+let serviceSettingsDirty = false
+let latestServiceDatabase = {}
 const chartSeriesVisibility = new Map()
 
 function historyRefreshInterval(rangeValue) {
@@ -409,6 +411,56 @@ function formatBytes(bytes) {
 	return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GiB`
 }
 
+function formatDuration(seconds) {
+	const value = Number(seconds)
+	if (!Number.isFinite(value) || value < 0) return '--'
+	if (value < 60) return `${Math.max(0, Math.round(value))} seconds`
+	if (value < 3600) return `${(value / 60).toFixed(1)} minutes`
+	if (value < 86400) return `${(value / 3600).toFixed(1)} hours`
+	if (value < 365 * 86400) return `${(value / 86400).toFixed(1)} days`
+	return `${(value / (365 * 86400)).toFixed(1)} years`
+}
+
+function formatSampleRate(rate) {
+	const value = Number(rate)
+	if (!Number.isFinite(value) || value <= 0) return 'Waiting for samples'
+	if (value >= 1) return `${value.toFixed(2)} records/s`
+	return `1 record / ${(1 / value).toFixed(1)} s`
+}
+
+function updateServiceSettingsVisibility() {
+	const unlimited = document.getElementById('service-unlimited-history-input')?.checked
+	const heartbeatEnabled = document.getElementById('service-heartbeat-enabled-input')?.checked
+	const limitField = document.getElementById('service-database-limit-field')
+	const heartbeatField = document.getElementById('service-heartbeat-field')
+	if (limitField) limitField.hidden = unlimited
+	if (heartbeatField) heartbeatField.hidden = !heartbeatEnabled
+	updateDatabaseLimitPreview()
+}
+
+function updateDatabaseLimitPreview() {
+	const preview = document.getElementById('service-database-limit-preview')
+	if (!preview) return
+	if (document.getElementById('service-unlimited-history-input')?.checked) {
+		preview.textContent = 'No records will be removed automatically. Available disk space is the only limit.'
+		return
+	}
+	const limit = Number(document.getElementById('service-database-limit-input')?.value)
+	const rate = Number(latestServiceDatabase.sample_rate_per_second)
+	const records = Number(latestServiceDatabase.records || 0)
+	if (!Number.isFinite(limit) || limit < 1) {
+		preview.textContent = 'Enter a limit between 1 and 10,000,000 records.'
+		return
+	}
+	if (!Number.isFinite(rate) || rate <= 0) {
+		preview.textContent = 'The time estimate will appear after at least two samples are stored.'
+		return
+	}
+	const capacity = formatDuration(limit / rate)
+	const remaining = formatDuration(Math.max(0, limit - records) / rate)
+	preview.textContent = `About ${capacity} of history; oldest records start being removed in ${remaining}.`
+}
+
 async function loadServiceDiagnostics() {
 	if (!isAdministrator() || !document.getElementById('service-database-state')) return
 	try {
@@ -419,12 +471,13 @@ async function loadServiceDiagnostics() {
 		const serial = data.serial || {}
 		const database = data.database || {}
 		const syslog = data.syslog || {}
+		latestServiceDatabase = database
 		setTextIfExists('service-serial-state', serial.connected ? 'CONNECTED' : 'DISCONNECTED')
 		setTextIfExists('service-serial-port', serial.port || '--')
 		setTextIfExists('service-serial-baudrate', String(serial.baudrate ?? '--'))
 		setTextIfExists('service-serial-error', serial.error || 'None')
 		const serialPortInput = document.getElementById('service-serial-port-input')
-		if (serialPortInput) {
+		if (serialPortInput && !serviceSettingsDirty) {
 			const ports = Array.from(new Set([serial.port, ...(serial.available_ports || [])].filter(Boolean)))
 			serialPortInput.replaceChildren(...ports.map(port => {
 				const option = document.createElement('option')
@@ -436,7 +489,27 @@ async function loadServiceDiagnostics() {
 		}
 		setTextIfExists('service-database-state', String(database.state || '--').toUpperCase())
 		setTextIfExists('service-database-records', String(database.records ?? 0))
-		setTextIfExists('service-database-limit', String(database.record_limit ?? '--'))
+		setTextIfExists(
+			'service-database-limit',
+			database.record_limit === 0 ? 'UNLIMITED' : `${database.record_limit ?? '--'} records`,
+		)
+		setTextIfExists('service-database-write-rate', formatSampleRate(database.sample_rate_per_second))
+		setTextIfExists(
+			'service-database-retention',
+			database.record_limit === 0
+				? 'Unlimited (disk space applies)'
+				: formatDuration(database.estimated_retention_seconds),
+		)
+		setTextIfExists(
+			'service-database-time-to-limit',
+			database.record_limit === 0
+				? 'Not applicable'
+				: formatDuration(database.estimated_seconds_to_limit),
+		)
+		setTextIfExists(
+			'service-database-disk-time',
+			formatDuration(database.estimated_seconds_until_disk_full),
+		)
 		setTextIfExists('service-database-file', database.file || '--')
 		setTextIfExists('service-database-size', formatBytes(database.size_bytes))
 		setTextIfExists('service-database-free', formatBytes(database.filesystem_free_bytes))
@@ -451,8 +524,19 @@ async function loadServiceDiagnostics() {
 		setTextIfExists('service-syslog-heartbeat', syslog.heartbeat_seconds > 0 ? `${syslog.heartbeat_seconds} s` : 'DISABLED')
 		const heartbeatInput = document.getElementById('service-heartbeat-input')
 		const databaseLimitInput = document.getElementById('service-database-limit-input')
-		if (heartbeatInput) heartbeatInput.value = syslog.heartbeat_seconds ?? 300
-		if (databaseLimitInput) databaseLimitInput.value = database.record_limit ?? 250000
+		if (!serviceSettingsDirty) {
+			const heartbeatEnabledInput = document.getElementById('service-heartbeat-enabled-input')
+			const unlimitedHistoryInput = document.getElementById('service-unlimited-history-input')
+			if (heartbeatEnabledInput) heartbeatEnabledInput.checked = syslog.heartbeat_seconds > 0
+			if (unlimitedHistoryInput) unlimitedHistoryInput.checked = database.record_limit === 0
+			if (heartbeatInput) heartbeatInput.value = syslog.heartbeat_seconds > 0 ? syslog.heartbeat_seconds : 300
+			if (databaseLimitInput) {
+				databaseLimitInput.value = database.record_limit > 0 ? database.record_limit : 250000
+			}
+			updateServiceSettingsVisibility()
+		} else {
+			updateDatabaseLimitPreview()
+		}
 	} catch (error) {
 		setTextIfExists('service-database-state', 'API ERROR')
 		console.error('Error loading service diagnostics:', error)
@@ -461,16 +545,28 @@ async function loadServiceDiagnostics() {
 
 document.getElementById('refresh-services-button')?.addEventListener('click', loadServiceDiagnostics)
 
-document.getElementById('service-settings-form')?.addEventListener('submit', async event => {
+const serviceSettingsForm = document.getElementById('service-settings-form')
+serviceSettingsForm?.addEventListener('input', () => {
+	serviceSettingsDirty = true
+	updateServiceSettingsVisibility()
+})
+
+serviceSettingsForm?.addEventListener('submit', async event => {
 	event.preventDefault()
 	try {
+		const heartbeatEnabled = document.getElementById('service-heartbeat-enabled-input').checked
+		const unlimitedHistory = document.getElementById('service-unlimited-history-input').checked
 		const response = await fetch('/api/service-diagnostics/settings', {
 			method: 'PUT',
 			headers: {'Content-Type': 'application/json'},
 			body: JSON.stringify({
 				serial_port: document.getElementById('service-serial-port-input').value,
-				syslog_heartbeat_seconds: Number(document.getElementById('service-heartbeat-input').value),
-				database_max_records: Number(document.getElementById('service-database-limit-input').value),
+				syslog_heartbeat_seconds: heartbeatEnabled
+					? Number(document.getElementById('service-heartbeat-input').value)
+					: 0,
+				database_max_records: unlimitedHistory
+					? 0
+					: Number(document.getElementById('service-database-limit-input').value),
 			}),
 		})
 		handleAuthResponse(response)
@@ -478,6 +574,7 @@ document.getElementById('service-settings-form')?.addEventListener('submit', asy
 		if (!response.ok) throw new Error(result.detail || 'Could not save service settings')
 		const suffix = result.pruned_records ? ` ${result.pruned_records} oldest database records were removed.` : ''
 		showNotification(`Service settings saved.${suffix}`)
+		serviceSettingsDirty = false
 		await loadServiceDiagnostics()
 	} catch (error) {
 		showNotification(error.message || 'Could not save service settings.', 'error')
@@ -959,14 +1056,15 @@ function addHistoryGapMarkers(points, rangeValue) {
 	const intervals = []
 	for (let index = 1; index < datedPoints.length; index += 1) {
 		const interval = datedPoints[index].timestamp - datedPoints[index - 1].timestamp
-		if (Number.isFinite(interval) && interval > 0) intervals.push(interval)
+		intervals.push(Number.isFinite(interval) && interval > 0 ? interval : null)
 	}
-	if (!intervals.length) return points
+	const validIntervals = intervals.filter(interval => interval !== null)
+	if (!validIntervals.length) return points
 
-	intervals.sort((left, right) => left - right)
+	const sortedIntervals = [...validIntervals].sort((left, right) => left - right)
 	// A lower quartile represents the normal sampling cadence without letting
 	// one or more long outages inflate the threshold used to detect a gap.
-	const typicalInterval = intervals[Math.floor((intervals.length - 1) * 0.25)]
+	const typicalInterval = sortedIntervals[Math.floor((sortedIntervals.length - 1) * 0.25)]
 	const bucketMs = {
 		'5m': 1000,
 		'1h': 10000,
@@ -975,13 +1073,21 @@ function addHistoryGapMarkers(points, rangeValue) {
 		'30d': 1800000,
 		'all': 3600000,
 	}[rangeValue] || 1000
-	const gapThreshold = Math.max(bucketMs, typicalInterval) * 2.5
 	const result = [datedPoints[0].point]
 
 	for (let index = 1; index < datedPoints.length; index += 1) {
 		const previous = datedPoints[index - 1]
 		const current = datedPoints[index]
-		if (current.timestamp - previous.timestamp > gapThreshold) {
+		const currentInterval = current.timestamp - previous.timestamp
+		// Compare against cadence on both sides of this interval. This lets a
+		// device change from e.g. 100 ms to 10 s without turning every new
+		// sample into a false gap, while an isolated outage remains visible.
+		const neighbourIntervals = [
+			intervals[index - 2],
+			intervals[index],
+		].filter(interval => interval !== null && interval !== undefined)
+		const localCadence = Math.max(bucketMs, typicalInterval, ...neighbourIntervals)
+		if (currentInterval > localCadence * 2.5) {
 			result.push({ time: new Date((previous.timestamp + current.timestamp) / 2).toISOString() })
 		}
 		result.push(current.point)

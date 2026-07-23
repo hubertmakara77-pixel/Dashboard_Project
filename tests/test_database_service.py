@@ -73,6 +73,31 @@ class DatabaseServiceTests(unittest.TestCase):
         self.assertEqual(database_service.apply_record_limit(), 2)
         self.assertEqual(database_service.get_record_count(), 1)
 
+    def test_zero_record_limit_keeps_all_measurements(self):
+        state.service_settings["database_max_records"] = 0
+        for second in range(3):
+            database_service.write_measurement(
+                {"PiA": float(second)},
+                f"2026-07-17T10:15:3{second}+00:00",
+            )
+
+        self.assertEqual(database_service.get_record_count(), 3)
+        self.assertEqual(database_service.apply_record_limit(), 0)
+
+    def test_storage_status_estimates_retention_from_recent_write_rate(self):
+        for second in range(3):
+            database_service.write_measurement(
+                {"PiA": float(second)},
+                f"2026-07-17T10:15:3{second}+00:00",
+            )
+
+        storage = database_service.get_storage_status()
+
+        self.assertEqual(storage["sample_rate_per_second"], 1.0)
+        self.assertEqual(storage["estimated_retention_seconds"], 100.0)
+        self.assertEqual(storage["estimated_seconds_to_limit"], 97.0)
+        self.assertGreater(storage["estimated_seconds_until_disk_full"], 0)
+
     def test_history_is_read_and_aggregated_from_sqlite(self):
         database_service.write_measurement(
             {"PiA": 1.0, "PoA": 3.0}, "2026-07-17T10:15:30+00:00"

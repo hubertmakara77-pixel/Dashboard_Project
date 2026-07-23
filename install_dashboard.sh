@@ -226,7 +226,7 @@ prepare_environment_file() {
 
   ensure_random_secret "SNMP_COMMUNITY" 24
   set_env_default "DATABASE_FILE" "/app/data/measurements.db"
-  set_env_default "DATABASE_MAX_RECORDS" "250000"
+  set_env_default "DATABASE_MAX_RECORDS" "0"
   set_env_default "HISTORY_MAX_POINTS" "2000"
   set_env_default "RADIUS_PORT" "1812"
   set_env_default "RADIUS_TIMEOUT_SECONDS" "3"

@@ -415,7 +415,7 @@ def write_measurement(data: dict, timestamp: str | None = None) -> bool:
     init_database()
     if connection is None:
         return False
-    max_records = max(1, int(state.service_settings["database_max_records"]))
+    max_records = max(0, int(state.service_settings["database_max_records"]))
     with database_lock:
         try:
             previous_last_timestamp = connection.execute(
@@ -442,7 +442,7 @@ def write_measurement(data: dict, timestamp: str | None = None) -> bool:
                     ).fetchone()
                     if summarized:
                         _rebuild_hourly_bucket(connection, inserted_bucket_ms)
-            removed = _prune_to_limit(max_records)
+            removed = _prune_to_limit(max_records) if max_records else 0
             connection.commit()
             last_error = None
         except (OSError, sqlite3.Error) as error:
@@ -504,9 +504,8 @@ def apply_record_limit() -> int:
         return 0
     with database_lock:
         try:
-            removed = _prune_to_limit(
-                max(1, int(state.service_settings["database_max_records"]))
-            )
+            max_records = max(0, int(state.service_settings["database_max_records"]))
+            removed = _prune_to_limit(max_records) if max_records else 0
             connection.commit()
             return removed
         except sqlite3.Error as error:
@@ -529,10 +528,61 @@ def get_storage_status() -> dict:
         _set_error("disk status", error)
         size_bytes = 0
         free_bytes = 0
+    sample_rate_per_second = None
+    init_database()
+    if connection is not None:
+        with database_lock:
+            try:
+                latest_timestamp = connection.execute(
+                    "SELECT MAX(timestamp_ms) FROM samples"
+                ).fetchone()[0]
+                if latest_timestamp is not None:
+                    recent = connection.execute(
+                        """
+                        SELECT COUNT(*) AS sample_count,
+                               MIN(timestamp_ms) AS first_ms,
+                               MAX(timestamp_ms) AS last_ms
+                        FROM samples
+                        WHERE timestamp_ms >= ?
+                        """,
+                        (int(latest_timestamp) - HOUR_MS,),
+                    ).fetchone()
+                    span_seconds = (
+                        (int(recent["last_ms"]) - int(recent["first_ms"])) / 1000
+                        if recent["sample_count"] >= 2
+                        else 0
+                    )
+                    if span_seconds > 0:
+                        sample_rate_per_second = (
+                            int(recent["sample_count"]) - 1
+                        ) / span_seconds
+            except sqlite3.Error as error:
+                _set_error("storage estimate", error)
+
+    record_limit = max(0, int(state.service_settings["database_max_records"]))
+    records = get_record_count()
+    estimated_retention_seconds = None
+    estimated_seconds_to_limit = None
+    estimated_seconds_until_disk_full = None
+    if record_limit and sample_rate_per_second:
+        estimated_retention_seconds = record_limit / sample_rate_per_second
+        estimated_seconds_to_limit = (
+            max(0, record_limit - records) / sample_rate_per_second
+        )
+    if records > 0 and size_bytes > 0 and sample_rate_per_second:
+        estimated_bytes_per_record = size_bytes / records
+        estimated_seconds_until_disk_full = (
+            free_bytes / estimated_bytes_per_record / sample_rate_per_second
+        )
+
     return {
         "size_bytes": size_bytes,
         "free_bytes": free_bytes,
         "discarded_records_since_start": discarded_records,
+        "sample_rate_per_second": sample_rate_per_second,
+        "estimated_retention_seconds": estimated_retention_seconds,
+        "estimated_seconds_to_limit": estimated_seconds_to_limit,
+        "estimated_seconds_until_disk_full": estimated_seconds_until_disk_full,
     }
 
 

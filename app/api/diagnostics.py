@@ -66,6 +66,12 @@ def service_diagnostics(
             "size_bytes": storage["size_bytes"],
             "filesystem_free_bytes": storage["free_bytes"],
             "discarded_records_since_start": storage["discarded_records_since_start"],
+            "sample_rate_per_second": storage["sample_rate_per_second"],
+            "estimated_retention_seconds": storage["estimated_retention_seconds"],
+            "estimated_seconds_to_limit": storage["estimated_seconds_to_limit"],
+            "estimated_seconds_until_disk_full": storage[
+                "estimated_seconds_until_disk_full"
+            ],
         },
         "syslog": {
             "local_enabled": config.SYSLOG_ENABLED,
@@ -90,8 +96,11 @@ async def update_service_diagnostics_settings(
         raise fastapi.HTTPException(status_code=400, detail="Heartbeat must be 0 or at least 10 seconds")
     if request.syslog_heartbeat_seconds > 86400:
         raise fastapi.HTTPException(status_code=400, detail="Heartbeat cannot exceed 86400 seconds")
-    if not 1 <= request.database_max_records <= 10000000:
-        raise fastapi.HTTPException(status_code=400, detail="Database limit must be between 1 and 10000000 records")
+    if not 0 <= request.database_max_records <= 10000000:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail="Database limit must be 0 (unlimited) or between 1 and 10000000 records",
+        )
     serial_port = request.serial_port.strip()
     if not re.fullmatch(r"/(?:host/)?dev/tty(?:ACM|USB)[0-9]+", serial_port):
         raise fastapi.HTTPException(status_code=400, detail="Select an available USB serial port")

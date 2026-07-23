@@ -8,6 +8,10 @@ from app.core import config, state
 
 
 class StateSecurityTests(unittest.TestCase):
+    def test_zero_database_limit_means_unlimited(self):
+        settings = state.merge_service_settings({"database_max_records": 0})
+        self.assertEqual(settings["database_max_records"], 0)
+
     def test_temperature_thresholds_are_added_to_existing_settings(self):
         settings = state.merge_dashboard_settings({
             "warn_limits": {
