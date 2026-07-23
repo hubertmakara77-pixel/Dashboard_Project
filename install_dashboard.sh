@@ -83,7 +83,7 @@ systemd_is_running() {
 }
 
 install_system_packages() {
-  local packages=(ca-certificates curl gnupg iproute2 logrotate python3 rsyslog systemd-timesyncd)
+  local packages=(ca-certificates curl gnupg iproute2 logrotate network-manager python3 rsyslog systemd-timesyncd)
   local missing_packages=()
   local package
 
@@ -101,6 +101,31 @@ install_system_packages() {
   info "Installing missing system packages: ${missing_packages[*]}"
   sudo apt-get update
   sudo apt-get install -y "${missing_packages[@]}"
+}
+
+configure_network_manager() {
+  command -v nmcli >/dev/null 2>&1 || fail "NetworkManager was installed but nmcli is unavailable."
+
+  info "Enabling NetworkManager for dashboard network configuration"
+  sudo systemctl enable --now NetworkManager.service
+}
+
+disable_system_sleep() {
+  info "Disabling system suspend and hibernation"
+
+  sudo install -d -m 0755 /etc/systemd/sleep.conf.d
+  sudo tee /etc/systemd/sleep.conf.d/50-amp-dashboard.conf >/dev/null <<'SLEEP'
+[Sleep]
+AllowSuspend=no
+AllowHibernation=no
+AllowSuspendThenHibernate=no
+AllowHybridSleep=no
+SLEEP
+
+  # Masking the targets also blocks suspend requests made by a desktop
+  # environment or another service. Screen blanking is intentionally untouched.
+  sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
+  sudo systemctl daemon-reload
 }
 
 install_docker_engine() {
@@ -605,8 +630,11 @@ SERVICE
 
 print_summary() {
   local dashboard_address
+  local database_limit
   dashboard_address="$(hostname -I 2>/dev/null | awk '{print $1}')"
   dashboard_address="${dashboard_address:-localhost}"
+  database_limit="$(env_value "DATABASE_MAX_RECORDS")"
+  [[ "$database_limit" == "0" ]] && database_limit="unlimited"
 
   cat <<SUMMARY
 
@@ -620,7 +648,7 @@ Device identifier:
 
 Data storage:
   SQLite file $(env_value "DATABASE_FILE")
-  maximum records: $(env_value "DATABASE_MAX_RECORDS")
+  maximum records: ${database_limit}
 
 SNMP:
   UDP port $(env_value "SNMP_PORT")
@@ -631,6 +659,10 @@ RADIUS:
 
 Time synchronization:
   systemd-timesyncd uses $(env_value "NTP_SERVER")
+
+Host services:
+  NetworkManager enabled
+  suspend and hibernation disabled
 
 System log:
   /var/log/amp-dashboard/amp-dashboard.log (managed by rsyslog and logrotate)
@@ -659,6 +691,8 @@ require_linux
 prepare_privilege_escalation
 systemd_is_running || fail "systemd must be running on the Linux server."
 install_system_packages
+configure_network_manager
+disable_system_sleep
 install_docker_engine
 prepare_environment_file
 cleanup_legacy_local_configuration
