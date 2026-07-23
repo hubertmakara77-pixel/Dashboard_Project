@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en-GB">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -183,19 +183,22 @@
 
                 <section class="tab-panel" data-tab="overview">
                     <div class="monitors-header">
-                        <div class="range-buttons">
-                            <button type="button" class="range-button active" data-range="5m">5 min</button>
-                            <button type="button" class="range-button" data-range="1h">1 h</button>
-                            <button type="button" class="range-button" data-range="24h">24 h</button>
-                            <button type="button" class="range-button" data-range="7d">7 days</button>
-                            <button type="button" class="range-button" data-range="30d">30 days</button>
-                            <button type="button" class="range-button" data-range="all">All</button>
+                        <div class="range-toolbar">
+                            <div class="range-buttons">
+                                <button type="button" class="range-button active" data-range="5m">5 min</button>
+                                <button type="button" class="range-button" data-range="1h">1 h</button>
+                                <button type="button" class="range-button" data-range="24h">24 h</button>
+                                <button type="button" class="range-button" data-range="7d">7 days</button>
+                                <button type="button" class="range-button" data-range="30d">30 days</button>
+                                <button type="button" class="range-button" data-range="all">All</button>
+                                <button type="button" class="range-button custom-range-toggle">Custom</button>
+                            </div>
+                            <button type="button" class="export-csv-button">Export selected CSV</button>
                         </div>
-                        <div class="custom-range">
-                            <label>From <input class="custom-start-input" type="datetime-local"></label>
-                            <label>To <input class="custom-end-input" type="datetime-local"></label>
+                        <div class="custom-range" hidden>
+                            <label>From <input class="custom-start-input" type="datetime-local" lang="en-GB"></label>
+                            <label>To <input class="custom-end-input" type="datetime-local" lang="en-GB"></label>
                             <button type="button" class="apply-custom-range-button">Apply</button>
-                            <button type="button" class="export-csv-button">Export CSV</button>
                         </div>
                     </div>
 
@@ -237,19 +240,22 @@
 
                 <section class="tab-panel" data-tab="statistics">
                     <div class="monitors-header">
-                        <div class="range-buttons">
-                            <button type="button" class="range-button active" data-range="5m">5 min</button>
-                            <button type="button" class="range-button" data-range="1h">1 h</button>
-                            <button type="button" class="range-button" data-range="24h">24 h</button>
-                            <button type="button" class="range-button" data-range="7d">7 days</button>
-                            <button type="button" class="range-button" data-range="30d">30 days</button>
-                            <button type="button" class="range-button" data-range="all">All</button>
+                        <div class="range-toolbar">
+                            <div class="range-buttons">
+                                <button type="button" class="range-button active" data-range="5m">5 min</button>
+                                <button type="button" class="range-button" data-range="1h">1 h</button>
+                                <button type="button" class="range-button" data-range="24h">24 h</button>
+                                <button type="button" class="range-button" data-range="7d">7 days</button>
+                                <button type="button" class="range-button" data-range="30d">30 days</button>
+                                <button type="button" class="range-button" data-range="all">All</button>
+                                <button type="button" class="range-button custom-range-toggle">Custom</button>
+                            </div>
+                            <button type="button" class="export-csv-button">Export selected CSV</button>
                         </div>
-                        <div class="custom-range">
-                            <label>From <input class="custom-start-input" type="datetime-local"></label>
-                            <label>To <input class="custom-end-input" type="datetime-local"></label>
+                        <div class="custom-range" hidden>
+                            <label>From <input class="custom-start-input" type="datetime-local" lang="en-GB"></label>
+                            <label>To <input class="custom-end-input" type="datetime-local" lang="en-GB"></label>
                             <button type="button" class="apply-custom-range-button">Apply</button>
-                            <button type="button" class="export-csv-button">Export CSV</button>
                         </div>
                     </div>
 

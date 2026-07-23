@@ -486,15 +486,48 @@ select {
     margin-bottom: 20px;
 }
 
+.range-toolbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
 .range-buttons {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
 }
 
+.range-buttons .range-button {
+    background: transparent;
+    color: #dfe8e3;
+    border-color: #3d5149;
+}
+
+.range-buttons .range-button:hover {
+    background: #18241f;
+    border-color: #57c08a;
+}
+
 .range-button.active {
     background: rgb(0, 106, 60);
     border-color: rgba(255, 255, 255, 0.2);
+}
+
+.range-toolbar .export-csv-button {
+    flex: 0 0 auto;
+    padding: 8px 14px;
+    background: transparent;
+    color: #dfe8e3;
+    border: 1px solid #3d5149;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.range-toolbar .export-csv-button:hover {
+    color: #ffffff;
+    border-color: #57c08a;
 }
 
 .custom-range {
@@ -979,6 +1012,15 @@ select {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 12px;
+    }
+
+    .range-toolbar {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .range-toolbar .export-csv-button {
+        align-self: flex-start;
     }
 
     .status-bar {

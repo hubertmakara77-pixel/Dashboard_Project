@@ -889,21 +889,25 @@ function getFullTimestamps(points) {
 		const date = new Date(point.time)
 		if (Number.isNaN(date.getTime())) return point.time || ''
 		const pad = number => String(number).padStart(2, '0')
-		return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} `
+		return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()} `
 			+ `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 	})
 }
 
-function formatTimeAxisTick(value, rangeValue) {
+function formatTimeAxisTick(value, timeBounds) {
 	const date = new Date(Number(value))
 	if (Number.isNaN(date.getTime())) return ''
 	const pad = number => String(number).padStart(2, '0')
-	const time = `${pad(date.getHours())}:${pad(date.getMinutes())}`
-	if (rangeValue === '5m' || rangeValue === '1h') {
-		return rangeValue === '5m' ? `${time}:${pad(date.getSeconds())}` : time
+	const spanMs = Math.max(0, Number(timeBounds.max) - Number(timeBounds.min))
+	const dayMs = 24 * 60 * 60 * 1000
+	if (spanMs > 365 * dayMs) {
+		return `${pad(date.getMonth() + 1)}.${date.getFullYear()}`
 	}
-	if (rangeValue === '24h') return time
-	return `${pad(date.getDate())}.${pad(date.getMonth() + 1)} ${time}`
+	if (spanMs > dayMs) {
+		return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}`
+	}
+	const time = `${pad(date.getHours())}:${pad(date.getMinutes())}`
+	return spanMs <= 5 * 60 * 1000 ? `${time}:${pad(date.getSeconds())}` : time
 }
 
 function getOverviewTimeBounds(points) {
@@ -927,6 +931,10 @@ function getOverviewTimeBounds(points) {
 			min: Number.isFinite(requestedStart) ? requestedStart : pointTimes[0],
 			max: Number.isFinite(requestedEnd) ? requestedEnd : pointTimes.at(-1),
 		}
+	}
+	if (!pointTimes.length) {
+		const now = Date.now()
+		return { min: now - 5 * 60 * 1000, max: now }
 	}
 	return { min: pointTimes[0], max: pointTimes.at(-1) }
 }
@@ -1091,6 +1099,7 @@ function createOrUpdateChart(
 				animation: false,
 				responsive: true,
 				maintainAspectRatio: false,
+				locale: 'pl-PL',
 				plugins: {
 					tooltip: {
 						callbacks: {
@@ -1124,12 +1133,18 @@ function createOrUpdateChart(
 						type: 'linear',
 						min: timeBounds.min,
 						max: timeBounds.max,
+						afterBuildTicks: scale => {
+							const interval = (scale.max - scale.min) / 4
+							scale.ticks = Array.from(
+								{ length: 5 },
+								(_item, index) => ({ value: scale.min + interval * index }),
+							)
+						},
 						ticks: {
-							autoSkip: true,
-							maxTicksLimit: 8,
+							autoSkip: false,
 							maxRotation: 0,
 							minRotation: 0,
-							callback: value => formatTimeAxisTick(value, overviewRange),
+							callback: value => formatTimeAxisTick(value, timeBounds),
 						},
 					},
 					y: { title: { display: true, text: yLabel } },
@@ -1143,7 +1158,7 @@ function createOrUpdateChart(
 	existingChart.data.datasets = datasets
 	existingChart.options.scales.x.min = timeBounds.min
 	existingChart.options.scales.x.max = timeBounds.max
-	existingChart.options.scales.x.ticks.callback = value => formatTimeAxisTick(value, overviewRange)
+	existingChart.options.scales.x.ticks.callback = value => formatTimeAxisTick(value, timeBounds)
 	datasets.forEach((dataset, index) => {
 		const savedVisibility = chartSeriesVisibility.get(`${canvasId}:${dataset.label}`)
 		if (savedVisibility !== undefined) existingChart.setDatasetVisibility(index, savedVisibility)
@@ -1288,13 +1303,14 @@ async function updateOverviewCharts() {
 }
 
 function setupRangeButtons() {
-	document.querySelectorAll('.range-button').forEach(button => {
+	document.querySelectorAll('.range-button[data-range]').forEach(button => {
 		button.addEventListener('click', () => {
 			const panel = button.closest('.tab-panel')
 			const isStatistics = panel?.dataset.tab === 'statistics'
 			const rangeValue = button.dataset.range
 			panel.querySelectorAll('.range-button').forEach(item => item.classList.remove('active'))
 			button.classList.add('active')
+			panel.querySelector('.custom-range').hidden = true
 			if (isStatistics) {
 				statisticsRange = rangeValue
 				statisticsStart = null
@@ -1309,13 +1325,30 @@ function setupRangeButtons() {
 		})
 	})
 
+	document.querySelectorAll('.custom-range-toggle').forEach(button => {
+		button.addEventListener('click', () => {
+			const panel = button.closest('.tab-panel')
+			panel.querySelector('.custom-range').hidden = false
+			panel.querySelector('.custom-start-input').focus()
+		})
+	})
+
 	document.querySelectorAll('.apply-custom-range-button').forEach(button => {
 		button.addEventListener('click', () => {
 			const container = button.closest('.monitors-header')
 			const panel = button.closest('.tab-panel')
 			const startValue = localDateTimeToIso(container.querySelector('.custom-start-input').value)
 			const endValue = localDateTimeToIso(container.querySelector('.custom-end-input').value)
+			if (!startValue || !endValue) {
+				showNotification('Select both From and To for a custom range.', 'error')
+				return
+			}
+			if (new Date(startValue).getTime() >= new Date(endValue).getTime()) {
+				showNotification('From must be earlier than To.', 'error')
+				return
+			}
 			panel.querySelectorAll('.range-button').forEach(item => item.classList.remove('active'))
+			panel.querySelector('.custom-range-toggle').classList.add('active')
 			if (panel.dataset.tab === 'statistics') {
 				statisticsStart = startValue
 				statisticsEnd = endValue
@@ -1330,20 +1363,10 @@ function setupRangeButtons() {
 
 	document.querySelectorAll('.export-csv-button').forEach(button => {
 		button.addEventListener('click', () => {
-			const container = button.closest('.monitors-header')
 			const panel = button.closest('.tab-panel')
-			const startValue = localDateTimeToIso(container.querySelector('.custom-start-input').value)
-			const endValue = localDateTimeToIso(container.querySelector('.custom-end-input').value)
-			let query
-			if (panel.dataset.tab === 'statistics') {
-				statisticsStart = startValue || statisticsStart
-				statisticsEnd = endValue || statisticsEnd
-				query = buildStatisticsQuery()
-			} else {
-				overviewStart = startValue || overviewStart
-				overviewEnd = endValue || overviewEnd
-				query = buildOverviewQuery()
-			}
+			const query = panel.dataset.tab === 'statistics'
+				? buildStatisticsQuery()
+				: buildOverviewQuery()
 			window.location.href = '/api/history/export.csv?' + query
 		})
 	})
