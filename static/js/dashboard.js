@@ -965,41 +965,22 @@ function getValues(points, field) {
 	})
 }
 
-function calculateStats(points, field) {
-	const values = getValues(points, field).filter(value => value !== null && Number.isFinite(value))
-
-	if (!values.length) {
-		return null
-	}
-
-	const min = Math.min(...values)
-	const max = Math.max(...values)
-	const average = values.reduce((sum, value) => sum + value, 0) / values.length
-	let maxDelta = 0
-
-	for (let index = 1; index < values.length; index += 1) {
-		maxDelta = Math.max(maxDelta, Math.abs(values[index] - values[index - 1]))
-	}
-
-	return { min, max, average, maxDelta }
-}
-
 async function updateStatisticsTable() {
 	if (!currentUser) return
 
 	try {
-		const response = await fetch('/api/history?' + buildHistoryQuery())
+		const response = await fetch('/api/statistics?' + buildHistoryQuery())
 		handleAuthResponse(response)
 		if (!response.ok) throw new Error('HTTP error ' + response.status)
 		const json = await response.json()
-		const points = json.points || []
+		const statistics = json.statistics || {}
 		lastStatisticsRefresh = Date.now()
 		const body = document.getElementById('statistics-table-body')
 		const source = document.getElementById('statistics-source')
 
 		if (source) {
 			const rangeText = selectedStart || selectedEnd ? 'custom range' : json.range
-			source.textContent = `${points.length} samples, ${rangeText}`
+			source.textContent = `${Number(json.sample_count || 0)} raw samples, ${rangeText}`
 		}
 
 		if (!body) return
@@ -1021,7 +1002,7 @@ async function updateStatisticsTable() {
 
 		const rows = fields
 			.map(([field, label, unit]) => {
-				const stats = calculateStats(points, field)
+				const stats = statistics[field]
 
 				if (!stats) {
 					return `
@@ -1038,7 +1019,7 @@ async function updateStatisticsTable() {
                     <td>${formatPlainNumber(stats.min)}${unit ? ' ' + unit : ''}</td>
                     <td>${formatPlainNumber(stats.max)}${unit ? ' ' + unit : ''}</td>
                     <td>${formatPlainNumber(stats.average)}${unit ? ' ' + unit : ''}</td>
-                    <td>${formatPlainNumber(stats.maxDelta)}${unit ? ' ' + unit : ''}</td>
+					<td>${formatPlainNumber(stats.max_delta)}${unit ? ' ' + unit : ''}</td>
                 </tr>
             `
 			})

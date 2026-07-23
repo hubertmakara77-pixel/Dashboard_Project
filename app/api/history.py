@@ -53,11 +53,11 @@ def _normalize_request(
     )
 
 
-def _read_history(range_value: str, start: str | None, end: str | None) -> list[dict]:
-    points = database_service.query_history(range_value, start, end)
-    if points is None:
+def _read_history(range_value: str, start: str | None, end: str | None) -> dict:
+    result = database_service.query_history(range_value, start, end, include_metadata=True)
+    if result is None:
         raise fastapi.HTTPException(status_code=503, detail="Local database is unavailable")
-    return points
+    return result
 
 
 @router.get("/api/history")
@@ -70,12 +70,35 @@ def history(
     ),
 ):
     range, start, end = _normalize_request(range, start, end)
+    result = _read_history(range, start, end)
     return {
         "source": "sqlite",
         "range": range,
         "start": start,
         "end": end,
-        "points": _read_history(range, start, end),
+        **result,
+    }
+
+
+@router.get("/api/statistics")
+def statistics(
+    range: str = "5m",
+    start: str | None = None,
+    end: str | None = None,
+    _current_user: dict = fastapi.Depends(
+        api_security.require_roles("Administrator", "Operator", "Viewer")
+    ),
+):
+    range, start, end = _normalize_request(range, start, end)
+    result = database_service.query_statistics(range, start, end)
+    if result is None:
+        raise fastapi.HTTPException(status_code=503, detail="Local database is unavailable")
+    return {
+        "source": "sqlite",
+        "range": range,
+        "start": start,
+        "end": end,
+        **result,
     }
 
 

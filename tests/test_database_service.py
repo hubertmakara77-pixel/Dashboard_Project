@@ -91,6 +91,16 @@ class DatabaseServiceTests(unittest.TestCase):
         self.assertEqual(points[0]["PiA"], 2.0)
         self.assertEqual(points[0]["PoA"], 4.0)
 
+        result = database_service.query_history(
+            "5m",
+            start="2026-07-17T10:15:00+00:00",
+            end="2026-07-17T10:16:00+00:00",
+            include_metadata=True,
+        )
+        self.assertEqual(result["sample_count"], 2)
+        self.assertEqual(len(result["points"]), 1)
+        self.assertEqual(result["aggregation_seconds"], 1)
+
     def test_history_point_count_is_bounded_for_long_ranges(self):
         with mock.patch.object(config, "HISTORY_MAX_POINTS", 3):
             for second in range(5):
@@ -107,6 +117,30 @@ class DatabaseServiceTests(unittest.TestCase):
 
         self.assertLessEqual(len(points), 3)
         self.assertEqual(sum(point["PiA"] for point in points) / len(points), 2.0)
+
+    def test_statistics_are_calculated_from_raw_samples(self):
+        database_service.write_measurement(
+            {"PiA": 1.0, "PoA": 10.0}, "2026-07-17T10:15:30+00:00"
+        )
+        database_service.write_measurement(
+            {"PiA": 9.0, "PoA": 12.0}, "2026-07-17T10:15:30.100000+00:00"
+        )
+        database_service.write_measurement(
+            {"PiA": 3.0, "PoA": 16.0}, "2026-07-17T10:15:30.200000+00:00"
+        )
+
+        result = database_service.query_statistics(
+            "5m",
+            start="2026-07-17T10:15:00+00:00",
+            end="2026-07-17T10:16:00+00:00",
+        )
+
+        self.assertEqual(result["sample_count"], 3)
+        self.assertEqual(result["statistics"]["PiA"]["min"], 1.0)
+        self.assertEqual(result["statistics"]["PiA"]["max"], 9.0)
+        self.assertEqual(result["statistics"]["PiA"]["average"], 13 / 3)
+        self.assertEqual(result["statistics"]["PiA"]["max_delta"], 8.0)
+        self.assertEqual(result["statistics"]["PoA"]["max_delta"], 4.0)
 
     def test_raw_history_returns_every_sample_without_aggregation(self):
         database_service.write_measurement(

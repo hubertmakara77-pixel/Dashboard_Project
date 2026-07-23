@@ -399,7 +399,12 @@ def _parse_boundary(value: str | None) -> int | None:
     return _timestamp_ms(value) if value else None
 
 
-def query_history(range_value: str, start: str | None = None, end: str | None = None):
+def query_history(
+    range_value: str,
+    start: str | None = None,
+    end: str | None = None,
+    include_metadata: bool = False,
+):
     init_database()
     if connection is None:
         return None
@@ -428,7 +433,8 @@ def query_history(range_value: str, start: str | None = None, end: str | None = 
                 parameters,
             ).fetchone()
         if bounds["first_ms"] is None:
-            return []
+            empty_result = {"points": [], "sample_count": 0, "aggregation_seconds": 0}
+            return empty_result if include_metadata else []
 
         first_ms = int(bounds["first_ms"])
         last_ms = int(bounds["last_ms"])
@@ -443,7 +449,9 @@ def query_history(range_value: str, start: str | None = None, end: str | None = 
         query_where_clause = f"WHERE {' AND '.join(query_clauses)}" if query_clauses else ""
         averages = ", ".join(f"AVG({field}) AS {field}" for field in HISTORY_FIELDS)
         sql = f"""
-            SELECT ((timestamp_ms - ?) / ?) * ? + ? AS bucket_ms, {averages}
+            SELECT ((timestamp_ms - ?) / ?) * ? + ? AS bucket_ms,
+                   COUNT(*) AS bucket_sample_count,
+                   {averages}
             FROM samples
             {query_where_clause}
             GROUP BY bucket_ms
@@ -469,7 +477,93 @@ def query_history(range_value: str, start: str | None = None, end: str | None = 
             if row[field] is not None:
                 point[field] = row[field]
         points.append(point)
-    return points
+    result = {
+        "points": points,
+        "sample_count": sum(row["bucket_sample_count"] for row in rows),
+        "aggregation_seconds": window_ms / 1000,
+    }
+    return result if include_metadata else points
+
+
+def query_statistics(range_value: str, start: str | None = None, end: str | None = None):
+    """Calculate exact statistics from raw samples on a read-only WAL connection."""
+    init_database()
+    if connection is None:
+        return None
+
+    try:
+        start_ms = _parse_boundary(start)
+        if start_ms is None:
+            range_start = _range_start(range_value)
+            start_ms = round(range_start.timestamp() * 1000) if range_start else None
+        end_ms = _parse_boundary(end)
+
+        clauses = []
+        parameters = []
+        if start_ms is not None:
+            clauses.append("timestamp_ms >= ?")
+            parameters.append(start_ms)
+        if end_ms is not None:
+            clauses.append("timestamp_ms <= ?")
+            parameters.append(end_ms)
+        where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+
+        lag_values = ", ".join(
+            f"LAG({field}) OVER sample_order AS previous_{field}"
+            for field in HISTORY_FIELDS
+        )
+        aggregates = []
+        for field in HISTORY_FIELDS:
+            aggregates.extend(
+                (
+                    f"COUNT({field}) AS count_{field}",
+                    f"MIN({field}) AS min_{field}",
+                    f"MAX({field}) AS max_{field}",
+                    f"AVG({field}) AS average_{field}",
+                    f"MAX(ABS({field} - previous_{field})) AS max_delta_{field}",
+                )
+            )
+        aggregate_sql = ", ".join(aggregates)
+        sql = f"""
+            WITH ordered AS (
+                SELECT {FIELD_COLUMNS}, {lag_values}
+                FROM samples
+                {where_clause}
+                WINDOW sample_order AS (ORDER BY timestamp_ms ASC, id ASC)
+            )
+            SELECT COUNT(*) AS sample_count, {aggregate_sql}
+            FROM ordered
+        """
+
+        database_uri = pathlib.Path(config.DATABASE_FILE).resolve().as_uri() + "?mode=ro"
+        read_connection = sqlite3.connect(
+            database_uri,
+            uri=True,
+            timeout=5,
+            check_same_thread=False,
+        )
+        read_connection.row_factory = sqlite3.Row
+        read_connection.execute("PRAGMA query_only=ON")
+        read_connection.execute("PRAGMA busy_timeout=5000")
+        row = read_connection.execute(sql, parameters).fetchone()
+        read_connection.close()
+    except (OSError, TypeError, ValueError, sqlite3.Error) as error:
+        _set_error("statistics query", error)
+        if "read_connection" in locals():
+            read_connection.close()
+        return None
+
+    statistics = {}
+    for field in HISTORY_FIELDS:
+        if not row[f"count_{field}"]:
+            continue
+        statistics[field] = {
+            "min": row[f"min_{field}"],
+            "max": row[f"max_{field}"],
+            "average": row[f"average_{field}"],
+            "max_delta": row[f"max_delta_{field}"] or 0,
+        }
+    return {"sample_count": row["sample_count"], "statistics": statistics}
 
 
 def query_raw_history(range_value: str, start: str | None = None, end: str | None = None):
