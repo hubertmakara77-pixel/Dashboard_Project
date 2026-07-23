@@ -115,6 +115,29 @@ class DatabaseServiceTests(unittest.TestCase):
             ],
         )
 
+    def test_raw_history_stream_does_not_block_writer_connection(self):
+        database_service.write_measurement(
+            {"PiA": 1.0}, "2026-07-17T10:15:30+00:00"
+        )
+        database_service.write_measurement(
+            {"PiA": 2.0}, "2026-07-17T10:15:31+00:00"
+        )
+        points = database_service.stream_raw_history(
+            "5m",
+            start="2026-07-17T10:15:00+00:00",
+            end="2026-07-17T10:16:00+00:00",
+            batch_size=1,
+        )
+
+        first = next(points)
+        self.assertEqual(first["PiA"], 1.0)
+        self.assertTrue(
+            database_service.write_measurement(
+                {"PiA": 3.0}, "2026-07-17T10:15:32+00:00"
+            )
+        )
+        self.assertEqual([point["PiA"] for point in points], [2.0])
+
     def test_setpoint_is_stored_as_separate_measurement(self):
         database_service.write_setpoint(12.5, "2026-07-17T10:15:30+00:00")
         row = database_service.connection.execute(

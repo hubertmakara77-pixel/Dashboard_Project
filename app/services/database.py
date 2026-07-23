@@ -495,3 +495,77 @@ def query_raw_history(range_value: str, start: str | None = None, end: str | Non
                 point[field] = row[field]
         points.append(point)
     return points
+
+
+def stream_raw_history(
+    range_value: str,
+    start: str | None = None,
+    end: str | None = None,
+    batch_size: int = 1000,
+):
+    """Stream raw samples using a separate read-only WAL connection."""
+    init_database()
+    if connection is None:
+        return None
+
+    try:
+        start_ms = _parse_boundary(start)
+        if start_ms is None:
+            range_start = _range_start(range_value)
+            start_ms = round(range_start.timestamp() * 1000) if range_start else None
+        end_ms = _parse_boundary(end)
+
+        clauses = []
+        parameters = []
+        if start_ms is not None:
+            clauses.append("timestamp_ms >= ?")
+            parameters.append(start_ms)
+        if end_ms is not None:
+            clauses.append("timestamp_ms <= ?")
+            parameters.append(end_ms)
+        where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        sql = f"""
+            SELECT timestamp_ms, {FIELD_COLUMNS}
+            FROM samples
+            {where_clause}
+            ORDER BY timestamp_ms ASC, id ASC
+        """
+
+        database_uri = pathlib.Path(config.DATABASE_FILE).resolve().as_uri() + "?mode=ro"
+        read_connection = sqlite3.connect(
+            database_uri,
+            uri=True,
+            timeout=5,
+            check_same_thread=False,
+        )
+        read_connection.row_factory = sqlite3.Row
+        read_connection.execute("PRAGMA query_only=ON")
+        read_connection.execute("PRAGMA busy_timeout=5000")
+        cursor = read_connection.execute(sql, parameters)
+    except (OSError, TypeError, ValueError, sqlite3.Error) as error:
+        _set_error("raw history stream", error)
+        if "read_connection" in locals():
+            read_connection.close()
+        return None
+
+    def generate_points():
+        try:
+            while rows := cursor.fetchmany(max(1, batch_size)):
+                for row in rows:
+                    point = {
+                        "time": datetime.datetime.fromtimestamp(
+                            row["timestamp_ms"] / 1000, datetime.timezone.utc
+                        ).isoformat()
+                    }
+                    for field in HISTORY_FIELDS:
+                        if row[field] is not None:
+                            point[field] = row[field]
+                    yield point
+        except (OSError, sqlite3.Error) as error:
+            _set_error("raw history stream", error)
+            raise
+        finally:
+            cursor.close()
+            read_connection.close()
+
+    return generate_points()

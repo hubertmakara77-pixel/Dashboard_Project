@@ -1,6 +1,7 @@
 import csv
 import datetime
 import io
+import threading
 
 import fastapi
 import fastapi.responses
@@ -16,6 +17,7 @@ CSV_FIELDS = (
     "time", "M", "PiA", "PiB", "PoA", "PoB", "G", "SG", "PP", "SPP",
     "gain_set", "gain_actual", "gain_delta", "temperature", "seq_nr",
 )
+CSV_EXPORT_LOCK = threading.Lock()
 
 
 def _parse_iso_datetime(value: str | None):
@@ -58,13 +60,6 @@ def _read_history(range_value: str, start: str | None, end: str | None) -> list[
     return points
 
 
-def _read_raw_history(range_value: str, start: str | None, end: str | None) -> list[dict]:
-    points = database_service.query_raw_history(range_value, start, end)
-    if points is None:
-        raise fastapi.HTTPException(status_code=503, detail="Local database is unavailable")
-    return points
-
-
 @router.get("/api/history")
 def history(
     range: str = "5m",
@@ -95,27 +90,52 @@ def export_history_csv(
     ),
 ):
     range, start, end = _normalize_request(range, start, end)
-    points = _read_raw_history(range, start, end)
-    output = io.StringIO()
-    output.write("sep=;\r\n")
-    writer = csv.DictWriter(
-        output,
-        fieldnames=CSV_FIELDS,
-        extrasaction="ignore",
-        delimiter=";",
-        lineterminator="\r\n",
-    )
-    writer.writeheader()
-    writer.writerows(points)
+    if not CSV_EXPORT_LOCK.acquire(blocking=False):
+        raise fastapi.HTTPException(status_code=429, detail="Another CSV export is in progress")
+
+    points = database_service.stream_raw_history(range, start, end)
+    if points is None:
+        CSV_EXPORT_LOCK.release()
+        raise fastapi.HTTPException(status_code=503, detail="Local database is unavailable")
+
     api_security.audit_event(
         request,
         "history_csv_exported",
         current_user["username"],
-        f"range={range}; start={start}; end={end}; rows={len(points)}",
+        f"range={range}; start={start}; end={end}; streaming=true",
     )
+
+    def generate_csv():
+        output = io.StringIO()
+        writer = csv.DictWriter(
+            output,
+            fieldnames=CSV_FIELDS,
+            extrasaction="ignore",
+            delimiter=";",
+            lineterminator="\r\n",
+        )
+        try:
+            output.write("sep=;\r\n")
+            writer.writeheader()
+            yield output.getvalue()
+            output.seek(0)
+            output.truncate(0)
+
+            for point in points:
+                writer.writerow(point)
+                if output.tell() >= 64 * 1024:
+                    yield output.getvalue()
+                    output.seek(0)
+                    output.truncate(0)
+            if output.tell():
+                yield output.getvalue()
+        finally:
+            points.close()
+            CSV_EXPORT_LOCK.release()
+
     filename = f"amp_history_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-    return fastapi.responses.Response(
-        content=output.getvalue(),
+    return fastapi.responses.StreamingResponse(
+        generate_csv(),
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
