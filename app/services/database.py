@@ -421,16 +421,39 @@ def query_history(range_value: str, start: str | None = None, end: str | None = 
             clauses.append("timestamp_ms <= ?")
             parameters.append(end_ms)
         where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with database_lock:
+            bounds = connection.execute(
+                f"SELECT MIN(timestamp_ms) AS first_ms, MAX(timestamp_ms) AS last_ms "
+                f"FROM samples {where_clause}",
+                parameters,
+            ).fetchone()
+        if bounds["first_ms"] is None:
+            return []
+
+        first_ms = int(bounds["first_ms"])
+        last_ms = int(bounds["last_ms"])
+        span_ms = max(1, last_ms - first_ms + 1)
+        dynamic_window_ms = (span_ms + config.HISTORY_MAX_POINTS - 1) // config.HISTORY_MAX_POINTS
+        window_ms = max(window_ms, dynamic_window_ms)
+        query_clauses = list(clauses)
+        query_parameters = list(parameters)
+        if end_ms is None:
+            query_clauses.append("timestamp_ms <= ?")
+            query_parameters.append(last_ms)
+        query_where_clause = f"WHERE {' AND '.join(query_clauses)}" if query_clauses else ""
         averages = ", ".join(f"AVG({field}) AS {field}" for field in HISTORY_FIELDS)
         sql = f"""
-            SELECT (timestamp_ms / ?) * ? AS bucket_ms, {averages}
+            SELECT ((timestamp_ms - ?) / ?) * ? + ? AS bucket_ms, {averages}
             FROM samples
-            {where_clause}
+            {query_where_clause}
             GROUP BY bucket_ms
             ORDER BY bucket_ms ASC
         """
         with database_lock:
-            rows = connection.execute(sql, (window_ms, window_ms, *parameters)).fetchall()
+            rows = connection.execute(
+                sql,
+                (first_ms, window_ms, window_ms, first_ms, *query_parameters),
+            ).fetchall()
     except (TypeError, ValueError, sqlite3.Error) as error:
         _set_error("history query", error)
         return None

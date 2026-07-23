@@ -13,7 +13,20 @@ let currentUser = null
 let selectedStart = null
 let selectedEnd = null
 let latestNetwork = null
+let lastOverviewChartRefresh = 0
+let lastStatisticsRefresh = 0
 const chartSeriesVisibility = new Map()
+
+function historyRefreshInterval(rangeValue) {
+	return {
+		'5m': 3000,
+		'1h': 3000,
+		'24h': 10000,
+		'7d': 15000,
+		'30d': 30000,
+		'all': 60000,
+	}[rangeValue] || 3000
+}
 
 function formatDbm(value) {
 	if (value === null || value === undefined) return '-- dBm'
@@ -980,6 +993,7 @@ async function updateStatisticsTable() {
 		if (!response.ok) throw new Error('HTTP error ' + response.status)
 		const json = await response.json()
 		const points = json.points || []
+		lastStatisticsRefresh = Date.now()
 		const body = document.getElementById('statistics-table-body')
 		const source = document.getElementById('statistics-source')
 
@@ -1213,6 +1227,7 @@ async function updateOverviewCharts() {
 			[{ label: 'Temperature', data: getValues(points, 'temperature'), spanGaps: false }],
 			'Temperature [\u00B0C]',
 		)
+		lastOverviewChartRefresh = Date.now()
 	} catch (error) {
 		console.error('Error fetching /api/history:', error)
 	}
@@ -1407,7 +1422,9 @@ setInterval(() => {
 	if (!currentUser) return
 
 	const overviewTab = document.querySelector('.tab-panel[data-tab="overview"]')
-	if (overviewTab && overviewTab.classList.contains('active')) {
+	if (overviewTab
+		&& overviewTab.classList.contains('active')
+		&& Date.now() - lastOverviewChartRefresh >= historyRefreshInterval(selectedRange)) {
 		updateOverviewCharts()
 	}
 	const snmpTab = document.querySelector('.tab-panel[data-tab="snmp-settings"]')
@@ -1419,7 +1436,9 @@ setInterval(() => {
 	if (servicesTab && servicesTab.classList.contains('active')) loadServiceDiagnostics()
 
 	const statisticsTab = document.querySelector('.tab-panel[data-tab="statistics"]')
-	if (statisticsTab && statisticsTab.classList.contains('active')) {
+	if (statisticsTab
+		&& statisticsTab.classList.contains('active')
+		&& Date.now() - lastStatisticsRefresh >= historyRefreshInterval(selectedRange)) {
 		updateStatisticsTable()
 	}
 }, 3000)

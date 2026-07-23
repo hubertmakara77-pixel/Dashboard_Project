@@ -91,6 +91,23 @@ class DatabaseServiceTests(unittest.TestCase):
         self.assertEqual(points[0]["PiA"], 2.0)
         self.assertEqual(points[0]["PoA"], 4.0)
 
+    def test_history_point_count_is_bounded_for_long_ranges(self):
+        with mock.patch.object(config, "HISTORY_MAX_POINTS", 3):
+            for second in range(5):
+                database_service.write_measurement(
+                    {"PiA": float(second)},
+                    f"2026-07-17T10:15:{30 + second}+00:00",
+                )
+
+            points = database_service.query_history(
+                "all",
+                start="2026-07-17T10:15:00+00:00",
+                end="2026-07-17T10:16:00+00:00",
+            )
+
+        self.assertLessEqual(len(points), 3)
+        self.assertEqual(sum(point["PiA"] for point in points) / len(points), 2.0)
+
     def test_raw_history_returns_every_sample_without_aggregation(self):
         database_service.write_measurement(
             {"PiA": 1.0, "PoA": 3.0}, "2026-07-17T10:15:30+00:00"
