@@ -363,10 +363,13 @@ async function loadNetworkSettings() {
 		select.innerHTML = data.interfaces
 			.map(
 				item =>
-					`<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)} (${escapeHtml(item.mac || 'no MAC')})</option>`,
+					`<option value="${escapeHtml(item.name)}"${data.access_interface && item.name !== data.access_interface ? ' disabled' : ''}>${escapeHtml(item.name)} (${escapeHtml(item.mac || 'no MAC')})</option>`,
 			)
 			.join('')
 		select.value = data.selected_interface || data.interfaces[0]?.name || ''
+		if (data.access_interface && data.interfaces.some(item => item.name === data.access_interface)) {
+			select.value = data.access_interface
+		}
 		fillNetworkForm(selectedNetworkInterface())
 		const mdnsUrl = networkMdnsUrl(data)
 		const mdnsLink = document.getElementById('network-mdns-url')

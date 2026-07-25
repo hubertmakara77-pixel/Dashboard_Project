@@ -131,10 +131,11 @@ async def update_service_diagnostics_settings(
 
 @router.get("/api/network")
 def get_network_settings(
+    request: starlette.requests.Request,
     _current_user: dict = fastapi.Depends(api_security.require_roles("Administrator")),
 ):
     try:
-        return network_service.get_network_state()
+        return network_service.get_network_state(api_security.get_client_ip(request))
     except network_service.NetworkError as exc:
         raise fastapi.HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -145,12 +146,15 @@ def update_network_settings(
     request: starlette.requests.Request,
     current_user: dict = fastapi.Depends(api_security.require_roles("Administrator")),
 ):
+    client_ip = api_security.get_client_ip(request)
     try:
-        before = network_service.get_network_state()
+        before = network_service.get_network_state(client_ip)
     except network_service.NetworkError:
         before = {}
     try:
-        result = network_service.apply_network_settings(settings.model_dump())
+        payload = settings.model_dump()
+        payload["_requester_ip"] = client_ip
+        result = network_service.apply_network_settings(payload)
     except network_service.NetworkError as exc:
         raise fastapi.HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     api_security.audit_event(
@@ -172,7 +176,10 @@ def confirm_network_settings(
     current_user: dict = fastapi.Depends(api_security.require_roles("Administrator")),
 ):
     try:
-        result = network_service.confirm_network_settings(confirmation.token)
+        result = network_service.confirm_network_settings(
+            confirmation.token,
+            api_security.get_client_ip(request),
+        )
     except network_service.NetworkError as exc:
         raise fastapi.HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     api_security.audit_event(

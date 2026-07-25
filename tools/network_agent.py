@@ -14,6 +14,7 @@ import socketserver
 import subprocess
 import threading
 import time
+import urllib.parse
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -169,7 +170,30 @@ def _connection_details(interface: str, runner: Runner) -> dict[str, Any]:
         return {"connection": "", "mode": "unknown", "dns": []}
 
 
-def get_network_state(runner: Runner | None = None) -> dict[str, Any]:
+def _route_interface(client_ip: str, runner: Runner) -> str:
+    try:
+        address = ipaddress.ip_address(str(client_ip).strip())
+    except ValueError as exc:
+        raise NetworkAgentError(
+            "Could not determine the administrator connection address."
+        ) from exc
+    if address.is_loopback:
+        return ""
+    routes = json.loads(
+        _run(["ip", "-j", "route", "get", str(address)], runner) or "[]"
+    )
+    interface = str(routes[0].get("dev", "")).strip() if routes else ""
+    if not interface:
+        raise NetworkAgentError(
+            "Could not determine which interface carries the administrator connection."
+        )
+    return interface
+
+
+def get_network_state(
+    runner: Runner | None = None,
+    client_ip: str = "",
+) -> dict[str, Any]:
     runner = runner or _default_runner
     if runner is _default_runner and not shutil.which("ip"):
         raise NetworkAgentError("The host ip utility is unavailable.")
@@ -187,6 +211,7 @@ def get_network_state(runner: Runner | None = None) -> dict[str, Any]:
         details = _connection_details(name, runner) if nmcli_available else {"connection": "", "mode": "unknown", "dns": []}
         interfaces.append({"name": name, "mac": item.get("address", ""), "state": str(item.get("operstate", "unknown")).lower(), "ip_address": ipv4.get("local", "") if ipv4 else "", "prefix": prefix, "netmask": str(ipaddress.IPv4Network(f"0.0.0.0/{prefix}").netmask) if prefix is not None else "", "gateway": default_routes.get(name, {}).get("gateway", ""), **details})
     selected = next(iter(default_routes), "") or (interfaces[0]["name"] if interfaces else "")
+    access_interface = _route_interface(client_ip, runner) if client_ip else ""
     if not nmcli_available:
         backend, message = "read-only", "NetworkManager is unavailable on the host; settings are read-only."
     else:
@@ -204,6 +229,7 @@ def get_network_state(runner: Runner | None = None) -> dict[str, Any]:
         "supported": nmcli_available,
         "message": message,
         "selected_interface": selected,
+        "access_interface": access_interface,
         "interfaces": interfaces,
     }
 
@@ -217,10 +243,17 @@ def apply_network_settings(payload: dict[str, Any], runner: Runner | None = None
     _ensure_no_pending_checkpoint()
     current = get_network_state(runner)
     interface = str(payload.get("interface", "")).strip()
+    requester_ip = str(payload.get("_requester_ip", "")).strip()
     mode = str(payload.get("mode", "")).strip().lower()
     known = {item["name"]: item for item in current["interfaces"]}
     if interface not in known:
         raise NetworkAgentError("The selected host interface does not exist.")
+    access_interface = _route_interface(requester_ip, runner)
+    if access_interface and interface != access_interface:
+        raise NetworkAgentError(
+            f"This Dashboard connection uses interface {access_interface}. "
+            f"Changing {interface} from this session cannot safely validate reachability."
+        )
     if mode not in {"dhcp", "static"}:
         raise NetworkAgentError("Select DHCP or static configuration.")
     connection = known[interface].get("connection", "")
@@ -264,7 +297,7 @@ def apply_network_settings(payload: dict[str, Any], runner: Runner | None = None
             )
         _run(command, runner)
         _run(["nmcli", "connection", "up", connection], runner)
-        result = get_network_state(runner)
+        result = get_network_state(runner, requester_ip)
     except Exception:
         try:
             _checkpoint_call("CheckpointRollback", checkpoint_path, runner)
@@ -282,7 +315,9 @@ def apply_network_settings(payload: dict[str, Any], runner: Runner | None = None
 
 
 def confirm_network_settings(
-    token: str, runner: Runner | None = None
+    token: str,
+    runner: Runner | None = None,
+    client_ip: str = "",
 ) -> dict[str, Any]:
     runner = runner or _default_runner
     _prune_expired_checkpoints()
@@ -291,6 +326,12 @@ def confirm_network_settings(
     if checkpoint is None:
         raise NetworkAgentError(
             "The network confirmation token is invalid or has expired."
+        )
+    access_interface = _route_interface(client_ip, runner)
+    if access_interface and access_interface != checkpoint["interface"]:
+        raise NetworkAgentError(
+            "The confirmation did not arrive through the changed interface. "
+            "The previous settings will be restored automatically."
         )
     try:
         _checkpoint_call("CheckpointDestroy", checkpoint["path"], runner)
@@ -319,11 +360,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:
-        if self.path != "/v1/network":
+        parsed = urllib.parse.urlsplit(self.path)
+        if parsed.path != "/v1/network":
             self._send(404, {"detail": "Not found."})
             return
         try:
-            self._send(200, get_network_state())
+            query = urllib.parse.parse_qs(parsed.query)
+            self._send(
+                200,
+                get_network_state(client_ip=query.get("client_ip", [""])[0]),
+            )
         except NetworkAgentError as exc:
             self._send(503, {"detail": str(exc)})
 
@@ -342,7 +388,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 token = payload.get("token")
                 if not isinstance(token, str) or not token:
                     raise NetworkAgentError("A confirmation token is required.")
-                result = confirm_network_settings(token)
+                result = confirm_network_settings(
+                    token,
+                    client_ip=str(payload.get("_requester_ip", "")).strip(),
+                )
             self._send(200, result)
         except (NetworkAgentError, json.JSONDecodeError) as exc:
             self._send(400, {"detail": str(exc)})

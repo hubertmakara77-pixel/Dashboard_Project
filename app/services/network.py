@@ -54,13 +54,22 @@ def _request(
     return result
 
 
-def get_network_state() -> dict[str, Any]:
-    return _request("GET", "/v1/network")
+def get_network_state(client_ip: str = "") -> dict[str, Any]:
+    path = "/v1/network"
+    if client_ip:
+        from urllib.parse import quote
+
+        path = f"{path}?client_ip={quote(client_ip, safe='')}"
+    return _request("GET", path)
 
 
 def apply_network_settings(payload: dict[str, Any]) -> dict[str, Any]:
     return _request("POST", "/v1/network", payload, timeout=45)
 
 
-def confirm_network_settings(token: str) -> dict[str, Any]:
-    return _request("POST", "/v1/network/confirm", {"token": token})
+def confirm_network_settings(token: str, client_ip: str = "") -> dict[str, Any]:
+    return _request(
+        "POST",
+        "/v1/network/confirm",
+        {"token": token, "_requester_ip": client_ip},
+    )

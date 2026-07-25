@@ -376,7 +376,7 @@ ensure_service_identity() {
     existing_group="$(getent group "$dashboard_gid" | cut -d: -f1 || true)"
     [[ -z "$existing_group" ]] ||
       fail "DASHBOARD_GID ${dashboard_gid} is already used by group ${existing_group}."
-    sudo groupadd --system --gid "$dashboard_gid" amp-dashboard
+    sudo groupadd --gid "$dashboard_gid" amp-dashboard
   fi
 
   if getent passwd amp-dashboard >/dev/null; then
@@ -387,7 +387,7 @@ ensure_service_identity() {
     existing_user="$(getent passwd "$dashboard_uid" | cut -d: -f1 || true)"
     [[ -z "$existing_user" ]] ||
       fail "DASHBOARD_UID ${dashboard_uid} is already used by user ${existing_user}."
-    sudo useradd --system --uid "$dashboard_uid" --gid amp-dashboard \
+    sudo useradd --uid "$dashboard_uid" --gid amp-dashboard --no-create-home \
       --home-dir /nonexistent --shell /usr/sbin/nologin amp-dashboard
   fi
 

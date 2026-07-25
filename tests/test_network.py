@@ -22,6 +22,8 @@ class FakeRunner:
         self.commands.append(command)
         if command == ["ip", "-j", "address", "show"]: return CommandResult(0, json.dumps(ADDRESSES), "")
         if command == ["ip", "-j", "route", "show", "default"]: return CommandResult(0, json.dumps(ROUTES), "")
+        if command == ["ip", "-j", "route", "get", "192.168.10.40"]: return CommandResult(0, json.dumps([{"dst": "192.168.10.40", "dev": "eth0"}]), "")
+        if command == ["ip", "-j", "route", "get", "10.20.30.40"]: return CommandResult(0, json.dumps([{"dst": "10.20.30.40", "dev": "eth1"}]), "")
         if command[:4] == ["nmcli", "-g", "GENERAL.CONNECTION", "device"]: return CommandResult(0, "Wired connection 1\n", "")
         if command[:4] == ["nmcli", "-g", "ipv4.method", "connection"]: return CommandResult(0, f"{self.method}\n", "")
         if command[:4] == ["nmcli", "-g", "IP4.DNS", "device"]: return CommandResult(0, "1.1.1.1\n8.8.8.8\n", "")
@@ -55,7 +57,7 @@ class NetworkAgentTests(unittest.TestCase):
 
     def test_applies_static_configuration_without_shell(self):
         runner = FakeRunner("manual")
-        result = apply_network_settings({"interface": "eth0", "mode": "static", "ip_address": "192.168.10.50", "netmask": "24", "gateway": "192.168.10.1", "dns": "1.1.1.1, 8.8.8.8"}, runner)
+        result = apply_network_settings({"interface": "eth0", "mode": "static", "ip_address": "192.168.10.50", "netmask": "24", "gateway": "192.168.10.1", "dns": "1.1.1.1, 8.8.8.8", "_requester_ip": "192.168.10.40"}, runner)
         modify = next(command for command in runner.commands if command[:3] == ["nmcli", "connection", "modify"])
         self.assertIn("192.168.10.50/24", modify)
         self.assertEqual(result["confirmation"]["status"], "pending")
@@ -66,7 +68,7 @@ class NetworkAgentTests(unittest.TestCase):
         )
         modify_index = runner.commands.index(modify)
         self.assertLess(checkpoint_index, modify_index)
-        confirmed = confirm_network_settings(result["confirmation"]["token"], runner)
+        confirmed = confirm_network_settings(result["confirmation"]["token"], runner, "192.168.10.40")
         self.assertEqual(confirmed["confirmation"]["status"], "confirmed")
         self.assertTrue(
             any(len(command) > 5 and command[5] == "CheckpointDestroy" for command in runner.commands)
@@ -75,7 +77,7 @@ class NetworkAgentTests(unittest.TestCase):
 
     def test_rejects_gateway_outside_subnet(self):
         with self.assertRaisesRegex(NetworkAgentError, "same subnet"):
-            apply_network_settings({"interface": "eth0", "mode": "static", "ip_address": "192.168.10.50", "netmask": "24", "gateway": "10.0.0.1", "dns": ""}, FakeRunner())
+            apply_network_settings({"interface": "eth0", "mode": "static", "ip_address": "192.168.10.50", "netmask": "24", "gateway": "10.0.0.1", "dns": "", "_requester_ip": "192.168.10.40"}, FakeRunner())
 
     def test_rolls_back_when_activation_fails(self):
         class FailingRunner(FakeRunner):
@@ -88,11 +90,44 @@ class NetworkAgentTests(unittest.TestCase):
         runner = FailingRunner()
         with self.assertRaisesRegex(NetworkAgentError, "activation failed"):
             apply_network_settings(
-                {"interface": "eth0", "mode": "dhcp"},
+                {"interface": "eth0", "mode": "dhcp", "_requester_ip": "192.168.10.40"},
                 runner,
             )
         self.assertTrue(
             any(len(command) > 5 and command[5] == "CheckpointRollback" for command in runner.commands)
+        )
+
+    def test_rejects_interface_not_used_by_dashboard_client(self):
+        with self.assertRaisesRegex(NetworkAgentError, "uses interface eth1"):
+            apply_network_settings(
+                {
+                    "interface": "eth0",
+                    "mode": "dhcp",
+                    "_requester_ip": "10.20.30.40",
+                },
+                FakeRunner(),
+            )
+
+    def test_rejects_confirmation_through_a_different_interface(self):
+        runner = FakeRunner()
+        result = apply_network_settings(
+            {
+                "interface": "eth0",
+                "mode": "dhcp",
+                "_requester_ip": "192.168.10.40",
+            },
+            runner,
+        )
+        with self.assertRaisesRegex(NetworkAgentError, "did not arrive through"):
+            confirm_network_settings(
+                result["confirmation"]["token"],
+                runner,
+                "10.20.30.40",
+            )
+        confirm_network_settings(
+            result["confirmation"]["token"],
+            runner,
+            "192.168.10.40",
         )
 
 
