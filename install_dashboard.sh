@@ -405,7 +405,15 @@ ensure_service_identity() {
   set_env_value "SERIAL_DEVICE_GID" "$serial_gid"
   set_env_value "SYSLOG_READER_GID" "$syslog_gid"
 
-  sudo chown -R amp-dashboard:amp-dashboard data
+  set_data_permissions
+}
+
+set_data_permissions() {
+  # data may be a dedicated filesystem and contain root-owned lost+found.
+  # Change only the mount point and application files at its top level.
+  sudo chown amp-dashboard:amp-dashboard data
+  sudo find data -xdev -mindepth 1 -maxdepth 1 -type f \
+    -exec chown amp-dashboard:amp-dashboard {} +
   sudo chmod 0750 data
 }
 
@@ -706,6 +714,9 @@ LOGROTATE
 start_dashboard() {
   info "Building dashboard image"
   sudo docker compose build
+  info "Stopping the previous dashboard container before repairing data ownership"
+  sudo docker compose down
+  set_data_permissions
   info "Starting dashboard service"
   # The systemd unit uses --remove-orphans, which also stops containers left
   # by installations from before InfluxDB and FreeRADIUS became external.
@@ -775,6 +786,7 @@ Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=${PROJECT_DIR}
 ExecStart=${docker_path} compose up -d --remove-orphans
+ExecStop=${docker_path} compose down
 
 [Install]
 WantedBy=multi-user.target

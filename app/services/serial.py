@@ -185,6 +185,8 @@ def _serial_reader_session(port: str):
                             state.save_persisted_gain_set(data["gain_set"])
                         except ValueError:
                             print("Ignoring out-of-range gain_set in command response.")
+                        except OSError as exc:
+                            print(f"Persisted state write failed: {exc}")
 
                     state.serial_connected = True
                     state.serial_error = None
@@ -199,6 +201,8 @@ def _serial_reader_session(port: str):
                     state.save_persisted_gain_set(data["gain_set"])
                 except ValueError:
                     print("Ignoring out-of-range gain_set in measurement.")
+                except OSError as exc:
+                    print(f"Persisted state write failed: {exc}")
 
             limit_errors = build_limit_errors(data, now)
             current_warning_keys = {warning_key(error) for error in limit_errors}

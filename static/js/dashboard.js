@@ -111,10 +111,36 @@ function showNotification(message, type = 'success') {
 	window.setTimeout(() => notification.remove(), 5000)
 }
 
+function apiErrorMessage(detail, fallback) {
+	if (typeof detail === 'string' && detail.trim()) return detail
+	if (Array.isArray(detail)) {
+		const messages = detail
+			.map(item => {
+				if (!item || typeof item !== 'object') return String(item || '')
+				const location = Array.isArray(item.loc)
+					? item.loc.filter(part => part !== 'body').join('.')
+					: ''
+				const message = typeof item.msg === 'string' ? item.msg : JSON.stringify(item)
+				return location ? `${location}: ${message}` : message
+			})
+			.filter(Boolean)
+		if (messages.length) return messages.join('; ')
+	}
+	if (detail && typeof detail === 'object') {
+		if (typeof detail.message === 'string') return detail.message
+		try {
+			return JSON.stringify(detail)
+		} catch {
+			// Fall through to the caller-provided message.
+		}
+	}
+	return fallback
+}
+
 async function responseError(response, fallback) {
 	try {
 		const body = await response.json()
-		return new Error(body.detail || fallback)
+		return new Error(apiErrorMessage(body.detail, fallback))
 	} catch {
 		return new Error(fallback)
 	}
@@ -302,11 +328,18 @@ async function confirmNetworkChangeWithRetry(token, rollbackSeconds) {
 			const data = await response.json()
 			if (response.ok) return data
 			if ([400, 401, 403].includes(response.status)) {
-				const rejection = new Error(data.detail || 'Network confirmation was rejected.')
+				const rejection = new Error(
+					apiErrorMessage(data.detail, 'Network confirmation was rejected.'),
+				)
 				rejection.retryable = false
 				throw rejection
 			}
-			lastError = new Error(data.detail || `Network confirmation failed with HTTP ${response.status}.`)
+			lastError = new Error(
+				apiErrorMessage(
+					data.detail,
+					`Network confirmation failed with HTTP ${response.status}.`,
+				),
+			)
 		} catch (error) {
 			lastError = error
 			if (error.retryable === false || ['Not authenticated', 'Not allowed'].includes(error.message)) throw error
@@ -357,17 +390,22 @@ async function loadNetworkSettings() {
 		const response = await fetch('/api/network')
 		handleAuthResponse(response)
 		const data = await response.json()
-		if (!response.ok) throw new Error(data.detail || 'Could not read network settings')
+		if (!response.ok) {
+			throw new Error(apiErrorMessage(data.detail, 'Could not read network settings'))
+		}
 		latestNetwork = data
 		const select = document.getElementById('network-interface')
+		const accessInterfaceAvailable =
+			data.access_interface &&
+			data.interfaces.some(item => item.name === data.access_interface)
 		select.innerHTML = data.interfaces
 			.map(
 				item =>
-					`<option value="${escapeHtml(item.name)}"${data.access_interface && item.name !== data.access_interface ? ' disabled' : ''}>${escapeHtml(item.name)} (${escapeHtml(item.mac || 'no MAC')})</option>`,
+					`<option value="${escapeHtml(item.name)}"${accessInterfaceAvailable && item.name !== data.access_interface ? ' disabled' : ''}>${escapeHtml(item.name)} (${escapeHtml(item.mac || 'no MAC')})</option>`,
 			)
 			.join('')
 		select.value = data.selected_interface || data.interfaces[0]?.name || ''
-		if (data.access_interface && data.interfaces.some(item => item.name === data.access_interface)) {
+		if (accessInterfaceAvailable) {
 			select.value = data.access_interface
 		}
 		fillNetworkForm(selectedNetworkInterface())
@@ -421,7 +459,9 @@ document.getElementById('network-form')?.addEventListener('submit', async event 
 		})
 		handleAuthResponse(response)
 		const data = await response.json()
-		if (!response.ok) throw new Error(data.detail || 'Could not apply network settings')
+		if (!response.ok) {
+			throw new Error(apiErrorMessage(data.detail, 'Could not apply network settings'))
+		}
 		const confirmation = data.confirmation
 		if (!confirmation?.token) {
 			throw new Error('The host did not return a network rollback confirmation token.')
