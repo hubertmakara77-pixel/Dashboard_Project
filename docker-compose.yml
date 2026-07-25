@@ -13,6 +13,7 @@ services:
       GAIN_SET_MIN: ${GAIN_SET_MIN:?GAIN_SET_MIN must match the safe device range}
       GAIN_SET_MAX: ${GAIN_SET_MAX:?GAIN_SET_MAX must match the safe device range}
       DEVICE_NAME: ${DEVICE_NAME:?DEVICE_NAME must be configured in .env}
+      INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:?INITIAL_ADMIN_USERNAME must be configured in .env}
       PERSISTED_STATE_FILE: ${PERSISTED_STATE_FILE:-/app/data/persisted_state.json}
       LOGIN_MAX_ATTEMPTS: ${LOGIN_MAX_ATTEMPTS:-5}
       LOGIN_WINDOW_SECONDS: ${LOGIN_WINDOW_SECONDS:-300}
@@ -50,7 +51,7 @@ services:
       RADIUS_RETRIES: ${RADIUS_RETRIES:-1}
       RADIUS_NAS_IDENTIFIER: ${RADIUS_NAS_IDENTIFIER:?RADIUS_NAS_IDENTIFIER must be configured in .env}
     ports:
-      - "8000:8000"
+      - "${DASHBOARD_PORT:?DASHBOARD_PORT must be configured in .env}:8000"
       - "${SNMP_PORT:-1161}:${SNMP_PORT:-1161}/udp"
     device_cgroup_rules:
       - "c 166:* rmw"

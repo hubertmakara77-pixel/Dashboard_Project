@@ -38,9 +38,14 @@ class StateSecurityTests(unittest.TestCase):
         self.assertEqual(state.merge_last_known_gain_set(float("nan")), 15.0)
         self.assertEqual(state.merge_last_known_gain_set(1000), 15.0)
 
-    def test_fresh_install_creates_admin_authorization_without_password(self):
-        users = state.merge_access_users(None)
-        self.assertEqual(users[0]["username"], "admin")
+    def test_fresh_install_uses_configured_admin_without_password(self):
+        with mock.patch.object(
+            config,
+            "INITIAL_ADMIN_USERNAME",
+            "radius-admin@example.com",
+        ):
+            users = state.merge_access_users(None)
+        self.assertEqual(users[0]["username"], "radius-admin@example.com")
         self.assertEqual(users[0]["role"], "Administrator")
         self.assertNotIn("password_hash", users[0])
         self.assertNotIn("password_salt", users[0])

@@ -83,7 +83,7 @@ systemd_is_running() {
 }
 
 install_system_packages() {
-  local packages=(ca-certificates curl gnupg iproute2 logrotate network-manager python3 rsyslog systemd-timesyncd)
+  local packages=(avahi-daemon avahi-utils ca-certificates curl gnupg iproute2 logrotate network-manager python3 rsyslog systemd-timesyncd)
   local missing_packages=()
   local package
 
@@ -108,6 +108,45 @@ configure_network_manager() {
 
   info "Enabling NetworkManager for dashboard network configuration"
   sudo systemctl enable --now NetworkManager.service
+}
+
+configure_mdns() {
+  local device_name
+  local dashboard_port
+  local mdns_hostname
+
+  device_name="$(env_value DEVICE_NAME)"
+  dashboard_port="$(env_value DASHBOARD_PORT)"
+  mdns_hostname="$(
+    printf '%s' "$device_name" |
+      tr '[:upper:]_' '[:lower:]-' |
+      sed 's/[^a-z0-9-]/-/g; s/-\{2,\}/-/g; s/^-*//; s/-*$//' |
+      cut -c1-63
+  )"
+  [[ -n "$mdns_hostname" ]] || fail "DEVICE_NAME cannot be converted to a valid mDNS hostname."
+
+  info "Publishing Dashboard as ${mdns_hostname}.local"
+  sudo hostnamectl set-hostname "$mdns_hostname"
+  set_env_value "MDNS_HOSTNAME" "${mdns_hostname}.local"
+
+  sudo install -d -m 0755 /etc/avahi/services
+  sudo tee /etc/avahi/services/amp-dashboard.service >/dev/null <<AVAHI_SERVICE
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<service-group>
+  <name replace-wildcards="yes">%h Dashboard</name>
+  <service>
+    <type>_http._tcp</type>
+    <port>${dashboard_port}</port>
+    <txt-record>path=/</txt-record>
+  </service>
+</service-group>
+AVAHI_SERVICE
+
+  sudo systemctl enable avahi-daemon.service
+  sudo systemctl restart avahi-daemon.service
+  sudo systemctl is-active --quiet avahi-daemon.service ||
+    fail "Avahi did not start; inspect journalctl -u avahi-daemon.service."
 }
 
 disable_system_sleep() {
@@ -235,6 +274,7 @@ prepare_environment_file() {
     info "Updating serial device in existing .env"
   fi
 
+  prompt_dashboard_configuration
   prompt_radius_configuration
   prompt_remote_syslog_configuration
   prompt_gain_range_configuration
@@ -367,6 +407,35 @@ ensure_service_identity() {
 
   sudo chown -R amp-dashboard:amp-dashboard data
   sudo chmod 0750 data
+}
+
+prompt_dashboard_configuration() {
+  local admin_username
+  local dashboard_port
+
+  admin_username="$(env_value INITIAL_ADMIN_USERNAME)"
+  admin_username="${admin_username:-admin}"
+  dashboard_port="$(env_value DASHBOARD_PORT)"
+  dashboard_port="${dashboard_port:-8000}"
+
+  if [[ -t 0 ]]; then
+    info "Dashboard access configuration"
+    prompt_value admin_username "Initial Administrator username (must match RADIUS)" "$admin_username"
+    prompt_value dashboard_port "Dashboard TCP port" "$dashboard_port"
+  fi
+
+  [[ "$admin_username" =~ ^[A-Za-z0-9._@-]{1,128}$ ]] ||
+    fail "Administrator username may contain 1-128 letters, digits, dots, underscores, @ or hyphens."
+  [[ "$dashboard_port" =~ ^[0-9]+$ ]] &&
+    (( dashboard_port >= 1 && dashboard_port <= 65535 )) ||
+    fail "Dashboard port must be between 1 and 65535."
+
+  set_env_value "INITIAL_ADMIN_USERNAME" "$admin_username"
+  set_env_value "DASHBOARD_PORT" "$dashboard_port"
+
+  if [[ -s data/persisted_state.json ]]; then
+    info "Existing access users are preserved; the initial Administrator name applies only when no access list exists."
+  fi
 }
 
 prompt_gain_range_configuration() {
@@ -698,8 +767,8 @@ install_dashboard_service() {
 [Unit]
 Description=Optical amplifier dashboard containers
 Requires=docker.service amp-network-agent.service
-After=docker.service amp-network-agent.service systemd-timesyncd.service network-online.target
-Wants=network-online.target systemd-timesyncd.service
+After=docker.service amp-network-agent.service avahi-daemon.service systemd-timesyncd.service network-online.target
+Wants=avahi-daemon.service network-online.target systemd-timesyncd.service
 
 [Service]
 Type=oneshot
@@ -716,8 +785,10 @@ SERVICE
 }
 
 print_summary() {
+  local dashboard_port
   local dashboard_address
   local database_limit
+  dashboard_port="$(env_value "DASHBOARD_PORT")"
   dashboard_address="$(hostname -I 2>/dev/null | awk '{print $1}')"
   dashboard_address="${dashboard_address:-localhost}"
   database_limit="$(env_value "DATABASE_MAX_RECORDS")"
@@ -728,7 +799,7 @@ print_summary() {
 Installation finished.
 
 Dashboard:
-  http://${dashboard_address}:8000
+  http://${dashboard_address}:${dashboard_port}
 
 Device identifier:
   $(env_value "DEVICE_NAME")
@@ -749,13 +820,14 @@ Time synchronization:
 
 Host services:
   NetworkManager enabled
+  Avahi publishes http://$(env_value "MDNS_HOSTNAME"):${dashboard_port}
   suspend and hibernation disabled
 
 System log:
   /var/log/amp-dashboard/amp-dashboard.log (managed by rsyslog and logrotate)
 
 Default login:
-  username: admin
+  username: $(env_value "INITIAL_ADMIN_USERNAME")
   password: managed by the remote RADIUS server
 
 Useful commands:
@@ -782,6 +854,7 @@ configure_network_manager
 disable_system_sleep
 install_docker_engine
 prepare_environment_file
+configure_mdns
 cleanup_legacy_local_configuration
 configure_time_sync
 configure_system_syslog

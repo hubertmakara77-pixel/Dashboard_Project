@@ -1,5 +1,6 @@
 import json
 import unittest
+from unittest import mock
 
 from tools.network_agent import (
     CommandResult,
@@ -39,10 +40,18 @@ class FakeRunner:
 
 class NetworkAgentTests(unittest.TestCase):
     def test_reads_host_configuration(self):
-        current = get_network_state(FakeRunner())
+        with mock.patch(
+            "tools.network_agent.socket.gethostname",
+            return_value="amp-dashboard-a1b2c3d4",
+        ):
+            current = get_network_state(FakeRunner())
         self.assertTrue(current["supported"])
         self.assertEqual(current["selected_interface"], "eth0")
         self.assertEqual(current["interfaces"][0]["netmask"], "255.255.255.0")
+        self.assertEqual(
+            current["mdns_hostname"],
+            "amp-dashboard-a1b2c3d4.local",
+        )
 
     def test_applies_static_configuration_without_shell(self):
         runner = FakeRunner("manual")

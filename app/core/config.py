@@ -1,5 +1,6 @@
 import math
 import os
+import re
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -52,6 +53,15 @@ def _gain_bounds(
     return minimum, maximum
 
 
+def _initial_admin_username(value: str | None) -> str:
+    username = "admin" if value is None else value.strip()
+    if not re.fullmatch(r"[A-Za-z0-9._@-]{1,128}", username):
+        raise RuntimeError(
+            "INITIAL_ADMIN_USERNAME may contain 1-128 letters, digits, dots, underscores, @ or hyphens."
+        )
+    return username
+
+
 SERIAL_PORT = os.getenv("SERIAL_PORT", "COM6")
 SERIAL_BAUDRATE = _env_int("SERIAL_BAUDRATE", 9600)
 GAIN_SET_MIN, GAIN_SET_MAX = _gain_bounds(
@@ -60,6 +70,9 @@ GAIN_SET_MIN, GAIN_SET_MAX = _gain_bounds(
 )
 
 DEVICE_NAME = os.getenv("DEVICE_NAME", "unconfigured-device")
+INITIAL_ADMIN_USERNAME = _initial_admin_username(
+    os.getenv("INITIAL_ADMIN_USERNAME")
+)
 
 DATABASE_FILE = os.getenv("DATABASE_FILE", "data/measurements.db")
 DATABASE_MAX_RECORDS = max(0, _env_int("DATABASE_MAX_RECORDS", 0))

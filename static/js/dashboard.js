@@ -257,6 +257,70 @@ function showNetworkMessage(message, isError = false) {
 	element.classList.toggle('error', isError)
 }
 
+function networkMdnsUrl(network = latestNetwork) {
+	const hostname = network?.mdns_hostname
+	if (!hostname) return ''
+	const port = window.location.port ? `:${window.location.port}` : ''
+	return `${window.location.protocol}//${hostname}${port}`
+}
+
+function networkOriginUsesHostname() {
+	const hostname = window.location.hostname.toLowerCase().replace(/\.$/, '')
+	if (
+		hostname === 'localhost' ||
+		hostname === '127.0.0.1' ||
+		hostname === '::1' ||
+		hostname === '[::1]'
+	)
+		return true
+	const isIpv4 = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(hostname)
+	const isIpv6 = hostname.includes(':')
+	return !isIpv4 && !isIpv6
+}
+
+function wait(milliseconds) {
+	return new Promise(resolve => window.setTimeout(resolve, milliseconds))
+}
+
+async function confirmNetworkChangeWithRetry(token, rollbackSeconds) {
+	const retryWindowSeconds = Math.max(5, Number(rollbackSeconds || 60) - 10)
+	const deadline = Date.now() + retryWindowSeconds * 1000
+	let lastError = new Error('The new network address did not become reachable.')
+
+	while (Date.now() < deadline) {
+		const controller = new AbortController()
+		const timeout = window.setTimeout(() => controller.abort(), 4000)
+		try {
+			const response = await fetch('/api/network/confirm', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ token }),
+				cache: 'no-store',
+				signal: controller.signal,
+			})
+			handleAuthResponse(response)
+			const data = await response.json()
+			if (response.ok) return data
+			if ([400, 401, 403].includes(response.status)) {
+				const rejection = new Error(data.detail || 'Network confirmation was rejected.')
+				rejection.retryable = false
+				throw rejection
+			}
+			lastError = new Error(data.detail || `Network confirmation failed with HTTP ${response.status}.`)
+		} catch (error) {
+			lastError = error
+			if (error.retryable === false || ['Not authenticated', 'Not allowed'].includes(error.message)) throw error
+		} finally {
+			window.clearTimeout(timeout)
+		}
+		await wait(1500)
+	}
+
+	throw new Error(
+		`${lastError.message || 'The new address is unreachable.'} The previous network settings will be restored automatically.`,
+	)
+}
+
 function updateNetworkStaticFields() {
 	const form = document.getElementById('network-form')
 	const container = document.getElementById('network-static-fields')
@@ -304,8 +368,19 @@ async function loadNetworkSettings() {
 			.join('')
 		select.value = data.selected_interface || data.interfaces[0]?.name || ''
 		fillNetworkForm(selectedNetworkInterface())
+		const mdnsUrl = networkMdnsUrl(data)
+		const mdnsLink = document.getElementById('network-mdns-url')
+		if (mdnsLink) {
+			mdnsLink.textContent = mdnsUrl || '--'
+			mdnsLink.href = mdnsUrl || '#'
+		}
 		document.getElementById('save-network-button').disabled = !data.supported || !isAdministrator()
-		showNetworkMessage(data.message || `Host: ${data.hostname}; backend: ${data.backend}`)
+		const originHint = networkOriginUsesHostname()
+			? ''
+			: ` Open ${mdnsUrl} before changing the network address.`
+		showNetworkMessage(
+			(data.message || `Host: ${data.hostname}; backend: ${data.backend}.`) + originHint,
+		)
 	} catch (error) {
 		showNetworkMessage(error.message, true)
 	}
@@ -320,8 +395,19 @@ document.getElementById('network-form')?.addEventListener('submit', async event 
 	event.preventDefault()
 	if (!isAdministrator()) return
 	const form = event.currentTarget
-	if (!confirm('Apply the new network settings? The connection may be interrupted.')) return
 	const payload = Object.fromEntries(new FormData(form).entries())
+	const currentInterface = selectedNetworkInterface()
+	const addressMayChange =
+		payload.mode === 'dhcp' ||
+		String(payload.ip_address || '').trim() !== String(currentInterface?.ip_address || '').trim()
+	if (!networkOriginUsesHostname() && addressMayChange) {
+		const mdnsUrl = networkMdnsUrl()
+		const message = `For a safe IP change, reopen the Dashboard at ${mdnsUrl || 'its .local address'} and sign in there first.`
+		showNetworkMessage(message, true)
+		showNotification(message, 'error')
+		return
+	}
+	if (!confirm('Apply the new network settings? The connection may be interrupted.')) return
 	let rollbackSeconds = null
 	showNetworkMessage('Applying settings...')
 	try {
@@ -341,19 +427,10 @@ document.getElementById('network-form')?.addEventListener('submit', async event 
 		showNetworkMessage(
 			`Connection still works. Confirming the change before the ${rollbackSeconds}-second rollback timeout...`,
 		)
-		const confirmResponse = await fetch('/api/network/confirm', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ token: confirmation.token }),
-		})
-		handleAuthResponse(confirmResponse)
-		const confirmedData = await confirmResponse.json()
-		if (!confirmResponse.ok) {
-			throw new Error(
-				confirmedData.detail ||
-					`The change was not confirmed and will be rolled back within ${confirmation.expires_in_seconds} seconds.`,
-			)
-		}
+		const confirmedData = await confirmNetworkChangeWithRetry(
+			confirmation.token,
+			confirmation.expires_in_seconds,
+		)
 		latestNetwork = confirmedData
 		rollbackSeconds = null
 		fillNetworkForm(selectedNetworkInterface())

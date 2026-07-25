@@ -129,7 +129,7 @@ def merge_access_users(saved_users: list[dict] | None) -> list[dict]:
         return merged_users
 
     return [{
-        "username": "admin",
+        "username": config.INITIAL_ADMIN_USERNAME,
         "role": "Administrator",
         "active": True,
     }]

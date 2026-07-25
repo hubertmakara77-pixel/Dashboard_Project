@@ -191,7 +191,21 @@ def get_network_state(runner: Runner | None = None) -> dict[str, Any]:
         backend, message = "read-only", "NetworkManager is unavailable on the host; settings are read-only."
     else:
         backend, message = "NetworkManager", ""
-    return {"hostname": socket.gethostname(), "backend": backend, "supported": nmcli_available, "message": message, "selected_interface": selected, "interfaces": interfaces}
+    hostname = socket.gethostname().strip().rstrip(".")
+    mdns_hostname = (
+        hostname
+        if hostname.lower().endswith(".local")
+        else f"{hostname}.local"
+    )
+    return {
+        "hostname": hostname,
+        "mdns_hostname": mdns_hostname,
+        "backend": backend,
+        "supported": nmcli_available,
+        "message": message,
+        "selected_interface": selected,
+        "interfaces": interfaces,
+    }
 
 
 def apply_network_settings(payload: dict[str, Any], runner: Runner | None = None) -> dict[str, Any]:

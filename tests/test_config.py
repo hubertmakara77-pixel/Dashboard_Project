@@ -33,6 +33,15 @@ class ConfigParsingTests(unittest.TestCase):
             ):
                 config._gain_bounds(minimum, maximum)
 
+    def test_initial_admin_username_is_validated(self):
+        self.assertEqual(
+            config._initial_admin_username("radius-admin@example.com"),
+            "radius-admin@example.com",
+        )
+        for value in ("", "contains space", "admin!", "x" * 129):
+            with self.subTest(value=value), self.assertRaises(RuntimeError):
+                config._initial_admin_username(value)
+
 
 if __name__ == "__main__":
     unittest.main()
