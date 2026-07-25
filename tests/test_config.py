@@ -1,0 +1,38 @@
+import os
+import unittest
+from unittest import mock
+
+from app.core import config
+
+
+class ConfigParsingTests(unittest.TestCase):
+    def test_env_int_parses_integer_and_uses_default_for_invalid_value(self):
+        with mock.patch.dict(os.environ, {"TEST_INTEGER": "42"}):
+            self.assertEqual(config._env_int("TEST_INTEGER", 7), 42)
+        with mock.patch.dict(os.environ, {"TEST_INTEGER": "not-an-integer"}):
+            self.assertEqual(config._env_int("TEST_INTEGER", 7), 7)
+
+    def test_env_float_rejects_non_finite_values(self):
+        for value in ("nan", "inf", "-inf", "invalid"):
+            with self.subTest(value=value), mock.patch.dict(
+                os.environ, {"TEST_FLOAT": value}
+            ):
+                self.assertEqual(config._env_float("TEST_FLOAT", 3.5), 3.5)
+
+    def test_gain_bounds_fail_closed_when_configured_values_are_invalid(self):
+        self.assertEqual(config._gain_bounds("0", "30"), (0.0, 30.0))
+        for minimum, maximum in (
+            ("", "30"),
+            ("0", ""),
+            ("30", "0"),
+            ("nan", "30"),
+            ("0", "inf"),
+        ):
+            with self.subTest(minimum=minimum, maximum=maximum), self.assertRaises(
+                RuntimeError
+            ):
+                config._gain_bounds(minimum, maximum)
+
+
+if __name__ == "__main__":
+    unittest.main()

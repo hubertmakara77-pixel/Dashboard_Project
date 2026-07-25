@@ -25,6 +25,19 @@ class StateSecurityTests(unittest.TestCase):
             {"min": None, "max": None},
         )
 
+    def test_unsafe_persisted_dashboard_settings_fall_back_to_defaults(self):
+        settings = state.merge_dashboard_settings({
+            "gain_tolerance": -1,
+            "warn_limits": {
+                "temperature": {"min": 100.0, "max": 10.0},
+            },
+        })
+        self.assertEqual(settings, state.DEFAULT_DASHBOARD_SETTINGS)
+
+    def test_unsafe_persisted_gain_set_is_not_restored_to_device(self):
+        self.assertEqual(state.merge_last_known_gain_set(float("nan")), 15.0)
+        self.assertEqual(state.merge_last_known_gain_set(1000), 15.0)
+
     def test_fresh_install_creates_admin_authorization_without_password(self):
         users = state.merge_access_users(None)
         self.assertEqual(users[0]["username"], "admin")

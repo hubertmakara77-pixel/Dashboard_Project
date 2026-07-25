@@ -322,6 +322,7 @@ document.getElementById('network-form')?.addEventListener('submit', async event 
 	const form = event.currentTarget
 	if (!confirm('Apply the new network settings? The connection may be interrupted.')) return
 	const payload = Object.fromEntries(new FormData(form).entries())
+	let rollbackSeconds = null
 	showNetworkMessage('Applying settings...')
 	try {
 		const response = await fetch('/api/network', {
@@ -332,13 +333,40 @@ document.getElementById('network-form')?.addEventListener('submit', async event 
 		handleAuthResponse(response)
 		const data = await response.json()
 		if (!response.ok) throw new Error(data.detail || 'Could not apply network settings')
-		latestNetwork = data
+		const confirmation = data.confirmation
+		if (!confirmation?.token) {
+			throw new Error('The host did not return a network rollback confirmation token.')
+		}
+		rollbackSeconds = confirmation.expires_in_seconds
+		showNetworkMessage(
+			`Connection still works. Confirming the change before the ${rollbackSeconds}-second rollback timeout...`,
+		)
+		const confirmResponse = await fetch('/api/network/confirm', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ token: confirmation.token }),
+		})
+		handleAuthResponse(confirmResponse)
+		const confirmedData = await confirmResponse.json()
+		if (!confirmResponse.ok) {
+			throw new Error(
+				confirmedData.detail ||
+					`The change was not confirmed and will be rolled back within ${confirmation.expires_in_seconds} seconds.`,
+			)
+		}
+		latestNetwork = confirmedData
+		rollbackSeconds = null
 		fillNetworkForm(selectedNetworkInterface())
-		showNetworkMessage('Network settings applied.')
-		showNotification('Network settings applied.')
+		showNetworkMessage('Network settings applied and confirmed.')
+		showNotification('Network settings applied and confirmed.')
 	} catch (error) {
-		showNetworkMessage(error.message, true)
-		showNotification(error.message, 'error')
+		const message = rollbackSeconds
+			? `${error.message || 'Confirmation failed.'} NetworkManager will automatically restore the previous settings within ${rollbackSeconds} seconds.`
+			: error instanceof TypeError
+				? 'The connection was interrupted. If the host received the change, NetworkManager will automatically restore the previous settings within 60 seconds.'
+				: error.message || 'Could not apply network settings.'
+		showNetworkMessage(message, true)
+		showNotification(message, 'error')
 	}
 })
 
@@ -643,6 +671,11 @@ function updateSettingsForm() {
 
 	if (gainToleranceInput) {
 		gainToleranceInput.value = dashboardSettings.gain_tolerance
+	}
+	const gainSetInput = document.getElementById('gain-set-input')
+	if (gainSetInput && dashboardSettings.gain_set_limits) {
+		gainSetInput.min = dashboardSettings.gain_set_limits.min
+		gainSetInput.max = dashboardSettings.gain_set_limits.max
 	}
 
 	Object.entries(dashboardSettings.warn_limits || {}).forEach(([field, limits]) => {

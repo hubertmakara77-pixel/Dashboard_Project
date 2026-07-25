@@ -26,11 +26,16 @@ class _UnixConnection(http.client.HTTPConnection):
         self.sock.connect(self.socket_path)
 
 
-def _request(method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+def _request(
+    method: str,
+    path: str,
+    payload: dict[str, Any] | None = None,
+    timeout: float = 10,
+) -> dict[str, Any]:
     socket_path = os.getenv("NETWORK_AGENT_SOCKET", "/run/amp-dashboard/network-agent.sock")
     body = json.dumps(payload).encode() if payload is not None else None
     headers = {"Content-Type": "application/json"} if body is not None else {}
-    connection = _UnixConnection(socket_path)
+    connection = _UnixConnection(socket_path, timeout=timeout)
     try:
         connection.request(method, path, body=body, headers=headers)
         response = connection.getresponse()
@@ -54,4 +59,8 @@ def get_network_state() -> dict[str, Any]:
 
 
 def apply_network_settings(payload: dict[str, Any]) -> dict[str, Any]:
-    return _request("POST", "/v1/network", payload)
+    return _request("POST", "/v1/network", payload, timeout=45)
+
+
+def confirm_network_settings(token: str) -> dict[str, Any]:
+    return _request("POST", "/v1/network/confirm", {"token": token})

@@ -4,7 +4,7 @@ import time
 
 import serial
 
-from app.core import config, parser, state
+from app.core import config, parser, state, validation
 from app.services import database as database_service
 from app.services import snmp as snmp_service
 from app.services import syslog as syslog_service
@@ -22,6 +22,11 @@ FIELD_LABELS = {
 
 
 def write_gain_command(ser, gain_set: float) -> None:
+    gain_set = validation.validate_gain_set(
+        gain_set,
+        config.GAIN_SET_MIN,
+        config.GAIN_SET_MAX,
+    )
     command = f"SET_GAIN={gain_set:.2f}\n"
     ser.write(command.encode("utf-8"))
     ser.flush()
@@ -176,8 +181,10 @@ def _serial_reader_session(port: str):
             if is_command_response(data):
                 with state.state_lock:
                     if "gain_set" in data:
-                        state.last_known_gain_set = float(data["gain_set"])
-                        state.save_persisted_gain_set(state.last_known_gain_set)
+                        try:
+                            state.save_persisted_gain_set(data["gain_set"])
+                        except ValueError:
+                            print("Ignoring out-of-range gain_set in command response.")
 
                     state.serial_connected = True
                     state.serial_error = None
@@ -188,8 +195,10 @@ def _serial_reader_session(port: str):
             data = enrich_data(data)
 
             if "gain_set" in data:
-                state.last_known_gain_set = float(data["gain_set"])
-                state.save_persisted_gain_set(state.last_known_gain_set)
+                try:
+                    state.save_persisted_gain_set(data["gain_set"])
+                except ValueError:
+                    print("Ignoring out-of-range gain_set in measurement.")
 
             limit_errors = build_limit_errors(data, now)
             current_warning_keys = {warning_key(error) for error in limit_errors}
@@ -222,7 +231,7 @@ def _serial_reader_session(port: str):
 
             print("Reading:", data)
 
-    except (serial.SerialException, OSError, TypeError) as e:
+    except (serial.SerialException, OSError, TypeError, ValueError) as e:
         with state.state_lock:
             state.serial_connected = False
             state.serial_error = str(e)
@@ -268,6 +277,11 @@ def reconnect(port: str) -> None:
 
 
 def send_gain_set(gain_set: float):
+    gain_set = validation.validate_gain_set(
+        gain_set,
+        config.GAIN_SET_MIN,
+        config.GAIN_SET_MAX,
+    )
     timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
     with state.serial_lock:
         if state.serial_port is None:

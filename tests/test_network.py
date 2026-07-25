@@ -5,6 +5,7 @@ from tools.network_agent import (
     CommandResult,
     NetworkAgentError,
     apply_network_settings,
+    confirm_network_settings,
     get_network_state,
 )
 
@@ -24,6 +25,15 @@ class FakeRunner:
         if command[:4] == ["nmcli", "-g", "ipv4.method", "connection"]: return CommandResult(0, f"{self.method}\n", "")
         if command[:4] == ["nmcli", "-g", "IP4.DNS", "device"]: return CommandResult(0, "1.1.1.1\n8.8.8.8\n", "")
         if command[:3] in (["nmcli", "connection", "modify"], ["nmcli", "connection", "up"]): return CommandResult(0, "", "")
+        if command[:6] == ["busctl", "call", "org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager", "org.freedesktop.NetworkManager", "GetDeviceByIpIface"]:
+            return CommandResult(0, 'o "/org/freedesktop/NetworkManager/Devices/2"\n', "")
+        if command[:6] == ["busctl", "call", "org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager", "org.freedesktop.NetworkManager", "CheckpointCreate"]:
+            return CommandResult(0, 'o "/org/freedesktop/NetworkManager/Checkpoint/1"\n', "")
+        if command[:6] in (
+            ["busctl", "call", "org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager", "org.freedesktop.NetworkManager", "CheckpointDestroy"],
+            ["busctl", "call", "org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager", "org.freedesktop.NetworkManager", "CheckpointRollback"],
+        ):
+            return CommandResult(0, "", "")
         return CommandResult(1, "", f"Unexpected command: {command}")
 
 
@@ -36,13 +46,45 @@ class NetworkAgentTests(unittest.TestCase):
 
     def test_applies_static_configuration_without_shell(self):
         runner = FakeRunner("manual")
-        apply_network_settings({"interface": "eth0", "mode": "static", "ip_address": "192.168.10.50", "netmask": "24", "gateway": "192.168.10.1", "dns": "1.1.1.1, 8.8.8.8"}, runner)
+        result = apply_network_settings({"interface": "eth0", "mode": "static", "ip_address": "192.168.10.50", "netmask": "24", "gateway": "192.168.10.1", "dns": "1.1.1.1, 8.8.8.8"}, runner)
         modify = next(command for command in runner.commands if command[:3] == ["nmcli", "connection", "modify"])
         self.assertIn("192.168.10.50/24", modify)
+        self.assertEqual(result["confirmation"]["status"], "pending")
+        checkpoint_index = next(
+            index
+            for index, command in enumerate(runner.commands)
+            if len(command) > 5 and command[5] == "CheckpointCreate"
+        )
+        modify_index = runner.commands.index(modify)
+        self.assertLess(checkpoint_index, modify_index)
+        confirmed = confirm_network_settings(result["confirmation"]["token"], runner)
+        self.assertEqual(confirmed["confirmation"]["status"], "confirmed")
+        self.assertTrue(
+            any(len(command) > 5 and command[5] == "CheckpointDestroy" for command in runner.commands)
+        )
+        self.assertEqual(runner.commands[-1][5], "CheckpointDestroy")
 
     def test_rejects_gateway_outside_subnet(self):
         with self.assertRaisesRegex(NetworkAgentError, "same subnet"):
             apply_network_settings({"interface": "eth0", "mode": "static", "ip_address": "192.168.10.50", "netmask": "24", "gateway": "10.0.0.1", "dns": ""}, FakeRunner())
+
+    def test_rolls_back_when_activation_fails(self):
+        class FailingRunner(FakeRunner):
+            def __call__(self, command):
+                if command[:3] == ["nmcli", "connection", "up"]:
+                    self.commands.append(command)
+                    return CommandResult(1, "", "activation failed")
+                return super().__call__(command)
+
+        runner = FailingRunner()
+        with self.assertRaisesRegex(NetworkAgentError, "activation failed"):
+            apply_network_settings(
+                {"interface": "eth0", "mode": "dhcp"},
+                runner,
+            )
+        self.assertTrue(
+            any(len(command) > 5 and command[5] == "CheckpointRollback" for command in runner.commands)
+        )
 
 
 if __name__ == "__main__":

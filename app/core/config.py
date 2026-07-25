@@ -1,3 +1,4 @@
+import math
 import os
 
 
@@ -18,8 +19,45 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_float(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        parsed = float(value)
+    except ValueError:
+        return default
+    return parsed if math.isfinite(parsed) else default
+
+
+def _gain_bounds(
+    minimum_value: str | None,
+    maximum_value: str | None,
+) -> tuple[float, float]:
+    if minimum_value is None and maximum_value is None:
+        # Allows isolated unit tests and direct developer imports. Production
+        # Compose requires both variables explicitly.
+        return -100.0, 100.0
+    if not minimum_value or not maximum_value:
+        raise RuntimeError("GAIN_SET_MIN and GAIN_SET_MAX must both be configured.")
+    try:
+        minimum = float(minimum_value)
+        maximum = float(maximum_value)
+    except ValueError as exc:
+        raise RuntimeError("Gain setpoint limits must be numbers.") from exc
+    if not (math.isfinite(minimum) and math.isfinite(maximum) and minimum < maximum):
+        raise RuntimeError(
+            "Gain setpoint limits must be finite and GAIN_SET_MIN must be lower than GAIN_SET_MAX."
+        )
+    return minimum, maximum
+
+
 SERIAL_PORT = os.getenv("SERIAL_PORT", "COM6")
 SERIAL_BAUDRATE = _env_int("SERIAL_BAUDRATE", 9600)
+GAIN_SET_MIN, GAIN_SET_MAX = _gain_bounds(
+    os.getenv("GAIN_SET_MIN"),
+    os.getenv("GAIN_SET_MAX"),
+)
 
 DEVICE_NAME = os.getenv("DEVICE_NAME", "unconfigured-device")
 

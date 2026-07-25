@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import http.server
 import ipaddress
 import json
 import os
+import secrets
+import shlex
 import shutil
 import socket
 import socketserver
 import subprocess
+import threading
+import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -25,6 +30,13 @@ class CommandResult:
 
 
 Runner = Callable[[list[str]], CommandResult]
+CHECKPOINT_TIMEOUT_SECONDS = 60
+CHECKPOINT_DELETE_NEW_CONNECTIONS = 0x02
+NETWORK_MANAGER_SERVICE = "org.freedesktop.NetworkManager"
+NETWORK_MANAGER_PATH = "/org/freedesktop/NetworkManager"
+NETWORK_MANAGER_INTERFACE = "org.freedesktop.NetworkManager"
+_pending_checkpoints: dict[str, dict[str, Any]] = {}
+_checkpoint_lock = threading.Lock()
 
 
 def _default_runner(command: list[str]) -> CommandResult:
@@ -54,6 +66,94 @@ def _prefix(mask: str) -> int:
 
 def _nmcli(arguments: list[str], runner: Runner) -> str:
     return _run(["nmcli", *arguments], runner).strip()
+
+
+def _busctl(method: str, signature: str, arguments: list[str], runner: Runner) -> str:
+    return _run(
+        [
+            "busctl",
+            "call",
+            NETWORK_MANAGER_SERVICE,
+            NETWORK_MANAGER_PATH,
+            NETWORK_MANAGER_INTERFACE,
+            method,
+            signature,
+            *arguments,
+        ],
+        runner,
+    )
+
+
+def _device_dbus_path(interface: str, runner: Runner) -> str:
+    output = _busctl("GetDeviceByIpIface", "s", [interface], runner)
+    parts = shlex.split(output)
+    path = parts[1] if len(parts) == 2 and parts[0] == "o" else ""
+    if not path.startswith("/org/freedesktop/NetworkManager/Devices/"):
+        raise NetworkAgentError("NetworkManager did not return a valid device path.")
+    return path
+
+
+def _create_checkpoint(interface: str, runner: Runner) -> str:
+    device_path = _device_dbus_path(interface, runner)
+    output = _busctl(
+        "CheckpointCreate",
+        "aouu",
+        [
+            "1",
+            device_path,
+            str(CHECKPOINT_TIMEOUT_SECONDS),
+            str(CHECKPOINT_DELETE_NEW_CONNECTIONS),
+        ],
+        runner,
+    )
+    parts = shlex.split(output)
+    if len(parts) != 2 or parts[0] != "o" or not parts[1].startswith(
+        "/org/freedesktop/NetworkManager/Checkpoint/"
+    ):
+        raise NetworkAgentError("NetworkManager returned an invalid checkpoint.")
+    return parts[1]
+
+
+def _checkpoint_call(method: str, checkpoint_path: str, runner: Runner) -> None:
+    _busctl(method, "o", [checkpoint_path], runner)
+
+
+def _prune_expired_checkpoints() -> None:
+    now = time.monotonic()
+    with _checkpoint_lock:
+        expired = [
+            token
+            for token, checkpoint in _pending_checkpoints.items()
+            if checkpoint["expires_at"] <= now
+        ]
+        for token in expired:
+            _pending_checkpoints.pop(token, None)
+
+
+def _ensure_no_pending_checkpoint() -> None:
+    _prune_expired_checkpoints()
+    with _checkpoint_lock:
+        if _pending_checkpoints:
+            raise NetworkAgentError(
+                "A network change is already awaiting confirmation. "
+                "Confirm it or wait for automatic rollback."
+            )
+
+
+def _register_checkpoint(
+    checkpoint_path: str,
+    interface: str,
+    state_snapshot: dict[str, Any],
+) -> str:
+    token = secrets.token_urlsafe(32)
+    with _checkpoint_lock:
+        _pending_checkpoints[token] = {
+            "path": checkpoint_path,
+            "interface": interface,
+            "expires_at": time.monotonic() + CHECKPOINT_TIMEOUT_SECONDS,
+            "state": copy.deepcopy(state_snapshot),
+        }
+    return token
 
 
 def _connection_details(interface: str, runner: Runner) -> dict[str, Any]:
@@ -98,6 +198,9 @@ def apply_network_settings(payload: dict[str, Any], runner: Runner | None = None
     runner = runner or _default_runner
     if runner is _default_runner and not shutil.which("nmcli"):
         raise NetworkAgentError("NetworkManager (nmcli) is not installed on the host.")
+    if runner is _default_runner and not shutil.which("busctl"):
+        raise NetworkAgentError("The host busctl utility is unavailable.")
+    _ensure_no_pending_checkpoint()
     current = get_network_state(runner)
     interface = str(payload.get("interface", "")).strip()
     mode = str(payload.get("mode", "")).strip().lower()
@@ -107,11 +210,11 @@ def apply_network_settings(payload: dict[str, Any], runner: Runner | None = None
     if mode not in {"dhcp", "static"}:
         raise NetworkAgentError("Select DHCP or static configuration.")
     connection = known[interface].get("connection", "")
+    create_connection = not connection
     if not connection:
         if _nmcli(["-g", "GENERAL.TYPE", "device", "show", interface], runner) != "ethernet":
             raise NetworkAgentError("Only host Ethernet interfaces can be configured.")
         connection = f"amp-{interface}"
-        _run(["nmcli", "connection", "add", "type", "ethernet", "ifname", interface, "con-name", connection], runner)
     command = ["nmcli", "connection", "modify", connection]
     if mode == "dhcp":
         command.extend(["ipv4.method", "auto", "ipv4.addresses", "", "ipv4.gateway", "", "ipv4.dns", ""])
@@ -128,9 +231,64 @@ def apply_network_settings(payload: dict[str, Any], runner: Runner | None = None
         if gateway not in address.network:
             raise NetworkAgentError("The gateway must be in the same subnet as the IP address.")
         command.extend(["ipv4.method", "manual", "ipv4.addresses", str(address), "ipv4.gateway", str(gateway), "ipv4.dns", ",".join(dns)])
-    _run(command, runner)
-    _run(["nmcli", "connection", "up", connection], runner)
-    return get_network_state(runner)
+    checkpoint_path = _create_checkpoint(interface, runner)
+    try:
+        if create_connection:
+            _run(
+                [
+                    "nmcli",
+                    "connection",
+                    "add",
+                    "type",
+                    "ethernet",
+                    "ifname",
+                    interface,
+                    "con-name",
+                    connection,
+                ],
+                runner,
+            )
+        _run(command, runner)
+        _run(["nmcli", "connection", "up", connection], runner)
+        result = get_network_state(runner)
+    except Exception:
+        try:
+            _checkpoint_call("CheckpointRollback", checkpoint_path, runner)
+        except NetworkAgentError:
+            pass
+        raise
+
+    token = _register_checkpoint(checkpoint_path, interface, result)
+    result["confirmation"] = {
+        "status": "pending",
+        "token": token,
+        "expires_in_seconds": CHECKPOINT_TIMEOUT_SECONDS,
+    }
+    return result
+
+
+def confirm_network_settings(
+    token: str, runner: Runner | None = None
+) -> dict[str, Any]:
+    runner = runner or _default_runner
+    _prune_expired_checkpoints()
+    with _checkpoint_lock:
+        checkpoint = _pending_checkpoints.get(str(token))
+    if checkpoint is None:
+        raise NetworkAgentError(
+            "The network confirmation token is invalid or has expired."
+        )
+    try:
+        _checkpoint_call("CheckpointDestroy", checkpoint["path"], runner)
+    except NetworkAgentError:
+        raise
+    else:
+        with _checkpoint_lock:
+            _pending_checkpoints.pop(str(token), None)
+
+    result = copy.deepcopy(checkpoint["state"])
+    result["confirmation"] = {"status": "confirmed"}
+    return result
 
 
 class _UnixServer(getattr(socketserver, "UnixStreamServer", socketserver.TCPServer)):
@@ -156,7 +314,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send(503, {"detail": str(exc)})
 
     def do_POST(self) -> None:
-        if self.path != "/v1/network":
+        if self.path not in {"/v1/network", "/v1/network/confirm"}:
             self._send(404, {"detail": "Not found."})
             return
         try:
@@ -164,7 +322,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if length <= 0 or length > 16384:
                 raise NetworkAgentError("Invalid request size.")
             payload = json.loads(self.rfile.read(length))
-            self._send(200, apply_network_settings(payload))
+            if self.path == "/v1/network":
+                result = apply_network_settings(payload)
+            else:
+                token = payload.get("token")
+                if not isinstance(token, str) or not token:
+                    raise NetworkAgentError("A confirmation token is required.")
+                result = confirm_network_settings(token)
+            self._send(200, result)
         except (NetworkAgentError, json.JSONDecodeError) as exc:
             self._send(400, {"detail": str(exc)})
 
@@ -176,11 +341,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--socket", default="/run/amp-dashboard/network-agent.sock")
     args = parser.parse_args()
-    os.makedirs(os.path.dirname(args.socket), mode=0o755, exist_ok=True)
+    os.makedirs(os.path.dirname(args.socket), mode=0o750, exist_ok=True)
     if os.path.exists(args.socket):
         os.unlink(args.socket)
     with _UnixServer(args.socket, Handler) as server:
-        os.chmod(args.socket, 0o600)
+        os.chmod(args.socket, 0o660)
         server.serve_forever()
 
 

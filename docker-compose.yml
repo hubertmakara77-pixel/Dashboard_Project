@@ -1,11 +1,17 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        APP_UID: ${DASHBOARD_UID:-10001}
+        APP_GID: ${DASHBOARD_GID:-10001}
     container_name: amp-dashboard
     restart: unless-stopped
     environment:
       SERIAL_PORT: ${SERIAL_PORT:-/host/dev/ttyACM0}
       SERIAL_BAUDRATE: ${SERIAL_BAUDRATE:-9600}
+      GAIN_SET_MIN: ${GAIN_SET_MIN:?GAIN_SET_MIN must match the safe device range}
+      GAIN_SET_MAX: ${GAIN_SET_MAX:?GAIN_SET_MAX must match the safe device range}
       DEVICE_NAME: ${DEVICE_NAME:?DEVICE_NAME must be configured in .env}
       PERSISTED_STATE_FILE: ${PERSISTED_STATE_FILE:-/app/data/persisted_state.json}
       LOGIN_MAX_ATTEMPTS: ${LOGIN_MAX_ATTEMPTS:-5}
@@ -49,6 +55,13 @@ services:
     device_cgroup_rules:
       - "c 166:* rmw"
       - "c 188:* rmw"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    group_add:
+      - "${SERIAL_DEVICE_GID:-20}"
+      - "${SYSLOG_READER_GID:-4}"
     volumes:
       - ./data:/app/data
       - /dev:/host/dev

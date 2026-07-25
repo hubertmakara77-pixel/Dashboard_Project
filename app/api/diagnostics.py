@@ -30,6 +30,10 @@ class NetworkSettingsRequest(pydantic.BaseModel):
     dns: str = ""
 
 
+class NetworkConfirmationRequest(pydantic.BaseModel):
+    token: str
+
+
 class ServiceSettingsRequest(pydantic.BaseModel):
     syslog_heartbeat_seconds: int
     database_max_records: int
@@ -151,9 +155,30 @@ def update_network_settings(
         raise fastapi.HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     api_security.audit_event(
         request,
-        "network_settings_updated",
+        "network_settings_pending_confirmation",
         current_user["username"],
         api_security.audit_changes(before, settings.model_dump()),
+    )
+    return fastapi.responses.JSONResponse(
+        content=result,
+        headers={"Connection": "close"},
+    )
+
+
+@router.post("/api/network/confirm")
+def confirm_network_settings(
+    confirmation: NetworkConfirmationRequest,
+    request: starlette.requests.Request,
+    current_user: dict = fastapi.Depends(api_security.require_roles("Administrator")),
+):
+    try:
+        result = network_service.confirm_network_settings(confirmation.token)
+    except network_service.NetworkError as exc:
+        raise fastapi.HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    api_security.audit_event(
+        request,
+        "network_settings_confirmed",
+        current_user["username"],
     )
     return result
 

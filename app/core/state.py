@@ -3,7 +3,7 @@ import json
 import pathlib
 import threading
 
-from app.core import config
+from app.core import config, validation
 
 
 persist_lock = threading.Lock()
@@ -53,7 +53,10 @@ def merge_dashboard_settings(saved_settings: dict | None) -> dict:
         return settings
 
     if "gain_tolerance" in saved_settings:
-        settings["gain_tolerance"] = float(saved_settings["gain_tolerance"])
+        try:
+            settings["gain_tolerance"] = float(saved_settings["gain_tolerance"])
+        except (TypeError, ValueError, OverflowError):
+            pass
 
     saved_limits = saved_settings.get("warn_limits")
     if isinstance(saved_limits, dict):
@@ -64,9 +67,35 @@ def merge_dashboard_settings(saved_settings: dict | None) -> dict:
             for side in ("min", "max"):
                 if side in limits:
                     value = limits[side]
-                    settings["warn_limits"][field][side] = None if value is None else float(value)
+                    try:
+                        settings["warn_limits"][field][side] = (
+                            None if value is None else float(value)
+                        )
+                    except (TypeError, ValueError, OverflowError):
+                        pass
 
-    return settings
+    try:
+        return validation.validated_dashboard_settings(
+            DEFAULT_DASHBOARD_SETTINGS,
+            settings["gain_tolerance"],
+            settings["warn_limits"],
+        )
+    except ValueError:
+        return json.loads(json.dumps(DEFAULT_DASHBOARD_SETTINGS))
+
+
+def merge_last_known_gain_set(saved_gain_set: object) -> float:
+    try:
+        return validation.validate_gain_set(
+            saved_gain_set,
+            config.GAIN_SET_MIN,
+            config.GAIN_SET_MAX,
+        )
+    except ValueError:
+        fallback = 15.0
+        if not config.GAIN_SET_MIN <= fallback <= config.GAIN_SET_MAX:
+            fallback = (config.GAIN_SET_MIN + config.GAIN_SET_MAX) / 2.0
+        return fallback
 
 
 def access_user_public(user: dict) -> dict:
@@ -160,7 +189,11 @@ def save_persisted_state() -> None:
 
 def save_persisted_gain_set(gain_set: float) -> None:
     global last_known_gain_set
-    last_known_gain_set = float(gain_set)
+    last_known_gain_set = validation.validate_gain_set(
+        gain_set,
+        config.GAIN_SET_MIN,
+        config.GAIN_SET_MAX,
+    )
     save_persisted_state()
 
 
@@ -177,7 +210,9 @@ latest_snmp_data = {}
 serial_connected = False
 serial_error = None
 last_update = None
-last_known_gain_set = float(persisted_state.get("last_known_gain_set", 15.0))
+last_known_gain_set = merge_last_known_gain_set(
+    persisted_state.get("last_known_gain_set", 15.0)
+)
 
 serial_port = None
 

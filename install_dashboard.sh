@@ -237,6 +237,7 @@ prepare_environment_file() {
 
   prompt_radius_configuration
   prompt_remote_syslog_configuration
+  prompt_gain_range_configuration
 
   # Hasło Dashboardu z poprzednich wersji nie jest już używane. RADIUS jest
   # jedynym źródłem haseł, więc usuń także pozostawioną wartość z .env.
@@ -275,6 +276,7 @@ prepare_environment_file() {
   sed -i '/^INFLUX_/d; /^MEASUREMENT_NAME=/d; /^SETPOINT_MEASUREMENT_NAME=/d; /^RADIUS_MODE=/d; /^RADIUS_ADMIN_PASSWORD=/d' .env
 
   mkdir -p data
+  ensure_service_identity "$serial_device"
   chmod 600 .env
 
   if [[ "$serial_device" == "/dev/null" ]]; then
@@ -312,6 +314,81 @@ set_env_default() {
   if [[ -z "$(env_value "$key")" ]]; then
     set_env_value "$key" "$value"
   fi
+}
+
+ensure_service_identity() {
+  local serial_device="$1"
+  local dashboard_uid dashboard_gid serial_gid syslog_gid
+  local existing_group existing_user
+
+  dashboard_uid="$(env_value DASHBOARD_UID)"
+  dashboard_gid="$(env_value DASHBOARD_GID)"
+  dashboard_uid="${dashboard_uid:-10001}"
+  dashboard_gid="${dashboard_gid:-10001}"
+  [[ "$dashboard_uid" =~ ^[0-9]+$ ]] || fail "DASHBOARD_UID must be numeric."
+  [[ "$dashboard_gid" =~ ^[0-9]+$ ]] || fail "DASHBOARD_GID must be numeric."
+
+  if getent group amp-dashboard >/dev/null; then
+    existing_group="$(getent group amp-dashboard | cut -d: -f3)"
+    [[ "$existing_group" == "$dashboard_gid" ]] ||
+      fail "Host group amp-dashboard uses GID ${existing_group}, but .env requests ${dashboard_gid}."
+  else
+    existing_group="$(getent group "$dashboard_gid" | cut -d: -f1 || true)"
+    [[ -z "$existing_group" ]] ||
+      fail "DASHBOARD_GID ${dashboard_gid} is already used by group ${existing_group}."
+    sudo groupadd --system --gid "$dashboard_gid" amp-dashboard
+  fi
+
+  if getent passwd amp-dashboard >/dev/null; then
+    existing_user="$(getent passwd amp-dashboard | cut -d: -f3)"
+    [[ "$existing_user" == "$dashboard_uid" ]] ||
+      fail "Host user amp-dashboard uses UID ${existing_user}, but .env requests ${dashboard_uid}."
+  else
+    existing_user="$(getent passwd "$dashboard_uid" | cut -d: -f1 || true)"
+    [[ -z "$existing_user" ]] ||
+      fail "DASHBOARD_UID ${dashboard_uid} is already used by user ${existing_user}."
+    sudo useradd --system --uid "$dashboard_uid" --gid amp-dashboard \
+      --home-dir /nonexistent --shell /usr/sbin/nologin amp-dashboard
+  fi
+
+  if [[ "$serial_device" != "/dev/null" && -e "$serial_device" ]]; then
+    serial_gid="$(stat -c '%g' "$serial_device")"
+  else
+    serial_gid="$(getent group dialout | cut -d: -f3 || true)"
+    serial_gid="${serial_gid:-20}"
+  fi
+  syslog_gid="$(getent group adm | cut -d: -f3 || true)"
+  syslog_gid="${syslog_gid:-4}"
+
+  set_env_value "DASHBOARD_UID" "$dashboard_uid"
+  set_env_value "DASHBOARD_GID" "$dashboard_gid"
+  set_env_value "SERIAL_DEVICE_GID" "$serial_gid"
+  set_env_value "SYSLOG_READER_GID" "$syslog_gid"
+
+  sudo chown -R amp-dashboard:amp-dashboard data
+  sudo chmod 0750 data
+}
+
+prompt_gain_range_configuration() {
+  local gain_min gain_max
+  gain_min="$(env_value GAIN_SET_MIN)"
+  gain_max="$(env_value GAIN_SET_MAX)"
+
+  if [[ -t 0 ]]; then
+    prompt_value gain_min "Minimum safe gain setpoint from the device specification" "$gain_min"
+    prompt_value gain_max "Maximum safe gain setpoint from the device specification" "$gain_max"
+  fi
+
+  [[ -n "$gain_min" && -n "$gain_max" ]] ||
+    fail "Set GAIN_SET_MIN and GAIN_SET_MAX to the safe range specified by the device manufacturer."
+  python3 -c 'import math, sys
+minimum, maximum = map(float, sys.argv[1:3])
+if not (math.isfinite(minimum) and math.isfinite(maximum) and minimum < maximum):
+    raise SystemExit(1)' "$gain_min" "$gain_max" ||
+    fail "GAIN_SET_MIN and GAIN_SET_MAX must be finite numbers with MIN < MAX."
+
+  set_env_value "GAIN_SET_MIN" "$gain_min"
+  set_env_value "GAIN_SET_MAX" "$gain_max"
 }
 
 prompt_radius_configuration() {
@@ -580,17 +657,27 @@ After=NetworkManager.service
 [Service]
 Type=simple
 User=root
-Group=root
+Group=amp-dashboard
 RuntimeDirectory=amp-dashboard
-RuntimeDirectoryMode=0755
+RuntimeDirectoryMode=0750
 RuntimeDirectoryPreserve=yes
+UMask=0007
 ExecStart=${python_path} /usr/local/lib/amp-dashboard/network_agent.py --socket /run/amp-dashboard/network-agent.sock
 Restart=on-failure
 RestartSec=2
 NoNewPrivileges=yes
 PrivateTmp=yes
+PrivateDevices=yes
 ProtectHome=yes
 ProtectSystem=strict
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+CapabilityBoundingSet=
+LockPersonality=yes
+RestrictSUIDSGID=yes
 RestrictAddressFamilies=AF_UNIX AF_NETLINK
 
 [Install]

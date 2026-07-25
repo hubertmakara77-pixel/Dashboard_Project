@@ -5,7 +5,7 @@ import pydantic
 import starlette.requests
 
 from app.api import security as api_security
-from app.core import state
+from app.core import config, state, validation
 from app.services import database as database_service
 from app.services import serial as serial_reader
 
@@ -47,7 +47,13 @@ def get_settings(
     ),
 ):
     with state.state_lock:
-        return state.dashboard_settings
+        return {
+            **json.loads(json.dumps(state.dashboard_settings)),
+            "gain_set_limits": {
+                "min": config.GAIN_SET_MIN,
+                "max": config.GAIN_SET_MAX,
+            },
+        }
 
 
 @router.post("/api/settings")
@@ -60,18 +66,14 @@ def update_settings(
 ):
     with state.state_lock:
         before = json.loads(json.dumps(state.dashboard_settings))
-        if request.gain_tolerance is not None:
-            state.dashboard_settings["gain_tolerance"] = float(request.gain_tolerance)
-        if request.warn_limits is not None:
-            for key, limits in request.warn_limits.items():
-                if key not in state.dashboard_settings["warn_limits"]:
-                    continue
-                for side in ("min", "max"):
-                    if side in limits:
-                        value = limits[side]
-                        state.dashboard_settings["warn_limits"][key][side] = (
-                            None if value is None else float(value)
-                        )
+        try:
+            state.dashboard_settings = validation.validated_dashboard_settings(
+                state.dashboard_settings,
+                request.gain_tolerance,
+                request.warn_limits,
+            )
+        except ValueError as exc:
+            raise fastapi.HTTPException(status_code=400, detail=str(exc)) from exc
         state.save_persisted_dashboard_settings()
         after = json.loads(json.dumps(state.dashboard_settings))
     api_security.audit_event(
@@ -80,7 +82,13 @@ def update_settings(
         current_user["username"],
         api_security.audit_changes(before, after),
     )
-    return after
+    return {
+        **after,
+        "gain_set_limits": {
+            "min": config.GAIN_SET_MIN,
+            "max": config.GAIN_SET_MAX,
+        },
+    }
 
 
 @router.get("/api/errors")
@@ -123,7 +131,14 @@ def set_gain(
     with state.state_lock:
         previous_gain_set = state.last_known_gain_set
     try:
-        serial_reader.send_gain_set(request.gain_set)
+        gain_set = validation.validate_gain_set(
+            request.gain_set,
+            config.GAIN_SET_MIN,
+            config.GAIN_SET_MAX,
+        )
+        serial_reader.send_gain_set(gain_set)
+    except ValueError as exc:
+        raise fastapi.HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise fastapi.HTTPException(status_code=503, detail=str(exc)) from exc
     api_security.audit_event(
@@ -132,7 +147,7 @@ def set_gain(
         current_user["username"],
         api_security.audit_changes(
             {"gain_set": previous_gain_set},
-            {"gain_set": request.gain_set},
+            {"gain_set": gain_set},
         ),
     )
-    return {"status": "ok", "gain_set": request.gain_set}
+    return {"status": "ok", "gain_set": gain_set}
