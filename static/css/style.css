@@ -924,6 +924,108 @@ select {
     line-height: 1.1;
 }
 
+.warnings-panel {
+    overflow-x: auto;
+}
+
+.warning-history-panel {
+    margin-top: 28px;
+}
+
+.panel-description {
+    margin: 4px 0 0;
+    color: #8fa59b;
+    font-size: 13px;
+}
+
+.warning-filters {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(150px, 220px)) auto;
+    gap: 12px;
+    align-items: end;
+    margin: 16px 0 12px;
+}
+
+.warning-filters label {
+    display: grid;
+    gap: 6px;
+    color: #a9b9b2;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.warning-filters select {
+    width: 100%;
+    padding: 8px;
+    background: #121b18;
+    color: #edf3ef;
+    border: 1px solid #3d5149;
+    border-radius: 6px;
+}
+
+.warning-filters button,
+.warning-pagination button {
+    padding: 8px 14px;
+    background: transparent;
+    color: #dfe8e3;
+    border: 1px solid #3d5149;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.warning-filters button:hover,
+.warning-pagination button:hover:not(:disabled) {
+    border-color: #57c08a;
+    color: #ffffff;
+}
+
+.warning-custom-range {
+    margin-bottom: 14px;
+}
+
+.warning-history-panel .plain-table {
+    min-width: 1050px;
+}
+
+.warning-state {
+    display: inline-block;
+    padding: 3px 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.warning-state-open {
+    color: #ffb9b9;
+    background: rgba(183, 46, 46, 0.2);
+}
+
+.warning-state-cleared {
+    color: #9ee0bb;
+    background: rgba(0, 106, 60, 0.25);
+}
+
+.warning-state-acknowledged {
+    color: #e4d392;
+    background: rgba(154, 119, 0, 0.22);
+}
+
+.warning-pagination {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 12px;
+    margin-top: 14px;
+    color: #a9b9b2;
+    font-size: 13px;
+}
+
+.warning-pagination button:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
 .plain-table {
     width: 100%;
     border-collapse: collapse;
@@ -1088,6 +1190,10 @@ select {
 }
 
 @media (max-width: 760px) {
+    .warning-filters {
+        grid-template-columns: 1fr;
+    }
+
     .layout {
         grid-template-columns: 1fr;
     }

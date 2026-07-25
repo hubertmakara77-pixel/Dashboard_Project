@@ -1,4 +1,4 @@
-import collections
+import datetime
 import json
 import pathlib
 import threading
@@ -221,8 +221,9 @@ serial_lock = threading.Lock()
 stop_event = threading.Event()
 serial_reconnect_event = threading.Event()
 
-error_buffer = collections.deque(maxlen=500)
-active_warning_keys = set()
+active_warnings = {}
+acknowledged_warning_keys = set()
+app_started_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
 auth_sessions = {}
 login_failures = {}
 

@@ -24,6 +24,12 @@ let overviewRequestController = null
 let overviewRequestSequence = 0
 let serviceSettingsDirty = false
 let latestServiceDatabase = {}
+let warningHistoryOffset = 0
+let warningHistoryTotal = 0
+let warningHistoryStart = null
+let warningHistoryEnd = null
+let lastWarningHistoryRefresh = 0
+const warningHistoryLimit = 100
 const chartSeriesVisibility = new Map()
 
 function historyRefreshInterval(rangeValue) {
@@ -137,6 +143,23 @@ function apiErrorMessage(detail, fallback) {
 	return fallback
 }
 
+function formatDateTime(value) {
+	if (!value) return '--'
+	const date = new Date(value)
+	return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString()
+}
+
+function formatDuration(seconds) {
+	if (seconds === null || seconds === undefined || !Number.isFinite(Number(seconds))) return '--'
+	const total = Math.max(0, Math.round(Number(seconds)))
+	const hours = Math.floor(total / 3600)
+	const minutes = Math.floor((total % 3600) / 60)
+	const remainingSeconds = total % 60
+	if (hours) return `${hours} h ${minutes} min`
+	if (minutes) return `${minutes} min ${remainingSeconds} s`
+	return `${remainingSeconds} s`
+}
+
 async function responseError(response, fallback) {
 	try {
 		const body = await response.json()
@@ -203,7 +226,7 @@ function setActiveTab(tabName) {
 
 	if (tabName === 'overview') updateOverviewCharts()
 	if (tabName === 'statistics') updateStatisticsTable()
-	if (tabName === 'warnings') updateWarningsTable()
+	if (tabName === 'warnings') updateWarningsTable(true)
 	if (tabName === 'access-control') loadAccessUsers()
 	if (tabName === 'snmp-settings') loadSnmpSettings()
 	if (tabName === 'network-settings') loadNetworkSettings()
@@ -907,50 +930,136 @@ async function updateDashboard() {
 	}
 }
 
-async function updateWarningsTable() {
+function renderActiveWarnings(warnings) {
+	const body = document.getElementById('active-warnings-table-body')
+	setTextIfExists('warning-count', String(warnings.length))
+	if (!body) return
+	if (!warnings.length) {
+		body.innerHTML = '<tr><td colspan="7">No active warnings</td></tr>'
+		return
+	}
+	body.innerHTML = warnings
+		.map(warning => {
+			const stateLabel = warning.acknowledged ? 'Acknowledged' : 'Open'
+			const stateClass = warning.acknowledged
+				? 'warning-state-acknowledged'
+				: 'warning-state-open'
+			return `
+				<tr>
+					<td>${escapeHtml(formatDateTime(warning.opened_at || warning.event_time))}</td>
+					<td>${escapeHtml(warning.label || warning.field || '--')}</td>
+					<td>${escapeHtml(formatPlainNumber(warning.value))}</td>
+					<td>${escapeHtml(formatPlainNumber(warning.target))}</td>
+					<td>${escapeHtml(formatPlainNumber(warning.delta))}</td>
+					<td><span class="warning-state ${stateClass}">${stateLabel}</span></td>
+					<td>${escapeHtml(warning.message || '--')}</td>
+				</tr>
+			`
+		})
+		.join('')
+}
+
+function warningHistoryQuery() {
+	const range = document.getElementById('warning-range-filter')?.value || '24h'
+	const field = document.getElementById('warning-field-filter')?.value || ''
+	const status = document.getElementById('warning-status-filter')?.value || ''
+	const params = new URLSearchParams({
+		range,
+		limit: String(warningHistoryLimit),
+		offset: String(warningHistoryOffset),
+	})
+	if (field) params.set('field', field)
+	if (status) params.set('status', status)
+	if (range === 'custom') {
+		if (warningHistoryStart) params.set('start', warningHistoryStart)
+		if (warningHistoryEnd) params.set('end', warningHistoryEnd)
+	}
+	return params.toString()
+}
+
+function renderWarningHistory(data) {
+	const events = data.history || []
+	const body = document.getElementById('warning-history-table-body')
+	warningHistoryTotal = Number(data.total || 0)
+	if (body) {
+		if (!data.source_available) {
+			body.innerHTML = '<tr><td colspan="8">System warning log is not available</td></tr>'
+		} else {
+			const unreadableRow = Number(data.unreadable_files || 0) > 0
+				? '<tr><td colspan="8">One or more rotated warning logs could not be read</td></tr>'
+				: ''
+			const eventRows = events
+				.map(event => {
+					const eventName = String(event.event || '').toUpperCase()
+					const isCleared = eventName === 'CLEARED'
+					return `
+						<tr>
+							<td>${escapeHtml(formatDateTime(event.event_time))}</td>
+							<td><span class="warning-state ${isCleared ? 'warning-state-cleared' : 'warning-state-open'}">${isCleared ? 'Cleared' : 'Opened'}</span></td>
+							<td>${escapeHtml(event.label || event.field || '--')}</td>
+							<td>${escapeHtml(formatPlainNumber(event.value))}</td>
+							<td>${escapeHtml(formatPlainNumber(event.target))}</td>
+							<td>${escapeHtml(formatPlainNumber(event.delta))}</td>
+							<td>${escapeHtml(formatDuration(event.duration_seconds))}</td>
+							<td>${escapeHtml(event.message || '--')}</td>
+						</tr>
+					`
+				})
+				.join('')
+			body.innerHTML = unreadableRow + (
+				eventRows || '<tr><td colspan="8">No warning events in this range</td></tr>'
+			)
+		}
+	}
+
+	const first = warningHistoryTotal ? warningHistoryOffset + 1 : 0
+	const last = Math.min(warningHistoryOffset + events.length, warningHistoryTotal)
+	setTextIfExists('warning-history-count', `${warningHistoryTotal} events`)
+	setTextIfExists('warning-page-status', `${first}–${last} of ${warningHistoryTotal}`)
+	const previous = document.getElementById('warning-previous-page')
+	const next = document.getElementById('warning-next-page')
+	if (previous) previous.disabled = warningHistoryOffset === 0
+	if (next) next.disabled = warningHistoryOffset + events.length >= warningHistoryTotal
+}
+
+async function updateWarningsTable(forceHistory = false) {
 	if (!currentUser) return
 
 	try {
 		const response = await fetch('/api/errors')
 		handleAuthResponse(response)
-		if (!response.ok) throw new Error('HTTP error ' + response.status)
+		if (!response.ok) throw await responseError(response, 'Could not read active warnings')
 		const json = await response.json()
-		const warnings = json.errors || []
-		const body = document.getElementById('warnings-table-body')
+		renderActiveWarnings(json.errors || [])
 
-		setTextIfExists('warning-count', String(warnings.length))
-
-		if (!body) return
-
-		if (!warnings.length) {
-			body.innerHTML = '<tr><td colspan="6">No warnings</td></tr>'
+		const warningsPanel = document.querySelector('.tab-panel[data-tab="warnings"]')
+		const now = Date.now()
+		if (
+			!warningsPanel?.classList.contains('active') ||
+			(!forceHistory && now - lastWarningHistoryRefresh < 15000)
+		) {
 			return
 		}
-
-		const rows = warnings
-			.map(
-				warning => `
-            <tr>
-                <td>${formatTime(warning.time)}</td>
-                <td>${warning.label || warning.field}</td>
-                <td>${formatPlainNumber(warning.value)}</td>
-                <td>${formatPlainNumber(warning.target)}</td>
-                <td>${formatPlainNumber(warning.delta)}</td>
-                <td>${warning.message}</td>
-            </tr>
-        `,
-			)
-			.join('')
-
-		body.innerHTML = rows
+		const historyResponse = await fetch(`/api/warnings?${warningHistoryQuery()}`)
+		handleAuthResponse(historyResponse)
+		if (!historyResponse.ok) {
+			throw await responseError(historyResponse, 'Could not read warning history')
+		}
+		renderWarningHistory(await historyResponse.json())
+		lastWarningHistoryRefresh = now
 	} catch (error) {
-		console.error('Error fetching /api/errors:', error)
+		console.error('Error fetching warnings:', error)
+		lastWarningHistoryRefresh = Date.now()
+		const warningsPanel = document.querySelector('.tab-panel[data-tab="warnings"]')
+		if (warningsPanel?.classList.contains('active')) {
+			showNotification(error.message || 'Could not read warnings.', 'error')
+		}
 	}
 }
 
 function setupSettingsButtons() {
 	const saveButton = document.getElementById('save-settings-button')
-	const clearButton = document.getElementById('clear-errors-button')
+	const acknowledgeButton = document.getElementById('acknowledge-warnings-button')
 
 	if (saveButton) {
 		saveButton.addEventListener('click', async () => {
@@ -968,20 +1077,67 @@ function setupSettingsButtons() {
 		})
 	}
 
-	if (clearButton) {
-		clearButton.addEventListener('click', async () => {
+	if (acknowledgeButton) {
+		acknowledgeButton.addEventListener('click', async () => {
 			if (!canOperate()) return
 			try {
-				const response = await fetch('/api/errors/clear', { method: 'POST' })
+				const response = await fetch('/api/warnings/acknowledge', { method: 'POST' })
 				handleAuthResponse(response)
-				if (!response.ok) throw await responseError(response, 'Could not clear warnings')
-				await updateWarningsTable()
-				showNotification('Warnings cleared.')
+				if (!response.ok) throw await responseError(response, 'Could not acknowledge warnings')
+				const data = await response.json()
+				await updateWarningsTable(true)
+				showNotification(`${data.acknowledged || 0} active warnings acknowledged.`)
 			} catch (error) {
 				showNotification(error.message, 'error')
 			}
 		})
 	}
+}
+
+function setupWarningFilters() {
+	const rangeFilter = document.getElementById('warning-range-filter')
+	const customRange = document.getElementById('warning-custom-range')
+	const refresh = () => {
+		if (rangeFilter?.value === 'custom' && !warningHistoryStart) {
+			showNotification('Select and apply a custom start time.', 'error')
+			return
+		}
+		warningHistoryOffset = 0
+		lastWarningHistoryRefresh = 0
+		updateWarningsTable(true)
+	}
+
+	rangeFilter?.addEventListener('change', () => {
+		if (customRange) customRange.hidden = rangeFilter.value !== 'custom'
+		if (rangeFilter.value !== 'custom') refresh()
+	})
+	document.getElementById('warning-field-filter')?.addEventListener('change', refresh)
+	document.getElementById('warning-status-filter')?.addEventListener('change', refresh)
+	document.getElementById('refresh-warning-history-button')?.addEventListener('click', refresh)
+	document.getElementById('apply-warning-range-button')?.addEventListener('click', () => {
+		warningHistoryStart = localDateTimeToIso(
+			document.getElementById('warning-start-input')?.value,
+		)
+		warningHistoryEnd = localDateTimeToIso(
+			document.getElementById('warning-end-input')?.value,
+		)
+		if (!warningHistoryStart) {
+			showNotification('Select a valid start time.', 'error')
+			return
+		}
+		refresh()
+	})
+	document.getElementById('warning-previous-page')?.addEventListener('click', () => {
+		warningHistoryOffset = Math.max(0, warningHistoryOffset - warningHistoryLimit)
+		lastWarningHistoryRefresh = 0
+		updateWarningsTable(true)
+	})
+	document.getElementById('warning-next-page')?.addEventListener('click', () => {
+		if (warningHistoryOffset + warningHistoryLimit >= warningHistoryTotal) return
+		warningHistoryOffset += warningHistoryLimit
+		lastWarningHistoryRefresh = 0
+		updateWarningsTable(true)
+	})
 }
 
 async function loadAccessUsers() {
@@ -1807,6 +1963,7 @@ async function startDataRefresh() {
 }
 
 setupSettingsButtons()
+setupWarningFilters()
 setupRangeButtons()
 setupAccessControl()
 setupAuth()

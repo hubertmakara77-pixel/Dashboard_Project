@@ -120,15 +120,66 @@ def warning_key(error: dict) -> tuple:
     return (error.get("field"), error.get("kind"))
 
 
-def format_syslog_warning(error: dict) -> str:
-    return (
-        f'WARNING field={error.get("field")} '
-        f'kind={error.get("kind")} '
-        f'value={float(error.get("value", 0)):.2f} '
-        f'threshold={float(error.get("target", 0)):.2f} '
-        f'delta={float(error.get("delta", 0)):.2f} '
-        f'message="{error.get("message", "")}"'
-    )
+def update_warning_state(
+    current_errors: list[dict],
+    now: str,
+    current_data: dict | None = None,
+) -> tuple[list[dict], list[dict]]:
+    current_by_key = {warning_key(error): error for error in current_errors}
+    opened_events = []
+    cleared_events = []
+
+    with state.state_lock:
+        previous_keys = set(state.active_warnings)
+        current_keys = set(current_by_key)
+
+        for key in previous_keys - current_keys:
+            previous = dict(state.active_warnings.pop(key))
+            state.acknowledged_warning_keys.discard(key)
+            field = previous.get("field")
+            if current_data is not None and field in current_data:
+                previous["value"] = float(current_data[field])
+                if previous.get("kind") == "gain_tolerance":
+                    previous["delta"] = float(current_data.get("gain_delta", 0))
+                elif previous.get("target") is not None:
+                    previous["delta"] = (
+                        previous["value"] - float(previous["target"])
+                    )
+            previous["event"] = "CLEARED"
+            previous["event_time"] = now
+            previous["cleared_at"] = now
+            try:
+                opened_at = datetime.datetime.fromisoformat(previous["opened_at"])
+                cleared_at = datetime.datetime.fromisoformat(now)
+                previous["duration_seconds"] = max(
+                    0.0, (cleared_at - opened_at).total_seconds()
+                )
+            except (KeyError, TypeError, ValueError):
+                previous["duration_seconds"] = None
+            cleared_events.append(previous)
+
+        for key, error in current_by_key.items():
+            if key in state.active_warnings:
+                previous = state.active_warnings[key]
+                active = {
+                    **error,
+                    "event": "OPEN",
+                    "event_time": previous["event_time"],
+                    "opened_at": previous["opened_at"],
+                    "acknowledged": key in state.acknowledged_warning_keys,
+                }
+            else:
+                active = {
+                    **error,
+                    "event": "OPEN",
+                    "event_time": now,
+                    "opened_at": now,
+                    "acknowledged": False,
+                }
+                opened_events.append(dict(active))
+            state.active_warnings[key] = active
+
+    return opened_events, cleared_events
 
 
 def available_serial_ports() -> list[str]:
@@ -205,8 +256,6 @@ def _serial_reader_session(port: str):
                     print(f"Persisted state write failed: {exc}")
 
             limit_errors = build_limit_errors(data, now)
-            current_warning_keys = {warning_key(error) for error in limit_errors}
-            syslog_warnings = []
 
             with state.state_lock:
                 state.latest_data = data
@@ -214,24 +263,22 @@ def _serial_reader_session(port: str):
                 state.serial_connected = True
                 state.serial_error = None
 
-                for error in limit_errors:
-                    state.error_buffer.appendleft(error)
-                    key = warning_key(error)
-
-                    if key not in state.active_warning_keys:
-                        syslog_warnings.append(error)
-
-                state.active_warning_keys = current_warning_keys
-
             # Ten sam czas odbioru probki trafia do pamieci, warningow i SQLite.
             database_service.write_measurement(data, now)
 
-            for error in syslog_warnings:
-                syslog_service.send_warning(format_syslog_warning(error))
+            opened_warnings, cleared_warnings = update_warning_state(
+                limit_errors,
+                now,
+                data,
+            )
+            for warning in opened_warnings:
+                syslog_service.send_warning_event("OPEN", warning)
                 try:
-                    snmp_service.send_trap(error)
+                    snmp_service.send_trap(warning)
                 except Exception as exc:
                     print("SNMP trap send failed:", exc)
+            for warning in cleared_warnings:
+                syslog_service.send_warning_event("CLEARED", warning)
 
             print("Reading:", data)
 

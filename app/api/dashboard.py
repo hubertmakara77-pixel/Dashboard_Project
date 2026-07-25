@@ -1,3 +1,4 @@
+import datetime
 import json
 
 import fastapi
@@ -8,6 +9,7 @@ from app.api import security as api_security
 from app.core import config, state, validation
 from app.services import database as database_service
 from app.services import serial as serial_reader
+from app.services import syslog as syslog_service
 
 
 router = fastapi.APIRouter()
@@ -98,7 +100,121 @@ def get_errors(
     ),
 ):
     with state.state_lock:
-        return {"errors": list(state.error_buffer)}
+        warnings = sorted(
+            (dict(item) for item in state.active_warnings.values()),
+            key=lambda item: item.get("opened_at", ""),
+            reverse=True,
+        )
+        return {"errors": warnings}
+
+
+@router.get("/api/warnings")
+def get_warnings(
+    range_value: str = fastapi.Query(default="24h", alias="range"),
+    start: str = "",
+    end: str = "",
+    field: str = "",
+    status: str = "",
+    limit: int = fastapi.Query(default=100, ge=1, le=500),
+    offset: int = fastapi.Query(default=0, ge=0, le=10000),
+    _current_user: dict = fastapi.Depends(
+        api_security.require_roles("Administrator", "Operator", "Viewer")
+    ),
+):
+    now = datetime.datetime.now(datetime.timezone.utc)
+    durations = {
+        "1h": datetime.timedelta(hours=1),
+        "24h": datetime.timedelta(hours=24),
+        "7d": datetime.timedelta(days=7),
+        "30d": datetime.timedelta(days=30),
+    }
+    if range_value == "session":
+        range_start = datetime.datetime.fromisoformat(state.app_started_at)
+    elif range_value in durations:
+        range_start = now - durations[range_value]
+    elif range_value == "custom":
+        try:
+            range_start = datetime.datetime.fromisoformat(
+                start.replace("Z", "+00:00")
+            )
+        except ValueError as exc:
+            raise fastapi.HTTPException(
+                status_code=400, detail="A valid custom start time is required."
+            ) from exc
+    else:
+        raise fastapi.HTTPException(status_code=400, detail="Invalid warning range.")
+
+    try:
+        range_end = (
+            datetime.datetime.fromisoformat(end.replace("Z", "+00:00"))
+            if end
+            else now
+        )
+    except ValueError as exc:
+        raise fastapi.HTTPException(
+            status_code=400, detail="The warning end time is invalid."
+        ) from exc
+    if range_start.tzinfo is None:
+        range_start = range_start.replace(tzinfo=datetime.timezone.utc)
+    if range_end.tzinfo is None:
+        range_end = range_end.replace(tzinfo=datetime.timezone.utc)
+    range_start = range_start.astimezone(datetime.timezone.utc)
+    range_end = range_end.astimezone(datetime.timezone.utc)
+    if range_start > range_end:
+        raise fastapi.HTTPException(
+            status_code=400, detail="Warning start time must be before end time."
+        )
+    normalized_status = status.strip().lower()
+    if normalized_status not in {"", "open", "cleared"}:
+        raise fastapi.HTTPException(status_code=400, detail="Invalid warning status.")
+
+    history = syslog_service.read_warning_history(
+        start=range_start,
+        end=range_end,
+        field=field.strip(),
+        status=normalized_status,
+        limit=limit,
+        offset=offset,
+    )
+    with state.state_lock:
+        active = sorted(
+            (dict(item) for item in state.active_warnings.values()),
+            key=lambda item: item.get("opened_at", ""),
+            reverse=True,
+        )
+    return {
+        "active": active,
+        "history": history["events"],
+        "total": history["total"],
+        "offset": history["offset"],
+        "limit": history["limit"],
+        "range_start": range_start.isoformat(),
+        "range_end": range_end.isoformat(),
+        "source_available": history["source_available"],
+        "unreadable_files": history["unreadable_files"],
+    }
+
+
+@router.post("/api/warnings/acknowledge")
+def acknowledge_warnings(
+    request: starlette.requests.Request,
+    current_user: dict = fastapi.Depends(
+        api_security.require_roles("Administrator", "Operator")
+    ),
+):
+    with state.state_lock:
+        keys = set(state.active_warnings)
+        state.acknowledged_warning_keys.update(keys)
+        for key in keys:
+            state.active_warnings[key]["acknowledged"] = True
+        acknowledged_count = len(keys)
+    api_security.audit_event(
+        request,
+        "warnings_acknowledged",
+        current_user["username"],
+        f"count={acknowledged_count}",
+    )
+    return {"acknowledged": acknowledged_count}
 
 
 @router.post("/api/errors/clear")
@@ -109,15 +225,18 @@ def clear_errors(
     ),
 ):
     with state.state_lock:
-        cleared_count = len(state.error_buffer)
-        state.error_buffer.clear()
+        keys = set(state.active_warnings)
+        state.acknowledged_warning_keys.update(keys)
+        for key in keys:
+            state.active_warnings[key]["acknowledged"] = True
+        cleared_count = len(keys)
     api_security.audit_event(
         request,
-        "warnings_cleared",
+        "warnings_acknowledged",
         current_user["username"],
         f"count={cleared_count}",
     )
-    return {"errors": []}
+    return {"errors": list(state.active_warnings.values())}
 
 
 @router.post("/api/set_gain")

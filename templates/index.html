@@ -125,7 +125,7 @@
                             </div>
 
                             <div class="warning-counter">
-                                <span>Warnings</span>
+                                <span>Active warnings</span>
                                 <strong id="warning-count">0</strong>
                             </div>
                         </div>
@@ -288,26 +288,103 @@
                 </section>
 
                 <section class="tab-panel" data-tab="warnings">
-                    <div class="data-panel">
+                    <div class="data-panel warnings-panel">
                         <div class="table-header">
-                            <h2>Warnings</h2>
-                            <button id="clear-errors-button" type="button" data-operator-only>Clear</button>
+                            <div>
+                                <h2>Active warnings</h2>
+                                <p class="panel-description">Current threshold violations. Acknowledging does not remove history.</p>
+                            </div>
+                            <button id="acknowledge-warnings-button" type="button" data-operator-only>Acknowledge all</button>
                         </div>
                         <table class="plain-table">
                             <thead>
                                 <tr>
+                                    <th>Opened</th>
+                                    <th>Parameter</th>
+                                    <th>Current value</th>
+                                    <th>Threshold</th>
+                                    <th>Delta</th>
+                                    <th>State</th>
+                                    <th>Description</th>
+                                </tr>
+                            </thead>
+                            <tbody id="active-warnings-table-body">
+                                <tr><td colspan="7">No active warnings</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="data-panel warnings-panel warning-history-panel">
+                        <div class="table-header">
+                            <div>
+                                <h2>Warning history</h2>
+                                <p class="panel-description">Persistent OPEN and CLEARED events read from the system log.</p>
+                            </div>
+                            <span id="warning-history-count">0 events</span>
+                        </div>
+
+                        <div class="warning-filters">
+                            <label>Time range
+                                <select id="warning-range-filter">
+                                    <option value="session">Current session</option>
+                                    <option value="1h">Last hour</option>
+                                    <option value="24h" selected>Last 24 hours</option>
+                                    <option value="7d">Last 7 days</option>
+                                    <option value="30d">Last 30 days</option>
+                                    <option value="custom">Custom range</option>
+                                </select>
+                            </label>
+                            <label>Parameter
+                                <select id="warning-field-filter">
+                                    <option value="">All parameters</option>
+                                    <option value="PiA">PiA</option>
+                                    <option value="PoA">PoA</option>
+                                    <option value="PiB">PiB</option>
+                                    <option value="PoB">PoB</option>
+                                    <option value="temperature">Temperature</option>
+                                    <option value="gain_actual">Gain actual</option>
+                                    <option value="system">System</option>
+                                </select>
+                            </label>
+                            <label>Status
+                                <select id="warning-status-filter">
+                                    <option value="">Opened and cleared</option>
+                                    <option value="open">Opened</option>
+                                    <option value="cleared">Cleared</option>
+                                </select>
+                            </label>
+                            <button id="refresh-warning-history-button" type="button">Refresh</button>
+                        </div>
+
+                        <div id="warning-custom-range" class="custom-range warning-custom-range" hidden>
+                            <label>From <input id="warning-start-input" type="datetime-local" lang="en-GB"></label>
+                            <label>To <input id="warning-end-input" type="datetime-local" lang="en-GB"></label>
+                            <button id="apply-warning-range-button" type="button">Apply</button>
+                        </div>
+
+                        <table class="plain-table">
+                            <thead>
+                                <tr>
                                     <th>Time</th>
+                                    <th>Status</th>
                                     <th>Parameter</th>
                                     <th>Value</th>
                                     <th>Threshold</th>
                                     <th>Delta</th>
+                                    <th>Duration</th>
                                     <th>Description</th>
                                 </tr>
                             </thead>
-                            <tbody id="warnings-table-body">
-                                <tr><td colspan="6">No warnings</td></tr>
+                            <tbody id="warning-history-table-body">
+                                <tr><td colspan="8">No warning events</td></tr>
                             </tbody>
                         </table>
+
+                        <div class="warning-pagination">
+                            <button id="warning-previous-page" type="button">Previous</button>
+                            <span id="warning-page-status">0–0 of 0</span>
+                            <button id="warning-next-page" type="button">Next</button>
+                        </div>
                     </div>
                 </section>
 

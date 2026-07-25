@@ -1,4 +1,8 @@
 import datetime
+import gzip
+import json
+import pathlib
+import tempfile
 import unittest
 from unittest import mock
 
@@ -64,6 +68,86 @@ class SyslogServiceTests(unittest.TestCase):
             payload,
         )
         self.assertNotIn(b"warning timestamp=", payload)
+
+    def test_structured_warning_event_is_sent_as_json(self):
+        warning = {
+            "time": "2026-07-25T12:00:00+00:00",
+            "field": "temperature",
+            "kind": "max",
+            "label": "Temperature",
+            "value": 51.5,
+            "target": 50.0,
+            "delta": 1.5,
+            "message": "Temperature above MAX threshold 50.00",
+        }
+        with (
+            mock.patch.object(config, "SYSLOG_ENABLED", True),
+            mock.patch("app.services.syslog.socket.socket") as socket_mock,
+        ):
+            syslog_service.send_warning_event("OPEN", warning)
+
+        payload = socket_mock.return_value.__enter__.return_value.sendto.call_args.args[0]
+        encoded_event = payload.decode().split("; warning; ", 1)[1]
+        event = json.loads(encoded_event)
+        self.assertEqual(event["event"], "OPEN")
+        self.assertEqual(event["field"], "temperature")
+        self.assertEqual(event["value"], 51.5)
+
+    def test_warning_history_reads_current_and_rotated_gzip_logs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = pathlib.Path(directory) / "amp-dashboard.log"
+            open_event = {
+                "event": "OPEN",
+                "event_time": "2026-07-25T12:00:00+00:00",
+                "field": "temperature",
+                "kind": "max",
+                "label": "Temperature",
+                "value": 51.5,
+                "target": 50.0,
+                "delta": 1.5,
+                "message": "Too hot",
+            }
+            cleared_event = {
+                **open_event,
+                "event": "CLEARED",
+                "event_time": "2026-07-25T12:05:00+00:00",
+                "value": 49.0,
+                "duration_seconds": 300,
+            }
+            log_path.write_text(
+                "2026-07-25T12:05:00+00:00 amp-dashboard: "
+                f"device=test; warning; {json.dumps(cleared_event)}\n",
+                encoding="utf-8",
+            )
+            with gzip.open(f"{log_path}.1.gz", "wt", encoding="utf-8") as stream:
+                stream.write(
+                    "2026-07-25T12:00:00+00:00 amp-dashboard: "
+                    f"device=test; warning; {json.dumps(open_event)}\n"
+                )
+
+            with mock.patch.object(config, "SYSLOG_EXPORT_FILE", str(log_path)):
+                history = syslog_service.read_warning_history(
+                    start=datetime.datetime(
+                        2026, 7, 25, 11, 0, tzinfo=datetime.timezone.utc
+                    ),
+                    status="cleared",
+                )
+
+        self.assertEqual(history["total"], 1)
+        self.assertEqual(history["events"][0]["event"], "CLEARED")
+        self.assertEqual(history["events"][0]["duration_seconds"], 300)
+
+    def test_legacy_warning_line_remains_visible(self):
+        event = syslog_service.parse_warning_log_line(
+            "2026-07-25T12:00:00+00:00 amp-dashboard: "
+            'device=test; warning; WARNING field=PiA kind=min value=-30 '
+            'threshold=-25 delta=-5 message="PiA below limit"\n'
+        )
+
+        self.assertIsNotNone(event)
+        self.assertEqual(event["event"], "OPEN")
+        self.assertEqual(event["field"], "PiA")
+        self.assertEqual(event["message"], "PiA below limit")
 
     def test_lifecycle_event_contains_event_and_fields(self):
         with (
