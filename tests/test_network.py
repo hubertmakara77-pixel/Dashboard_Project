@@ -24,6 +24,7 @@ class FakeRunner:
         if command == ["ip", "-j", "route", "show", "default"]: return CommandResult(0, json.dumps(ROUTES), "")
         if command == ["ip", "-j", "route", "get", "192.168.10.40"]: return CommandResult(0, json.dumps([{"dst": "192.168.10.40", "dev": "eth0"}]), "")
         if command == ["ip", "-j", "route", "get", "10.20.30.40"]: return CommandResult(0, json.dumps([{"dst": "10.20.30.40", "dev": "eth1"}]), "")
+        if command == ["ip", "-j", "route", "get", "172.18.0.1"]: return CommandResult(0, json.dumps([{"type": "local", "dst": "172.18.0.1", "dev": "lo"}]), "")
         if command[:4] == ["nmcli", "-g", "GENERAL.CONNECTION", "device"]: return CommandResult(0, "Wired connection 1\n", "")
         if command[:4] == ["nmcli", "-g", "ipv4.method", "connection"]: return CommandResult(0, f"{self.method}\n", "")
         if command[:4] == ["nmcli", "-g", "IP4.DNS", "device"]: return CommandResult(0, "1.1.1.1\n8.8.8.8\n", "")
@@ -107,6 +108,23 @@ class NetworkAgentTests(unittest.TestCase):
                 },
                 FakeRunner(),
             )
+
+    def test_docker_bridge_gateway_is_not_treated_as_loopback_access(self):
+        runner = FakeRunner()
+        result = apply_network_settings(
+            {
+                "interface": "eth0",
+                "mode": "dhcp",
+                "_requester_ip": "172.18.0.1",
+            },
+            runner,
+        )
+        self.assertEqual(result["access_interface"], "")
+        confirm_network_settings(
+            result["confirmation"]["token"],
+            runner,
+            "172.18.0.1",
+        )
 
     def test_rejects_confirmation_through_a_different_interface(self):
         runner = FakeRunner()

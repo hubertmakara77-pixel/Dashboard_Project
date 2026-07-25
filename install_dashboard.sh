@@ -265,6 +265,7 @@ ensure_device_name() {
 
 prepare_environment_file() {
   local serial_device
+  local data_dir
   serial_device="$(detect_serial_device)"
 
   if [[ ! -f .env ]]; then
@@ -291,6 +292,7 @@ prepare_environment_file() {
   fi
 
   ensure_random_secret "SNMP_COMMUNITY" 24
+  set_env_default "DASHBOARD_DATA_DIR" "./data"
   set_env_default "DATABASE_FILE" "/app/data/measurements.db"
   set_env_default "DATABASE_MAX_RECORDS" "0"
   set_env_default "HISTORY_MAX_POINTS" "2000"
@@ -315,7 +317,8 @@ prepare_environment_file() {
   # Remove settings from obsolete InfluxDB and local RADIUS versions.
   sed -i '/^INFLUX_/d; /^MEASUREMENT_NAME=/d; /^SETPOINT_MEASUREMENT_NAME=/d; /^RADIUS_MODE=/d; /^RADIUS_ADMIN_PASSWORD=/d' .env
 
-  mkdir -p data
+  data_dir="$(resolve_data_directory)"
+  sudo install -d -m 0750 "$data_dir"
   ensure_service_identity "$serial_device"
   chmod 600 .env
 
@@ -354,6 +357,35 @@ set_env_default() {
   if [[ -z "$(env_value "$key")" ]]; then
     set_env_value "$key" "$value"
   fi
+}
+
+resolve_data_directory() {
+  local configured
+  local candidate
+  local resolved
+
+  configured="$(env_value DASHBOARD_DATA_DIR)"
+  configured="${configured:-./data}"
+  [[ "$configured" != *$'\n'* && "$configured" != *$'\r'* ]] ||
+    fail "DASHBOARD_DATA_DIR contains invalid characters."
+
+  if [[ "$configured" == /* ]]; then
+    candidate="$configured"
+  else
+    candidate="${PROJECT_DIR}/${configured}"
+  fi
+  resolved="$(realpath -m -- "$candidate")"
+
+  # The installer runs chown as root. Limit accepted locations so a typo
+  # cannot change ownership of a broad system directory.
+  case "$resolved" in
+    "${PROJECT_DIR}/data"|/mnt/*|/srv/*|/var/lib/amp-dashboard|/var/lib/amp-dashboard/*)
+      ;;
+    *)
+      fail "DASHBOARD_DATA_DIR must be ./data, below /mnt or /srv, or below /var/lib/amp-dashboard."
+      ;;
+  esac
+  printf '%s\n' "$resolved"
 }
 
 ensure_service_identity() {
@@ -409,12 +441,17 @@ ensure_service_identity() {
 }
 
 set_data_permissions() {
+  local data_dir
+  data_dir="$(resolve_data_directory)"
+
   # data may be a dedicated filesystem and contain root-owned lost+found.
   # Change only the mount point and application files at its top level.
-  sudo chown amp-dashboard:amp-dashboard data
-  sudo find data -xdev -mindepth 1 -maxdepth 1 -type f \
+  sudo chown amp-dashboard:amp-dashboard "$data_dir"
+  sudo find "$data_dir" -xdev -mindepth 1 -maxdepth 1 -type f \
     -exec chown amp-dashboard:amp-dashboard {} +
-  sudo chmod 0750 data
+  sudo chmod 0750 "$data_dir"
+  sudo -u amp-dashboard test -w "$data_dir" ||
+    fail "Dashboard data directory is not writable by amp-dashboard: ${data_dir}"
 }
 
 prompt_dashboard_configuration() {
@@ -441,7 +478,7 @@ prompt_dashboard_configuration() {
   set_env_value "INITIAL_ADMIN_USERNAME" "$admin_username"
   set_env_value "DASHBOARD_PORT" "$dashboard_port"
 
-  if [[ -s data/persisted_state.json ]]; then
+  if [[ -s "$(resolve_data_directory)/persisted_state.json" ]]; then
     info "Existing access users are preserved; the initial Administrator name applies only when no access list exists."
   fi
 }
@@ -582,13 +619,15 @@ ensure_random_secret() {
 }
 
 cleanup_legacy_local_configuration() {
+  local data_dir
+  data_dir="$(resolve_data_directory)"
   if [[ -e radius/authorize || -e radius/clients.conf ]]; then
     info "Removing obsolete local FreeRADIUS configuration"
     sudo rm -f radius/authorize radius/clients.conf
     sudo rmdir radius 2>/dev/null || true
   fi
-  if [[ -d data/influxdb2 ]]; then
-    info "Legacy InfluxDB data remains in data/influxdb2 and is not used by the dashboard"
+  if [[ -d "${data_dir}/influxdb2" ]]; then
+    info "Legacy InfluxDB data remains in ${data_dir}/influxdb2 and is not used by the dashboard"
   fi
 }
 
@@ -611,6 +650,7 @@ TIMESYNC
 }
 
 configure_system_syslog() {
+  local data_dir
   local remote_enabled
   local remote_host
   local remote_port
@@ -702,8 +742,10 @@ LOGROTATE
   sudo systemctl enable --now rsyslog.service
   sudo systemctl restart rsyslog.service
 
+  data_dir="$(resolve_data_directory)"
+
   # Jednorazowa migracja starych plikow aplikacyjnych do jedynego logu systemowego.
-  for legacy_log in /var/log/amp-dashboard.log data/syslog.log data/audit.log; do
+  for legacy_log in /var/log/amp-dashboard.log "${data_dir}/syslog.log" "${data_dir}/audit.log"; do
     if [[ -f "$legacy_log" ]]; then
       sudo sh -c 'cat "$1" >> /var/log/amp-dashboard/amp-dashboard.log' sh "$legacy_log"
       sudo rm -f "$legacy_log"
