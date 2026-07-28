@@ -7,7 +7,7 @@ info() { printf '\n[amp-radius] %s\n' "$1"; }
 [[ "$EUID" -eq 0 ]] || fail "Run this script as root (use su - first)"
 command -v apt-get >/dev/null || fail "A Debian-family system with apt is required"
 
-read -r -p "Dashboard client IP or CIDR (for example 192.168.0.51/32): " client_ip
+read -r -p "Amp Panel client IP or CIDR (for example 192.168.0.51/32): " client_ip
 read -r -p "Initial RADIUS username [admin]: " radius_user
 radius_user="${radius_user:-admin}"
 [[ "$client_ip" =~ ^[0-9a-fA-F:./]+$ ]] || fail "Invalid client address"
@@ -58,7 +58,7 @@ server_ip="$(hostname -I | awk '{print $1}')"
 cat <<SUMMARY
 
 Temporary RADIUS server is ready.
-Use these values in the dashboard installer:
+Use these values in the Amp Panel configuration:
   RADIUS_SERVER=${server_ip}
   RADIUS_PORT=1812
   RADIUS_SECRET=${radius_secret}

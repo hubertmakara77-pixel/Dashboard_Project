@@ -22,7 +22,7 @@ class SyslogServiceTests(unittest.TestCase):
         sendto.assert_called_once()
         payload, destination = sendto.call_args.args
         self.assertIn(
-            f"amp-dashboard: device={config.DEVICE_NAME}; changed=value".encode(),
+            f"{config.SYSLOG_APP_NAME}: device={config.DEVICE_NAME}; changed=value".encode(),
             payload,
         )
         self.assertEqual(destination, (config.SYSLOG_HOST, config.SYSLOG_PORT))
@@ -50,7 +50,7 @@ class SyslogServiceTests(unittest.TestCase):
         payload = socket_mock.return_value.__enter__.return_value.sendto.call_args.args[0]
         self.assertIn(b"Jul 16 23:15:00", payload)
         self.assertIn(
-            f"amp-dashboard: device={config.DEVICE_NAME}; audit; user=admin".encode(),
+            f"{config.SYSLOG_APP_NAME}: device={config.DEVICE_NAME}; audit; user=admin".encode(),
             payload,
         )
         self.assertNotIn(b"audit timestamp=", payload)
@@ -64,7 +64,7 @@ class SyslogServiceTests(unittest.TestCase):
 
         payload = socket_mock.return_value.__enter__.return_value.sendto.call_args.args[0]
         self.assertIn(
-            f"amp-dashboard: device={config.DEVICE_NAME}; warning; WARNING field=PiA".encode(),
+            f"{config.SYSLOG_APP_NAME}: device={config.DEVICE_NAME}; warning; WARNING field=PiA".encode(),
             payload,
         )
         self.assertNotIn(b"warning timestamp=", payload)

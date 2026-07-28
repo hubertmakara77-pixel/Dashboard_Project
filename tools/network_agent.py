@@ -257,7 +257,7 @@ def apply_network_settings(payload: dict[str, Any], runner: Runner | None = None
     access_interface = _route_interface(requester_ip, runner)
     if access_interface and interface != access_interface:
         raise NetworkAgentError(
-            f"This Dashboard connection uses interface {access_interface}. "
+            f"This Amp Panel connection uses interface {access_interface}. "
             f"Changing {interface} from this session cannot safely validate reachability."
         )
     if mode not in {"dhcp", "static"}:
@@ -408,7 +408,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--socket", default="/run/amp-dashboard/network-agent.sock")
+    parser.add_argument("--socket", default="/run/amp-panel/network-agent.sock")
     args = parser.parse_args()
     os.makedirs(os.path.dirname(args.socket), mode=0o750, exist_ok=True)
     if os.path.exists(args.socket):

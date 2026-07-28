@@ -32,7 +32,7 @@ def _request(
     payload: dict[str, Any] | None = None,
     timeout: float = 10,
 ) -> dict[str, Any]:
-    socket_path = os.getenv("NETWORK_AGENT_SOCKET", "/run/amp-dashboard/network-agent.sock")
+    socket_path = os.getenv("NETWORK_AGENT_SOCKET", "/run/amp-panel/network-agent.sock")
     body = json.dumps(payload).encode() if payload is not None else None
     headers = {"Content-Type": "application/json"} if body is not None else {}
     connection = _UnixConnection(socket_path, timeout=timeout)

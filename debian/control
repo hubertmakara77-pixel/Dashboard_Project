@@ -1,0 +1,25 @@
+Source: amp-panel
+Section: admin
+Priority: optional
+Maintainer: Amp Panel Team <amp-panel@localhost>
+Build-Depends: debhelper-compat (= 13), python3 (>= 3.10)
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+Package: amp-panel
+Architecture: any
+Depends:
+ ${misc:Depends},
+ adduser,
+ avahi-daemon,
+ iproute2,
+ logrotate,
+ network-manager,
+ python3 (>= 3.10),
+ rsyslog,
+ systemd
+Recommends: systemd-timesyncd
+Description: control and monitoring panel for an optical amplifier
+ Amp Panel reads measurements from an optical amplifier, stores them in
+ SQLite, exposes the local web interface and SNMP endpoint, and integrates
+ with RADIUS, syslog, NTP and NetworkManager.

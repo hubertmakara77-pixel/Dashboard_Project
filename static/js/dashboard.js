@@ -466,7 +466,7 @@ document.getElementById('network-form')?.addEventListener('submit', async event 
 		String(payload.ip_address || '').trim() !== String(currentInterface?.ip_address || '').trim()
 	if (!networkOriginUsesHostname() && addressMayChange) {
 		const mdnsUrl = networkMdnsUrl()
-		const message = `For a safe IP change, reopen the Dashboard at ${mdnsUrl || 'its .local address'} and sign in there first.`
+		const message = `For a safe IP change, reopen Amp Panel at ${mdnsUrl || 'its .local address'} and sign in there first.`
 		showNetworkMessage(message, true)
 		showNotification(message, 'error')
 		return

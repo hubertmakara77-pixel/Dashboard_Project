@@ -1,0 +1,44 @@
+[Unit]
+Description=Optical amplifier control panel
+Requires=amp-panel-network-agent.service
+After=amp-panel-network-agent.service network-online.target rsyslog.service
+Wants=network-online.target avahi-daemon.service systemd-timesyncd.service
+ConditionPathExists=/etc/amp-panel/amp-panel.env
+
+[Service]
+Type=simple
+User=amp-panel
+Group=amp-panel
+SupplementaryGroups=dialout adm
+EnvironmentFile=/etc/amp-panel/amp-panel.env
+Environment=PYTHONPATH=/usr/lib/amp-panel/vendor:/usr/lib/amp-panel
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+WorkingDirectory=/usr/lib/amp-panel
+ExecStart=/usr/bin/python3 -m uvicorn app.main:app --host 0.0.0.0 --port ${AMP_PANEL_PORT}
+Restart=on-failure
+RestartSec=2
+RuntimeDirectory=amp-panel
+RuntimeDirectoryMode=0750
+UMask=0027
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectHostname=yes
+CapabilityBoundingSet=
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/amp-panel /run/amp-panel
+
+[Install]
+WantedBy=multi-user.target

@@ -17,3 +17,17 @@ data/
 
 .vscode/
 .idea/
+
+packaging/vendor/
+debian/.debhelper/
+debian/amp-panel/
+debian/debhelper-build-stamp
+debian/files
+debian/*.debhelper.log
+debian/*.substvars
+*.build
+*.buildinfo
+*.changes
+*.deb
+*.dsc
+*.tar.*

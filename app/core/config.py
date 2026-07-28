@@ -62,7 +62,7 @@ def _initial_admin_username(value: str | None) -> str:
     return username
 
 
-SERIAL_PORT = os.getenv("SERIAL_PORT", "COM6")
+SERIAL_PORT = os.getenv("SERIAL_PORT", "/dev/ttyACM0")
 SERIAL_BAUDRATE = _env_int("SERIAL_BAUDRATE", 9600)
 GAIN_SET_MIN, GAIN_SET_MAX = _gain_bounds(
     os.getenv("GAIN_SET_MIN"),
@@ -74,7 +74,7 @@ INITIAL_ADMIN_USERNAME = _initial_admin_username(
     os.getenv("INITIAL_ADMIN_USERNAME")
 )
 
-DATABASE_FILE = os.getenv("DATABASE_FILE", "data/measurements.db")
+DATABASE_FILE = os.getenv("DATABASE_FILE", "/var/lib/amp-panel/measurements.db")
 DATABASE_MAX_RECORDS = max(0, _env_int("DATABASE_MAX_RECORDS", 0))
 HISTORY_MAX_POINTS = max(100, _env_int("HISTORY_MAX_POINTS", 2000))
 
@@ -84,17 +84,23 @@ SESSION_MAX_AGE_SECONDS = _env_int("SESSION_MAX_AGE_SECONDS", 60 * 60 * 12)
 SESSION_COOKIE_SECURE = _env_bool("SESSION_COOKIE_SECURE", False)
 TRUST_PROXY_HEADERS = _env_bool("TRUST_PROXY_HEADERS", False)
 
-PERSISTED_STATE_FILE = os.getenv("PERSISTED_STATE_FILE", "persisted_state.json")
+PERSISTED_STATE_FILE = os.getenv(
+    "PERSISTED_STATE_FILE",
+    "/var/lib/amp-panel/persisted_state.json",
+)
 
 SYSLOG_ENABLED = _env_bool("SYSLOG_ENABLED", True)
 SYSLOG_HOST = os.getenv("SYSLOG_HOST", "127.0.0.1")
 SYSLOG_PORT = _env_int("SYSLOG_PORT", 514)
-SYSLOG_APP_NAME = os.getenv("SYSLOG_APP_NAME", "amp-dashboard")
+SYSLOG_APP_NAME = os.getenv("SYSLOG_APP_NAME", "amp-panel")
 SYSLOG_FACILITY = _env_int("SYSLOG_FACILITY", 16)
 SYSLOG_TIMEZONE = os.getenv("SYSLOG_TIMEZONE", "Europe/Warsaw")
 SYSLOG_HEARTBEAT_SECONDS = max(0, _env_int("SYSLOG_HEARTBEAT_SECONDS", 300))
 
-SYSLOG_EXPORT_FILE = os.getenv("SYSLOG_EXPORT_FILE", "/var/log/amp-dashboard/amp-dashboard.log")
+SYSLOG_EXPORT_FILE = os.getenv(
+    "SYSLOG_EXPORT_FILE",
+    "/var/log/amp-panel/amp-panel.log",
+)
 REMOTE_SYSLOG_ENABLED = _env_bool("REMOTE_SYSLOG_ENABLED", False)
 REMOTE_SYSLOG_HOST = os.getenv("REMOTE_SYSLOG_HOST", "")
 REMOTE_SYSLOG_PORT = _env_int("REMOTE_SYSLOG_PORT", 514)

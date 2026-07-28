@@ -1,0 +1,23 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = purge ]; then
+    rm -f /etc/rsyslog.d/30-amp-panel.conf
+    rm -f /etc/logrotate.d/amp-panel
+    rm -f /etc/avahi/services/amp-panel.service
+    rm -f /etc/systemd/timesyncd.conf.d/amp-panel.conf
+    rm -f /etc/systemd/system/amp-panel.service.d/paths.conf
+    rmdir /etc/systemd/system/amp-panel.service.d 2>/dev/null || true
+    rm -f /etc/amp-panel/amp-panel.env
+    rmdir /etc/amp-panel 2>/dev/null || true
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload >/dev/null 2>&1 || true
+        systemctl restart rsyslog.service avahi-daemon.service \
+            >/dev/null 2>&1 || true
+    fi
+fi
+
+# The measurement database, persistent state and logs are deliberately kept.
+
+#DEBHELPER#
+exit 0

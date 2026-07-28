@@ -1,0 +1,54 @@
+Template: amp-panel/admin-username
+Type: string
+Default: admin
+_Description: Administrator username:
+ This is the first Amp Panel administrator account. Authentication is
+ performed by the configured RADIUS server.
+
+Template: amp-panel/port
+Type: string
+Default: 8000
+_Description: Web interface TCP port:
+ The panel runs without root privileges, so choose a port from 1024 to 65535.
+
+Template: amp-panel/data-dir
+Type: string
+Default: /var/lib/amp-panel
+_Description: Directory for the SQLite database and persistent state:
+ Use /var/lib/amp-panel, or an absolute path below /mnt, /media or /srv.
+ Existing data is copied during migration and the source copy is preserved.
+
+Template: amp-panel/serial-port
+Type: string
+_Description: Amplifier serial device:
+
+Template: amp-panel/gain-min
+Type: string
+_Description: Minimum safe gain from the device specification:
+
+Template: amp-panel/gain-max
+Type: string
+_Description: Maximum safe gain from the device specification:
+
+Template: amp-panel/radius-server
+Type: string
+_Description: RADIUS server hostname or IP address:
+
+Template: amp-panel/radius-port
+Type: string
+Default: 1812
+_Description: RADIUS authentication UDP port:
+
+Template: amp-panel/radius-secret
+Type: password
+_Description: RADIUS shared secret:
+
+Template: amp-panel/mdns-hostname
+Type: string
+_Description: Local mDNS hostname, without .local:
+
+Template: amp-panel/unconfigured
+Type: note
+_Description: Amp Panel was installed but is not configured
+ Required settings were not supplied. The services remain disabled. Run
+ "sudo amp-panel configure" from a terminal to finish the configuration.

@@ -18,26 +18,33 @@ info "Installing rsyslog and logrotate"
 apt-get update
 apt-get install -y rsyslog logrotate
 getent group adm >/dev/null || groupadd --system adm
-install -d -o root -g adm -m 0750 /var/log/amp-dashboard
-touch /var/log/amp-dashboard/amp-dashboard.log
-chown root:adm /var/log/amp-dashboard/amp-dashboard.log
-chmod 0640 /var/log/amp-dashboard/amp-dashboard.log
+install -d -o root -g adm -m 0750 /var/log/amp-panel
+if [[ -s /var/log/amp-dashboard/amp-dashboard.log &&
+      ! -e /var/log/amp-panel/amp-panel.log ]]; then
+  cp -a /var/log/amp-dashboard/amp-dashboard.log /var/log/amp-panel/amp-panel.log
+else
+  touch /var/log/amp-panel/amp-panel.log
+fi
+chown root:adm /var/log/amp-panel/amp-panel.log
+chmod 0640 /var/log/amp-panel/amp-panel.log
+rm -f /etc/rsyslog.d/30-amp-dashboard-receiver.conf
+rm -f /etc/logrotate.d/amp-dashboard-receiver
 
 module="imtcp"
 input="input(type=\"imtcp\" port=\"${port}\")"
 [[ "$protocol" == "udp" ]] && module="imudp" && input="input(type=\"imudp\" port=\"${port}\")"
-cat > /etc/rsyslog.d/30-amp-dashboard-receiver.conf <<RSYSLOG
+cat > /etc/rsyslog.d/30-amp-panel-receiver.conf <<RSYSLOG
 module(load="${module}")
-template(name="ampDashboardRemoteLine" type="string" string="%timereported:::date-rfc3339% %msg:2:\$%\\n")
-if (\$programname == "amp-dashboard") then {
-    action(type="omfile" file="/var/log/amp-dashboard/amp-dashboard.log" fileOwner="root" fileGroup="adm" fileCreateMode="0640" template="ampDashboardRemoteLine")
+template(name="ampPanelRemoteLine" type="string" string="%timereported:::date-rfc3339% %msg:2:\$%\\n")
+if (\$programname == "amp-panel" or \$programname == "amp-dashboard") then {
+    action(type="omfile" file="/var/log/amp-panel/amp-panel.log" fileOwner="root" fileGroup="adm" fileCreateMode="0640" template="ampPanelRemoteLine")
     stop
 }
 ${input}
 RSYSLOG
 
-cat > /etc/logrotate.d/amp-dashboard-receiver <<'ROTATE'
-/var/log/amp-dashboard/amp-dashboard.log {
+cat > /etc/logrotate.d/amp-panel-receiver <<'ROTATE'
+/var/log/amp-panel/amp-panel.log {
     daily
     rotate 30
     compress
@@ -58,12 +65,12 @@ server_ip="$(hostname -I | awk '{print $1}')"
 cat <<SUMMARY
 
 Remote syslog receiver is ready.
-Use these values in the dashboard installer:
+Use these values in the Amp Panel configuration:
   REMOTE_SYSLOG_ENABLED=true
   REMOTE_SYSLOG_HOST=${server_ip}
   REMOTE_SYSLOG_PORT=${port}
   REMOTE_SYSLOG_PROTOCOL=${protocol}
 
-Log file: /var/log/amp-dashboard/amp-dashboard.log
-Allow ${protocol^^}/${port} only from dashboard hosts in the firewall.
+Log file: /var/log/amp-panel/amp-panel.log
+Allow ${protocol^^}/${port} only from Amp Panel hosts in the firewall.
 SUMMARY

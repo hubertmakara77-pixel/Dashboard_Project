@@ -1,0 +1,37 @@
+#!/usr/bin/make -f
+
+export PYBUILD_NAME=amp-panel
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	test -d packaging/vendor/fastapi
+	test -d packaging/vendor/pyrad
+
+override_dh_auto_test:
+	PYTHONPATH="$(CURDIR)/packaging/vendor:$(CURDIR)" \
+		python3 -m unittest discover -s tests -p 'test_*.py'
+
+override_dh_auto_install:
+	install -d debian/amp-panel/usr/lib/amp-panel
+	cp -a app static templates debian/amp-panel/usr/lib/amp-panel/
+	cp -a packaging/vendor debian/amp-panel/usr/lib/amp-panel/vendor
+	install -m 0644 packaging/VERSION \
+		debian/amp-panel/usr/lib/amp-panel/VERSION
+	install -m 0755 tools/network_agent.py \
+		debian/amp-panel/usr/lib/amp-panel/network_agent.py
+	install -d debian/amp-panel/usr/bin
+	install -m 0755 tools/amp_panel_cli.py \
+		debian/amp-panel/usr/bin/amp-panel
+	install -d debian/amp-panel/usr/lib/systemd/system
+	install -m 0644 packaging/systemd/amp-panel.service \
+		debian/amp-panel/usr/lib/systemd/system/amp-panel.service
+	install -m 0644 packaging/systemd/amp-panel-network-agent.service \
+		debian/amp-panel/usr/lib/systemd/system/amp-panel-network-agent.service
+	install -d debian/amp-panel/usr/lib/systemd/sleep.conf.d
+	install -m 0644 packaging/systemd/50-amp-panel.conf \
+		debian/amp-panel/usr/lib/systemd/sleep.conf.d/50-amp-panel.conf
+
+override_dh_installsystemd:
+	dh_installsystemd --no-start --no-enable

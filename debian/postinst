@@ -1,0 +1,108 @@
+#!/bin/sh
+set -e
+
+. /usr/share/debconf/confmodule
+
+if ! getent group amp-panel >/dev/null; then
+    addgroup --system amp-panel
+fi
+if ! getent passwd amp-panel >/dev/null; then
+    adduser \
+        --system \
+        --ingroup amp-panel \
+        --home /var/lib/amp-panel \
+        --no-create-home \
+        --shell /usr/sbin/nologin \
+        amp-panel
+fi
+adduser amp-panel dialout >/dev/null 2>&1 || true
+adduser amp-panel adm >/dev/null 2>&1 || true
+
+answers_file="$(mktemp)"
+chmod 0600 "${answers_file}"
+trap 'rm -f "${answers_file}"' EXIT HUP INT TERM
+
+existing_configuration=false
+if [ -f /etc/amp-panel/amp-panel.env ] ||
+   [ -f /etc/amp-dashboard/dashboard.env ] ||
+   [ -f /home/debian/Dashboard_Project/.env ]; then
+    existing_configuration=true
+elif command -v systemctl >/dev/null 2>&1; then
+    legacy_working_directory="$(
+        systemctl show amp-dashboard.service \
+            --property=WorkingDirectory --value 2>/dev/null || true
+    )"
+    if [ -n "${legacy_working_directory}" ] &&
+       [ -f "${legacy_working_directory}/.env" ]; then
+        existing_configuration=true
+    fi
+fi
+
+read_answer() {
+    debconf_key="$1"
+    answer_key="$2"
+    db_get "amp-panel/${debconf_key}" || RET=""
+    encoded_answer="$(printf '%s' "${RET}" | base64 | tr -d '\n')"
+    printf '%s_B64=%s\n' "${answer_key}" "${encoded_answer}" >>"${answers_file}"
+}
+
+read_answer admin-username ADMIN_USERNAME
+read_answer port PORT
+read_answer data-dir DATA_DIR
+read_answer serial-port SERIAL_PORT
+read_answer gain-min GAIN_MIN
+read_answer gain-max GAIN_MAX
+read_answer radius-server RADIUS_SERVER
+read_answer radius-port RADIUS_PORT
+read_answer radius-secret RADIUS_SECRET
+read_answer mdns-hostname MDNS_HOSTNAME
+
+configuration_result=0
+if [ -d /run/systemd/system ]; then
+    if [ "${existing_configuration}" = true ]; then
+        /usr/bin/amp-panel configure \
+            --non-interactive || configuration_result="$?"
+    else
+        /usr/bin/amp-panel configure \
+            --non-interactive \
+            --answers-file "${answers_file}" || configuration_result="$?"
+    fi
+else
+    if [ "${existing_configuration}" = true ]; then
+        /usr/bin/amp-panel configure \
+            --non-interactive \
+            --no-start || configuration_result="$?"
+    else
+        /usr/bin/amp-panel configure \
+            --non-interactive \
+            --no-start \
+            --answers-file "${answers_file}" || configuration_result="$?"
+    fi
+fi
+
+systemctl daemon-reload >/dev/null 2>&1 || true
+systemctl enable NetworkManager.service >/dev/null 2>&1 || true
+if [ -d /run/systemd/system ]; then
+    systemctl start NetworkManager.service >/dev/null 2>&1 || true
+fi
+
+if [ "${configuration_result}" -eq 0 ]; then
+    db_set amp-panel/radius-secret ""
+    systemctl enable amp-panel-network-agent.service amp-panel.service \
+        >/dev/null 2>&1
+    if [ -d /run/systemd/system ]; then
+        systemctl is-active --quiet amp-panel-network-agent.service
+        systemctl is-active --quiet amp-panel.service
+    fi
+elif [ "${configuration_result}" -eq 2 ]; then
+    systemctl disable --now amp-panel.service amp-panel-network-agent.service \
+        >/dev/null 2>&1 || true
+    db_input high amp-panel/unconfigured || true
+    db_go || true
+else
+    exit "${configuration_result}"
+fi
+
+#DEBHELPER#
+db_stop
+exit 0

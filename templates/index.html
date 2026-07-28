@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Amplifier Control Panel</title>
+    <title>Amp Panel</title>
     <link rel="stylesheet" href="/static/css/style.css?v={{ static_asset_version }}">
 </head>
 <body>
     <div id="login-screen" class="login-screen">
         <form id="login-form" class="login-panel">
-            <h1>Amplifier Panel</h1>
+            <h1>Amp Panel</h1>
             <label>
                 Username
                 <input id="login-username" type="text" autocomplete="username" required>
@@ -25,7 +25,7 @@
 
     <div id="app-layout" class="layout app-hidden">
         <aside class="sidebar">
-            <div class="sidebar-logo">Amplifier Panel</div>
+            <div class="sidebar-logo">Amp Panel</div>
 
             <nav class="sidebar-nav">
                 <div class="nav-group">
@@ -479,7 +479,7 @@
                             <div><span>Gateway</span><strong id="network-current-gateway">--</strong></div>
                             <div><span>Mode</span><strong id="network-current-mode">--</strong></div>
                             <div><span>DNS</span><strong id="network-current-dns">--</strong></div>
-                            <div><span>Stable Dashboard address</span><strong><a id="network-mdns-url" href="#">--</a></strong></div>
+                            <div><span>Stable Amp Panel address</span><strong><a id="network-mdns-url" href="#">--</a></strong></div>
                         </div>
                         <p id="network-message" class="network-message" role="status"></p>
                         <form id="network-form" class="network-form">
@@ -491,7 +491,7 @@
                                 <label>Default gateway<input name="gateway" type="text" placeholder="192.168.1.1"></label>
                                 <label>DNS servers<input name="dns" type="text" placeholder="1.1.1.1, 8.8.8.8"></label>
                             </div>
-                            <p class="network-warning">For safe validation, you can only change the interface currently carrying this Dashboard session. Applying settings reloads that connection and may temporarily disconnect this panel.</p>
+                            <p class="network-warning">For safe validation, you can only change the interface currently carrying this Amp Panel session. Applying settings reloads that connection and may temporarily disconnect this panel.</p>
                             <button id="save-network-button" type="submit" data-admin-only>Save network settings</button>
                         </form>
                     </div>

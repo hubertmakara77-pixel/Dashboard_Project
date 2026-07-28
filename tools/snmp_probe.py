@@ -53,7 +53,7 @@ def main() -> int:
     parser.add_argument("--community", default=default_community)
     args = parser.parse_args()
     if not args.community:
-        parser.error("SNMP community is required; pass --community or configure the dashboard first")
+        parser.error("SNMP community is required; pass --community or configure Amp Panel first")
     return asyncio.run(probe(args.host, args.port, args.community))
 
 
