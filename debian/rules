@@ -5,6 +5,9 @@ export PYBUILD_NAME=amp-panel
 %:
 	dh $@
 
+override_dh_clean:
+	dh_clean -X./data
+
 override_dh_auto_build:
 	test -d packaging/vendor/fastapi
 	test -d packaging/vendor/pyrad
