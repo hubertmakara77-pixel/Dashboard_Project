@@ -37,10 +37,9 @@ DEFAULT_SERVICE_SETTINGS = {
 def load_persisted_state() -> dict:
     path = pathlib.Path(config.PERSISTED_STATE_FILE)
 
-    if not path.exists():
-        return {}
-
     try:
+        if not path.exists():
+            return {}
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, TypeError):
         return {}

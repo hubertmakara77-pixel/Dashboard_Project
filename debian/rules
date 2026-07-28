@@ -13,6 +13,9 @@ override_dh_auto_build:
 	test -d packaging/vendor/pyrad
 
 override_dh_auto_test:
+	PERSISTED_STATE_FILE="$(CURDIR)/debian/test-persisted-state.json" \
+	DATABASE_FILE="$(CURDIR)/debian/test-measurements.db" \
+	SYSLOG_EXPORT_FILE="$(CURDIR)/debian/test-amp-panel.log" \
 	PYTHONPATH="$(CURDIR)/packaging/vendor:$(CURDIR)" \
 		python3 -m unittest discover -s tests -p 'test_*.py'
 

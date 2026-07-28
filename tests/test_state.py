@@ -8,6 +8,21 @@ from app.core import config, state
 
 
 class StateSecurityTests(unittest.TestCase):
+    def test_inaccessible_persisted_state_falls_back_to_defaults(self):
+        with (
+            mock.patch.object(
+                config,
+                "PERSISTED_STATE_FILE",
+                "/inaccessible/persisted_state.json",
+            ),
+            mock.patch.object(
+                pathlib.Path,
+                "exists",
+                side_effect=PermissionError("access denied"),
+            ),
+        ):
+            self.assertEqual(state.load_persisted_state(), {})
+
     def test_zero_database_limit_means_unlimited(self):
         settings = state.merge_service_settings({"database_max_records": 0})
         self.assertEqual(settings["database_max_records"], 0)
