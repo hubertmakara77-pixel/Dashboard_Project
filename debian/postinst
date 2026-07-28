@@ -6,6 +6,7 @@ set -e
 if ! getent group amp-panel >/dev/null; then
     addgroup --system amp-panel
 fi
+install -d -o root -g root -m 0750 /var/lib/amp-panel
 if ! getent passwd amp-panel >/dev/null; then
     adduser \
         --system \
