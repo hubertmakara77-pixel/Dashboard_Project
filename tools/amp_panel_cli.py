@@ -36,7 +36,7 @@ except ImportError:  # pragma: no cover - available on the Debian target
 
 PRODUCT_NAME = "Amp Panel"
 PACKAGE_NAME = "amp-panel"
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 EXIT_NOT_CONFIGURED = 2
 
 ETC_DIR = pathlib.Path(os.getenv("AMP_PANEL_ETC_DIR", "/etc/amp-panel"))

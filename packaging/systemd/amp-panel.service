@@ -18,8 +18,6 @@ WorkingDirectory=/usr/lib/amp-panel
 ExecStart=/usr/bin/python3 -m uvicorn app.main:app --host 0.0.0.0 --port ${AMP_PANEL_PORT}
 Restart=on-failure
 RestartSec=2
-RuntimeDirectory=amp-panel
-RuntimeDirectoryMode=0750
 UMask=0027
 
 NoNewPrivileges=yes
@@ -38,7 +36,5 @@ MemoryDenyWriteExecute=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-ReadWritePaths=/var/lib/amp-panel /run/amp-panel
-
 [Install]
 WantedBy=multi-user.target

@@ -1,3 +1,11 @@
+amp-panel (1.0.1) unstable; urgency=medium
+
+  * Fix Debconf question fields.
+  * Avoid requiring an unused default data directory in the service sandbox.
+  * Create the default data directory before adding the system user.
+
+ -- Amp Panel Team <amp-panel@localhost>  Tue, 28 Jul 2026 13:40:00 +0200
+
 amp-panel (1.0.0) unstable; urgency=medium
 
   * Initial native Debian package.
