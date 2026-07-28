@@ -3,7 +3,8 @@ set -eu
 
 project_dir="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 version="$(tr -d '[:space:]' < "${project_dir}/packaging/VERSION")"
-temporary_parent="${TMPDIR:-/tmp}"
+project_parent="$(dirname "${project_dir}")"
+temporary_parent="${TMPDIR:-${project_parent}}"
 build_root=""
 
 cleanup() {

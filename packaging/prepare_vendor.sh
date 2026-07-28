@@ -21,6 +21,7 @@ rm -rf -- "${vendor_dir}"
 mkdir -p -- "${vendor_dir}"
 python3 -m pip install \
     --disable-pip-version-check \
+    --no-cache-dir \
     --no-compile \
     --target "${vendor_dir}" \
     --requirement "${project_dir}/requirements.txt"
