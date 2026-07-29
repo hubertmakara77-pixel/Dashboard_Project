@@ -130,7 +130,16 @@
                                 <strong id="warning-count">0</strong>
                             </div>
                         </div>
-
+			<div class="lvp-port-strip">
+    <button type="button" class="lvp-port-btn active" data-port="1">Port 1</button>
+    <button type="button" class="lvp-port-btn" data-port="2">Port 2</button>
+    <button type="button" class="lvp-port-btn lvp-unequipped-btn" data-port="3">Port 3</button>
+    <button type="button" class="lvp-port-btn lvp-unequipped-btn" data-port="4">Port 4</button>
+    <button type="button" class="lvp-port-btn lvp-unequipped-btn" data-port="5">Port 5</button>
+    <button type="button" class="lvp-port-btn lvp-unequipped-btn" data-port="6">Port 6</button>
+    <button type="button" class="lvp-port-btn lvp-unequipped-btn" data-port="7">Port 7</button>
+</div>
+<div id="lvp-detail-card" class="lvp-detail-card"></div>
                     </div>
                 </section>
 		<section class="tab-panel" data-tab="display-panel">
@@ -710,5 +719,6 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/static/js/dashboard.js?v={{ static_asset_version }}"></script>
     <script src="/static/js/display-panel.js?v={{ static_asset_version }}"></script>
+    <script src="/static/js/live-view-ports.js?v={{ static_asset_version }}"></script>
 </body>
 </html>
