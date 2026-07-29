@@ -36,7 +36,7 @@ except ImportError:  # pragma: no cover - available on the Debian target
 
 PRODUCT_NAME = "Amp Panel"
 PACKAGE_NAME = "amp-panel"
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 EXIT_NOT_CONFIGURED = 2
 
 ETC_DIR = pathlib.Path(os.getenv("AMP_PANEL_ETC_DIR", "/etc/amp-panel"))
@@ -1208,7 +1208,11 @@ def systemctl_command(action: str) -> int:
     if not _command_exists("systemctl"):
         print("systemctl is unavailable.", file=sys.stderr)
         return 1
-    return _run(["systemctl", action, CURRENT_SERVICE]).returncode
+    command = ["systemctl"]
+    if action == "status":
+        command.extend(["--no-pager", "--full", "--lines=0"])
+    command.extend([action, CURRENT_SERVICE])
+    return _run(command).returncode
 
 
 def logs_command(args: argparse.Namespace) -> int:
@@ -1411,7 +1415,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Iterable[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
-    return int(args.handler(args))
+    try:
+        return int(args.handler(args))
+    except KeyboardInterrupt:
+        print("\nInterrupted.", file=sys.stderr)
+        return 130
 
 
 if __name__ == "__main__":

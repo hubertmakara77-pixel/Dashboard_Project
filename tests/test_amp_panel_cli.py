@@ -9,6 +9,44 @@ from tools import amp_panel_cli
 
 
 class AmpPanelCliTests(unittest.TestCase):
+    def test_status_is_non_interactive_and_omits_journal_lines(self):
+        completed = mock.Mock(returncode=0)
+        with (
+            mock.patch.object(
+                amp_panel_cli,
+                "_command_exists",
+                return_value=True,
+            ),
+            mock.patch.object(
+                amp_panel_cli,
+                "_run",
+                return_value=completed,
+            ) as run,
+        ):
+            result = amp_panel_cli.systemctl_command("status")
+
+        self.assertEqual(result, 0)
+        run.assert_called_once_with(
+            [
+                "systemctl",
+                "--no-pager",
+                "--full",
+                "--lines=0",
+                "status",
+                "amp-panel.service",
+            ]
+        )
+
+    def test_keyboard_interrupt_returns_shell_interrupt_code(self):
+        with mock.patch.object(
+            amp_panel_cli,
+            "systemctl_command",
+            side_effect=KeyboardInterrupt,
+        ):
+            result = amp_panel_cli.main(["status"])
+
+        self.assertEqual(result, 130)
+
     def test_unprivileged_web_service_rejects_privileged_port(self):
         values = amp_panel_cli.default_configuration()
         values.update(

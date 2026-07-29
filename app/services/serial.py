@@ -280,8 +280,6 @@ def _serial_reader_session(port: str):
             for warning in cleared_warnings:
                 syslog_service.send_warning_event("CLEARED", warning)
 
-            print("Reading:", data)
-
     except (serial.SerialException, OSError, TypeError, ValueError) as e:
         with state.state_lock:
             state.serial_connected = False
