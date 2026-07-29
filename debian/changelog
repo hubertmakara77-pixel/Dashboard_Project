@@ -1,3 +1,9 @@
+amp-panel (1.0.2) unstable; urgency=medium
+
+  * Add Display tab with 6-panel read-only overview.
+
+ -- H Makara  Wed, 29 Jul 2026 12:00:00 +0200
+
 amp-panel (1.0.1) unstable; urgency=medium
 
   * Fix Debconf question fields.

@@ -32,6 +32,7 @@
                     <span class="nav-group-title">Device</span>
                     <button type="button" class="nav-link active" data-tab="standard-view" data-title="Live View">Live View</button>
                     <button type="button" class="nav-link" data-tab="device-settings" data-title="Settings" data-operator-only>Settings</button>
+		    <button type="button" class="nav-link" data-tab="display-panel" data-title="Display">Display</button> 
                 </div>
 
                 <div class="nav-group">
@@ -132,7 +133,97 @@
 
                     </div>
                 </section>
-
+		<section class="tab-panel" data-tab="display-panel">
+    <div class="settings-header">
+        <h2>Display</h2>
+        <p>Read-only overview mirroring the physical device's 6-panel display.</p>
+    </div>
+ 
+    <div class="data-panel network-panel">
+        <div class="settings-header"><h2>Laser</h2></div>
+        <div class="network-status-grid">
+            <div><span>State</span><strong id="dp-laser-state">--</strong></div>
+            <div><span>Gain Setpoint</span><strong id="dp-laser-gain-set">--</strong></div>
+            <div><span>Gain Actual</span><strong id="dp-laser-gain-actual">--</strong></div>
+            <div><span>Gain Delta</span><strong id="dp-laser-gain-delta">--</strong></div>
+            <div><span>Optical Frequency</span><strong>No data</strong></div>
+            <div><span>Optical Wavelength</span><strong>No data</strong></div>
+            <div><span>Central Frequency Set</span><strong>No data</strong></div>
+            <div><span>Scanning Frequency Span Set</span><strong>No data</strong></div>
+        </div>
+    </div>
+ 
+    <div class="data-panel network-panel">
+        <div class="settings-header"><h2>Uplink</h2></div>
+        <div class="network-status-grid">
+            <div><span>Type</span><strong>Uplink (PiA)</strong></div>
+            <div><span>State</span><strong id="dp-uplink-state">--</strong></div>
+            <div><span>Estimated Optical Power</span><strong id="dp-uplink-power">--</strong></div>
+            <div><span>Noise Low Frequency</span><strong>No data</strong></div>
+            <div><span>Noise High Frequency</span><strong>No data</strong></div>
+            <div><span>Description</span><strong>Input port A (PiA)</strong></div>
+        </div>
+    </div>
+ 
+    <div class="data-panel network-panel">
+        <div class="settings-header"><h2>P1-P7</h2></div>
+ 
+        <div class="network-status-grid">
+            <div><span>Port 1 - Type</span><strong>Output A</strong></div>
+            <div><span>Port 1 - State</span><strong id="dp-port1-state">--</strong></div>
+            <div><span>Port 1 - Estimated Optical Power</span><strong id="dp-port1-power">--</strong></div>
+            <div><span>Port 1 - Noise LF / HF</span><strong>No data</strong></div>
+            <div><span>Port 1 - Jitter</span><strong>No data</strong></div>
+            <div><span>Port 1 - Description</span><strong>Output port A (PoA)</strong></div>
+        </div>
+ 
+        <div class="network-status-grid" style="margin-top: 14px;">
+            <div><span>Port 2 - Type</span><strong>Output B</strong></div>
+            <div><span>Port 2 - State</span><strong id="dp-port2-state">--</strong></div>
+            <div><span>Port 2 - Estimated Optical Power</span><strong id="dp-port2-power">--</strong></div>
+            <div><span>Port 2 - Noise LF / HF</span><strong>No data</strong></div>
+            <div><span>Port 2 - Jitter</span><strong>No data</strong></div>
+            <div><span>Port 2 - Description</span><strong>Output port B (PoB)</strong></div>
+        </div>
+ 
+        <div class="network-status-grid" style="margin-top: 14px; opacity: 0.5;">
+            <div><span>Port 3</span><strong>Unequipped</strong></div>
+            <div><span>Port 4</span><strong>Unequipped</strong></div>
+            <div><span>Port 5</span><strong>Unequipped</strong></div>
+            <div><span>Port 6</span><strong>Unequipped</strong></div>
+            <div><span>Port 7</span><strong>Unequipped</strong></div>
+        </div>
+    </div>
+ 
+    <div class="data-panel network-panel">
+        <div class="settings-header"><h2>Synth</h2></div>
+        <div class="network-status-grid">
+            <div><span>Status</span><strong>No data</strong></div>
+            <div><span>10 MHz reference source</span><strong>No data</strong></div>
+            <div><span>External 10 MHz</span><strong>No data</strong></div>
+        </div>
+    </div>
+ 
+    <div class="data-panel network-panel">
+        <div class="settings-header"><h2>TEC</h2></div>
+        <div class="network-status-grid">
+            <div><span>Status</span><strong>No data</strong></div>
+            <div><span>Temperature Set</span><strong>No data</strong></div>
+            <div><span>Temperature Read</span><strong id="dp-tec-temperature">--</strong></div>
+            <div><span>Power Usage</span><strong>No data</strong></div>
+        </div>
+    </div>
+ 
+    <div class="data-panel network-panel">
+        <div class="settings-header"><h2>System</h2></div>
+        <div class="network-status-grid">
+            <div><span>Hostname</span><strong id="dp-system-hostname">--</strong></div>
+            <div><span>IP Address</span><strong id="dp-system-ip">--</strong></div>
+            <div><span>Netmask</span><strong id="dp-system-netmask">--</strong></div>
+            <div><span>Time [UTC]</span><strong id="dp-system-time">--</strong></div>
+        </div>
+    </div>
+</section>
                 <section class="tab-panel" data-tab="device-settings" data-operator-only>
                     <div class="data-panel device-settings-panel">
                         <div class="threshold-panel">
@@ -618,5 +709,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/static/js/dashboard.js?v={{ static_asset_version }}"></script>
+    <script src="/static/js/display-panel.js?v={{ static_asset_version }}"></script>
 </body>
 </html>
