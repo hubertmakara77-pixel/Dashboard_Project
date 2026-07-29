@@ -143,11 +143,22 @@ def _run(
     check: bool = False,
     capture: bool = False,
 ) -> subprocess.CompletedProcess:
+    environment = None
+    if command and command[0] in {"systemctl", "journalctl"}:
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "SYSTEMD_PAGER": "cat",
+                "SYSTEMD_PAGERSECURE": "1",
+                "PAGER": "cat",
+            }
+        )
     return subprocess.run(
         command,
         check=check,
         text=True,
         capture_output=capture,
+        env=environment,
     )
 
 
@@ -1219,7 +1230,14 @@ def logs_command(args: argparse.Namespace) -> int:
     if not _command_exists("journalctl"):
         print("journalctl is unavailable.", file=sys.stderr)
         return 1
-    command = ["journalctl", "-u", CURRENT_SERVICE, "-n", str(args.lines)]
+    command = [
+        "journalctl",
+        "--no-pager",
+        "-u",
+        CURRENT_SERVICE,
+        "-n",
+        str(args.lines),
+    ]
     if args.follow:
         command.append("-f")
     return _run(command).returncode

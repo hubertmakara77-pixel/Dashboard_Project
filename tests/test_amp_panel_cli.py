@@ -47,6 +47,35 @@ class AmpPanelCliTests(unittest.TestCase):
 
         self.assertEqual(result, 130)
 
+    def test_logs_never_open_a_pager(self):
+        completed = mock.Mock(returncode=0)
+        arguments = mock.Mock(lines=25, follow=False)
+        with (
+            mock.patch.object(
+                amp_panel_cli,
+                "_command_exists",
+                return_value=True,
+            ),
+            mock.patch.object(
+                amp_panel_cli,
+                "_run",
+                return_value=completed,
+            ) as run,
+        ):
+            result = amp_panel_cli.logs_command(arguments)
+
+        self.assertEqual(result, 0)
+        run.assert_called_once_with(
+            [
+                "journalctl",
+                "--no-pager",
+                "-u",
+                "amp-panel.service",
+                "-n",
+                "25",
+            ]
+        )
+
     def test_unprivileged_web_service_rejects_privileged_port(self):
         values = amp_panel_cli.default_configuration()
         values.update(

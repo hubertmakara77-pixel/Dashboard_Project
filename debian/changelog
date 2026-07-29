@@ -1,6 +1,7 @@
 amp-panel (1.0.2) unstable; urgency=medium
 
   * Make the status command non-interactive and omit journal samples.
+  * Disable pagers for every systemctl and journalctl wrapper command.
   * Handle command interruption without a Python traceback.
   * Stop writing every serial measurement to the system journal.
 
