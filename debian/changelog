@@ -1,3 +1,9 @@
+amp-panel (1.0.6) unstable; urgency=medium
+
+  * Add configurable PORT_COUNT (2-7) for Live View P1-P7 display.
+
+ -- Hubert Makara <hubertmakara77@gmail.com>  Thu, 30 Jul 2026 14:00:00 +0200
+
 amp-panel (1.0.5) unstable; urgency=medium
 
   * Consolidate Display into Live View as 6 clickable tabs, remove diagram.
