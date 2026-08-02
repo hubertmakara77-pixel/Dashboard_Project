@@ -250,8 +250,44 @@ class DatabaseServiceTests(unittest.TestCase):
         )
         self.assertEqual(
             database_service.connection.execute("PRAGMA user_version").fetchone()[0],
-            4,
+            5,
         )
+
+    def test_fts_ls_snapshots_are_stored_pruned_and_queried(self):
+        state.service_settings["database_max_records"] = 2
+        for second in range(3):
+            self.assertTrue(database_service.write_device_snapshot(
+                "fts-ls",
+                {"laser": {"frequency": 194400 + second}},
+                f"2026-07-17T10:15:3{second}+00:00",
+            ))
+
+        self.assertEqual(database_service.get_device_snapshot_count("fts-ls"), 2)
+        points = database_service.query_device_snapshots(
+            "fts-ls",
+            "all",
+            start="2026-07-17T10:00:00+00:00",
+        )
+        self.assertEqual(
+            [point["snapshot"]["laser"]["frequency"] for point in points],
+            [194401, 194402],
+        )
+
+    def test_fts_ls_history_is_evenly_downsampled_across_selected_range(self):
+        state.service_settings["database_max_records"] = 0
+        for second in range(10):
+            database_service.write_device_snapshot(
+                "fts-ls",
+                {"sequence": second},
+                f"2026-07-17T10:15:{second:02d}+00:00",
+            )
+
+        points = database_service.query_device_snapshots(
+            "fts-ls", "all", limit=3
+        )
+        self.assertEqual(len(points), 3)
+        self.assertEqual(points[0]["snapshot"]["sequence"], 0)
+        self.assertEqual(points[-1]["snapshot"]["sequence"], 9)
 
     def test_raw_history_returns_every_sample_without_aggregation(self):
         database_service.write_measurement(

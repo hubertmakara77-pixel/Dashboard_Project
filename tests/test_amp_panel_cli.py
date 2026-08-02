@@ -122,6 +122,27 @@ class AmpPanelCliTests(unittest.TestCase):
 
         self.assertEqual(values["RADIUS_SECRET"], secret)
 
+    def test_fts_ls_installer_answers_select_profile_and_serial_defaults(self):
+        password = 'adm!n with spaces'
+        values = amp_panel_cli.default_configuration()
+        answers = {
+            "device_profile_b64": base64.b64encode(b"fts-ls").decode(),
+            "fts_ls_username_b64": base64.b64encode(b"appadmin").decode(),
+            "fts_ls_password_b64": base64.b64encode(password.encode()).decode(),
+        }
+        with mock.patch.object(
+            amp_panel_cli,
+            "_normalized_data_dir",
+            return_value=pathlib.Path(values["AMP_PANEL_DATA_DIR"]),
+        ):
+            amp_panel_cli._apply_answers(values, answers)
+
+        self.assertEqual(values["DEVICE_PROFILE"], "fts-ls")
+        self.assertEqual(values["SERIAL_BAUDRATE"], "115200")
+        self.assertEqual(values["FTS_LS_PASSWORD"], password)
+        self.assertEqual(values["GAIN_SET_MIN"], "-100")
+        self.assertEqual(values["GAIN_SET_MAX"], "100")
+
     def test_legacy_data_copy_keeps_source_database(self):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)

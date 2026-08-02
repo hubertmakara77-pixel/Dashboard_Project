@@ -34,6 +34,33 @@ DEFAULT_SERVICE_SETTINGS = {
     "serial_port": config.SERIAL_PORT,
 }
 
+
+def empty_fts_ls_status() -> dict:
+    return {
+        "profile": "fts-ls",
+        "laser": {},
+        "uplink": {
+            "name": "UL",
+            "type": "Uplink",
+            "state": "UNKNOWN",
+            "connectors": ["O", "BN", "BN_A"],
+        },
+        "ports": [
+            {
+                "name": f"P{number}",
+                "type": "Unknown",
+                "state": "UNKNOWN",
+                "connectors": ["O", "BN", "TR"],
+            }
+            for number in range(1, 8)
+        ],
+        "synth": {},
+        "tec": {},
+        "power": {"a": None, "b": None},
+        "system": {},
+        "last_command": None,
+    }
+
 def load_persisted_state() -> dict:
     path = pathlib.Path(config.PERSISTED_STATE_FILE)
 
@@ -206,6 +233,7 @@ def save_persisted_access_users() -> None:
 
 latest_data = {}
 latest_snmp_data = {}
+fts_ls_status = empty_fts_ls_status()
 serial_connected = False
 serial_error = None
 last_update = None

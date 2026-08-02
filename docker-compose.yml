@@ -8,8 +8,14 @@ services:
     container_name: amp-dashboard
     restart: unless-stopped
     environment:
+      DEVICE_PROFILE: ${DEVICE_PROFILE:-amplifier}
       SERIAL_PORT: ${SERIAL_PORT:-/host/dev/ttyACM0}
       SERIAL_BAUDRATE: ${SERIAL_BAUDRATE:-9600}
+      FTS_LS_USERNAME: ${FTS_LS_USERNAME:-appadmin}
+      FTS_LS_PASSWORD: ${FTS_LS_PASSWORD:-}
+      FTS_LS_POLL_SECONDS: ${FTS_LS_POLL_SECONDS:-10}
+      FTS_LS_FREQUENCY_MIN_GHZ: ${FTS_LS_FREQUENCY_MIN_GHZ:-194392.6}
+      FTS_LS_FREQUENCY_MAX_GHZ: ${FTS_LS_FREQUENCY_MAX_GHZ:-194405.6}
       GAIN_SET_MIN: ${GAIN_SET_MIN:?GAIN_SET_MIN must match the safe device range}
       GAIN_SET_MAX: ${GAIN_SET_MAX:?GAIN_SET_MAX must match the safe device range}
       DEVICE_NAME: ${DEVICE_NAME:?DEVICE_NAME must be configured in .env}
@@ -54,6 +60,7 @@ services:
       - "${DASHBOARD_PORT:?DASHBOARD_PORT must be configured in .env}:8000"
       - "${SNMP_PORT:-1161}:${SNMP_PORT:-1161}/udp"
     device_cgroup_rules:
+      - "c 4:* rmw"
       - "c 166:* rmw"
       - "c 188:* rmw"
     cap_drop:

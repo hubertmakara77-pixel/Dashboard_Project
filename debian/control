@@ -19,7 +19,7 @@ Depends:
  rsyslog,
  systemd
 Recommends: systemd-timesyncd
-Description: control and monitoring panel for an optical amplifier
- Amp Panel reads measurements from an optical amplifier, stores them in
- SQLite, exposes the local web interface and SNMP endpoint, and integrates
- with RADIUS, syslog, NTP and NetworkManager.
+Description: control and monitoring panel for optical transfer equipment
+ Amp Panel supports optical amplifiers and modular FTS-LS Laser Stations,
+ stores measurements in SQLite, exposes a local web interface and SNMP
+ endpoint, and integrates with RADIUS, syslog, NTP and NetworkManager.

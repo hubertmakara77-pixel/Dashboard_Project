@@ -185,8 +185,11 @@ def update_warning_state(
 def available_serial_ports() -> list[str]:
     ports = set()
     for base in (pathlib.Path("/host/dev"), pathlib.Path("/dev")):
-        for pattern in ("ttyACM*", "ttyUSB*"):
+        for pattern in ("ttyACM*", "ttyUSB*", "ttyS*", "ttyO*"):
             ports.update(str(path) for path in base.glob(pattern))
+        serial_by_id = base / "serial" / "by-id"
+        if serial_by_id.is_dir():
+            ports.update(str(path) for path in serial_by_id.iterdir())
     return sorted(ports)
 
 
@@ -302,6 +305,11 @@ def _serial_reader_session(port: str):
 
 
 def serial_reader_loop():
+    if config.DEVICE_PROFILE == "fts-ls":
+        from app.services import fts_ls
+
+        fts_ls.reader_loop()
+        return
     while not state.stop_event.is_set():
         with state.state_lock:
             port = str(state.service_settings["serial_port"])
@@ -326,6 +334,8 @@ def reconnect(port: str) -> None:
 
 
 def send_gain_set(gain_set: float):
+    if config.DEVICE_PROFILE != "amplifier":
+        raise RuntimeError("Gain setpoint is only available for the amplifier profile")
     gain_set = validation.validate_gain_set(
         gain_set,
         config.GAIN_SET_MIN,

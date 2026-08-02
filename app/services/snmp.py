@@ -32,9 +32,27 @@ FIELD_OID_MAP = {
     f"{OID_BASE_STR}.2.9.0": "seq_nr",
 }
 
+FTS_OID_MAP = {
+    f"{OID_BASE_STR}.3.1.0": ("profile",),
+    f"{OID_BASE_STR}.3.2.0": ("laser", "state"),
+    f"{OID_BASE_STR}.3.3.0": ("laser", "optical_frequency"),
+    f"{OID_BASE_STR}.3.4.0": ("tec", "temperature_read_c"),
+    f"{OID_BASE_STR}.3.5.0": ("power", "power_a"),
+    f"{OID_BASE_STR}.3.6.0": ("power", "power_b"),
+}
+for _index in range(0, 8):
+    _prefix = f"{OID_BASE_STR}.3.10.{_index}"
+    for _suffix, _field in enumerate(
+        ("state", "type", "optical_power", "noise_lf", "noise_hf", "jitter"),
+        start=1,
+    ):
+        FTS_OID_MAP[f"{_prefix}.{_suffix}"] = (
+            ("uplink", _field) if _index == 0 else ("ports", _index - 1, _field)
+        )
+
 # Kolejność OID-ów posortowana numerycznie - potrzebna do obsługi GETNEXT/snmpwalk
 ORDERED_OIDS = [STATUS_OID] + sorted(
-    FIELD_OID_MAP.keys(),
+    [*FIELD_OID_MAP.keys(), *FTS_OID_MAP.keys()],
     key=lambda oid_str: [int(part) for part in oid_str.split(".")]
 )
 
@@ -47,13 +65,23 @@ def _read_value_for_oid(oid_str: str):
     with state.state_lock:
         data = getattr(state, "latest_data", {}) or {}
         connected = getattr(state, "serial_connected", False)
+        fts_status = getattr(state, "fts_ls_status", {}) or {}
 
     if oid_str == STATUS_OID:
         return "CONNECTED" if connected else "DISCONNECTED"
 
     field = FIELD_OID_MAP.get(oid_str)
     if field is None:
-        return None
+        path = FTS_OID_MAP.get(oid_str)
+        if path is None:
+            return None
+        value = fts_status
+        try:
+            for part in path:
+                value = value[part]
+        except (KeyError, IndexError, TypeError):
+            return "--"
+        return str(value)
 
     if field not in data:
         return "--"
@@ -70,11 +98,15 @@ def _refresh_live_snapshot():
     with state.state_lock:
         data = getattr(state, "latest_data", {}) or {}
         connected = getattr(state, "serial_connected", False)
+        fts_status = getattr(state, "fts_ls_status", {}) or {}
 
     snapshot["status"] = "CONNECTED" if connected else "DISCONNECTED"
 
     for field in FIELD_OID_MAP.values():
         snapshot[field] = data.get(field, "--")
+    if fts_status:
+        snapshot["device_profile"] = fts_status.get("profile", "--")
+        snapshot["fts_ls"] = fts_status
 
     with state.state_lock:
         state.latest_snmp_data = snapshot
@@ -156,8 +188,8 @@ async def _async_send_trap(error: dict):
         trap_port = snmp_settings.get("trap_port", 162)
 
     error_message = (
-        f"ALARM: {error.get('field')} | W: {float(error.get('value', 0)):.2f} "
-        f"| T: {float(error.get('target', 0)):.2f}"
+        f"ALARM: {error.get('field')} | W: {error.get('value', '--')} "
+        f"| T: {error.get('target', '--')}"
     )
 
     try:

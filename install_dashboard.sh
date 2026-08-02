@@ -276,9 +276,9 @@ prepare_environment_file() {
   fi
 
   prompt_dashboard_configuration
+  prompt_device_profile_configuration
   prompt_radius_configuration
   prompt_remote_syslog_configuration
-  prompt_gain_range_configuration
 
   # Hasło Dashboardu z poprzednich wersji nie jest już używane. RADIUS jest
   # jedynym źródłem haseł, więc usuń także pozostawioną wartość z .env.
@@ -503,6 +503,41 @@ if not (math.isfinite(minimum) and math.isfinite(maximum) and minimum < maximum)
 
   set_env_value "GAIN_SET_MIN" "$gain_min"
   set_env_value "GAIN_SET_MAX" "$gain_max"
+}
+
+prompt_device_profile_configuration() {
+  local profile fts_username fts_password
+  profile="$(env_value DEVICE_PROFILE)"
+  profile="${profile:-amplifier}"
+
+  if [[ -t 0 ]]; then
+    info "Connected device configuration"
+    prompt_value profile "Device profile (amplifier/fts-ls)" "$profile"
+  fi
+  case "${profile,,}" in
+    amplifier|amp) profile=amplifier ;;
+    fts-ls|fts_ls|laser-station) profile=fts-ls ;;
+    *) fail "DEVICE_PROFILE must be amplifier or fts-ls." ;;
+  esac
+  set_env_value "DEVICE_PROFILE" "$profile"
+
+  if [[ "$profile" == "fts-ls" ]]; then
+    fts_username="$(env_value FTS_LS_USERNAME)"
+    fts_username="${fts_username:-appadmin}"
+    fts_password="$(env_value FTS_LS_PASSWORD)"
+    if [[ -t 0 ]]; then
+      prompt_value fts_username "FTS-LS ADMIN console username" "$fts_username"
+      prompt_secret fts_password "FTS-LS ADMIN console password" "$fts_password"
+    fi
+    set_env_value "FTS_LS_USERNAME" "$fts_username"
+    set_env_value "FTS_LS_PASSWORD" "$fts_password"
+    set_env_value "SERIAL_BAUDRATE" "115200"
+    set_env_value "GAIN_SET_MIN" "-100"
+    set_env_value "GAIN_SET_MAX" "100"
+  else
+    set_env_value "SERIAL_BAUDRATE" "9600"
+    prompt_gain_range_configuration
+  fi
 }
 
 prompt_radius_configuration() {

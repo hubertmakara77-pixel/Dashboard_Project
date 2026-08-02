@@ -33,11 +33,13 @@ def latest(
     database_status = database_service.get_runtime_status()
     with state.state_lock:
         return {
+            "device_profile": config.DEVICE_PROFILE,
             "connected": state.serial_connected,
             "error": state.serial_error,
             "last_update": state.last_update,
             "last_known_gain_set": state.last_known_gain_set,
             "data": state.latest_data,
+            "fts_ls": state.fts_ls_status if config.DEVICE_PROFILE == "fts-ls" else None,
             "database": database_status,
         }
 

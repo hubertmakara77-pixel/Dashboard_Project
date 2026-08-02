@@ -1,5 +1,5 @@
 [Unit]
-Description=Optical amplifier control panel
+Description=Optical transfer equipment control panel
 Requires=amp-panel-network-agent.service
 After=amp-panel-network-agent.service network-online.target rsyslog.service
 Wants=network-online.target avahi-daemon.service systemd-timesyncd.service

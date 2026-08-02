@@ -9,6 +9,12 @@ let powerChart = null
 let gainChart = null
 let deltaChart = null
 let temperatureChart = null
+let ftsOpticalPowerChart = null
+let ftsLfNoiseChart = null
+let ftsHfNoiseChart = null
+let ftsJitterChart = null
+let ftsLaserFrequencyChart = null
+let ftsTecChart = null
 let gainInputEdited = false
 let currentUser = null
 let overviewStart = null
@@ -29,8 +35,11 @@ let warningHistoryTotal = 0
 let warningHistoryStart = null
 let warningHistoryEnd = null
 let lastWarningHistoryRefresh = 0
+let lastFtsHistoryRefresh = 0
 const warningHistoryLimit = 100
 const chartSeriesVisibility = new Map()
+const deviceProfile = document.body.dataset.deviceProfile || 'amplifier'
+let latestFtsStatus = null
 
 function historyRefreshInterval(rangeValue) {
 	return {
@@ -65,7 +74,8 @@ function formatTime(value) {
 
 function formatPlainNumber(value, digits = 2) {
 	if (value === null || value === undefined || value === '') return '--'
-	return Number(value).toFixed(digits)
+	const numeric = Number(value)
+	return Number.isFinite(numeric) ? numeric.toFixed(digits) : String(value)
 }
 
 function localDateTimeToIso(value) {
@@ -141,6 +151,100 @@ function apiErrorMessage(detail, fallback) {
 		}
 	}
 	return fallback
+}
+
+function firstValue(object, keys, fallback = null) {
+	for (const key of keys) {
+		if (object && object[key] !== undefined && object[key] !== null && object[key] !== '') return object[key]
+	}
+	return fallback
+}
+
+function displayValue(value, unit = '') {
+	if (value === null || value === undefined || value === '') return '--'
+	if (typeof value === 'boolean') return value ? 'ON' : 'OFF'
+	return `${value}${unit}`
+}
+
+function ftsStateClass(value) {
+	const normalized = String(value ?? 'unknown').trim().toLowerCase()
+	if (['locked', 'on', 'ok', 'true', 'present', 'allowed'].includes(normalized)) return normalized === 'true' ? 'on' : normalized
+	if (['unlocked', 'off', 'false', 'absent'].includes(normalized)) return normalized === 'false' ? 'off' : normalized
+	if (normalized === 'shutdown') return 'shutdown'
+	return 'unknown'
+}
+
+function setFtsState(id, value) {
+	const element = document.getElementById(id)
+	if (!element) return
+	element.textContent = displayValue(value)
+	element.className = `fts-state ${ftsStateClass(value)}`
+}
+
+function ftsMetric(label, value, unit = '') {
+	return `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(displayValue(value, unit))}</dd></div>`
+}
+
+function renderFtsModule(module) {
+	const stateValue = firstValue(module, ['state'], 'UNKNOWN')
+	const stateClass = ftsStateClass(stateValue)
+	const type = firstValue(module, ['type'], 'Unknown')
+	const unequipped = String(type).toLowerCase().includes('unequipped')
+	const metrics = []
+	if (!unequipped) {
+		metrics.push(ftsMetric('Optical input', firstValue(module, ['optical_power_display', 'optical_power']), module.optical_power_display ? '' : ' dBm'))
+		metrics.push(ftsMetric('LF / HF noise', `${displayValue(firstValue(module, ['noise_lf']))} / ${displayValue(firstValue(module, ['noise_hf']))}`))
+		if (firstValue(module, ['jitter']) !== null) metrics.push(ftsMetric('Jitter', firstValue(module, ['jitter']), ' %'))
+		if (firstValue(module, ['distance_km', 'equivalent_distance']) !== null) metrics.push(ftsMetric('Equivalent distance', firstValue(module, ['distance_km', 'equivalent_distance']), ' km'))
+	}
+	const connectors = (module.connectors || []).map(connector => `<span class="fts-connector">${escapeHtml(connector)}</span>`).join('')
+	return `
+		<article class="fts-module ${stateClass} ${unequipped ? 'unequipped' : ''}">
+			<div class="fts-module-title"><span class="fts-led ${stateClass}"></span><strong>${escapeHtml(module.name || '--')}</strong><small>${escapeHtml(type)}</small></div>
+			<dl class="fts-metrics">
+				${ftsMetric('State', stateValue)}
+				${metrics.join('')}
+				${ftsMetric('Description', firstValue(module, ['description']))}
+			</dl>
+			<div class="fts-port-connectors">${connectors}</div>
+		</article>`
+}
+
+function renderFtsStatus(status) {
+	if (!status) return
+	latestFtsStatus = status
+	const laser = status.laser || {}
+	const synth = status.synth || {}
+	const tec = status.tec || {}
+	const laserState = firstValue(laser, ['state', 'status'], '--')
+	setTextIfExists('fts-laser-state', displayValue(laserState))
+	setTextIfExists('fts-laser-frequency', displayValue(firstValue(laser, ['optical_frequency', 'frequency', 'current_frequency']), ' GHz'))
+	setTextIfExists('fts-laser-wavelength', displayValue(firstValue(laser, ['optical_wavelength', 'wavelength']), ' nm'))
+	setTextIfExists('fts-laser-centre', displayValue(firstValue(laser, ['central_frequency_set', 'central_frequency']), ' GHz'))
+	setTextIfExists('fts-laser-span', displayValue(firstValue(laser, ['scanning_frequency_span_set', 'frequency_span']), ' MHz'))
+	const laserLed = document.getElementById('fts-laser-led')
+	if (laserLed) laserLed.className = `fts-led ${ftsStateClass(laserState)}`
+
+	const synthState = firstValue(synth, ['status', 'state'], '--')
+	setTextIfExists('fts-synth-state', displayValue(synthState))
+	setTextIfExists('fts-synth-reference', displayValue(firstValue(synth, ['10_mhz_reference_source', 'reference_source', 'reference'])))
+	setTextIfExists('fts-synth-external', displayValue(firstValue(synth, ['external_10_mhz', 'external_frequency'])))
+	const synthLed = document.getElementById('fts-synth-led')
+	if (synthLed) synthLed.className = `fts-led ${ftsStateClass(synthState)}`
+
+	const tecState = firstValue(tec, ['status', 'state'], '--')
+	setTextIfExists('fts-tec-state', displayValue(tecState))
+	setTextIfExists('fts-tec-temperature', `${displayValue(firstValue(tec, ['temperature_set_c', 'temperature_set']))} / ${displayValue(firstValue(tec, ['temperature_read_c', 'temperature_read']))} °C`)
+	setTextIfExists('fts-tec-power', displayValue(firstValue(tec, ['power_usage_percent', 'power_usage']), ' %'))
+	const tecLed = document.getElementById('fts-tec-led')
+	if (tecLed) tecLed.className = `fts-led ${ftsStateClass(tecState)}`
+
+	const power = status.power || {}
+	setFtsState('fts-power-a', firstValue(power, ['a', 'power_a'], '--'))
+	setFtsState('fts-power-b', firstValue(power, ['b', 'power_b'], '--'))
+	const modules = document.getElementById('fts-modules')
+	if (modules) modules.innerHTML = [status.uplink || {}, ...(status.ports || [])].map(renderFtsModule).join('')
+	updateFtsTargetForm()
 }
 
 function formatDateTime(value) {
@@ -226,6 +330,7 @@ function setActiveTab(tabName) {
 
 	if (tabName === 'overview') updateOverviewCharts()
 	if (tabName === 'statistics') updateStatisticsTable()
+	if (tabName === 'fts-history') loadFtsHistory()
 	if (tabName === 'warnings') updateWarningsTable(true)
 	if (tabName === 'access-control') loadAccessUsers()
 	if (tabName === 'snmp-settings') loadSnmpSettings()
@@ -893,6 +998,7 @@ async function updateDashboard() {
 		if (!response.ok) throw new Error('HTTP error ' + response.status)
 		const json = await response.json()
 		const data = json.data || {}
+		if (deviceProfile === 'fts-ls') renderFtsStatus(json.fts_ls || data.fts_ls)
 
 		setTextIfExists('PiA', formatDbm(data.PiA))
 		setTextIfExists('PoA', formatDbm(data.PoA))
@@ -933,6 +1039,7 @@ async function updateDashboard() {
 function renderActiveWarnings(warnings) {
 	const body = document.getElementById('active-warnings-table-body')
 	setTextIfExists('warning-count', String(warnings.length))
+	setTextIfExists('fts-warning-count', String(warnings.length))
 	if (!body) return
 	if (!warnings.length) {
 		body.innerHTML = '<tr><td colspan="7">No active warnings</td></tr>'
@@ -1951,6 +2058,191 @@ function setupAuth() {
 	}
 }
 
+let ftsFormTarget = null
+
+function selectedFtsModule() {
+	const target = document.getElementById('fts-target')?.value || 'ul'
+	if (!latestFtsStatus) return null
+	if (target === 'ul') return latestFtsStatus.uplink || null
+	const match = target.match(/^port([1-7])$/)
+	return match ? (latestFtsStatus.ports || [])[Number(match[1]) - 1] : null
+}
+
+function updateFtsTargetForm(force = false) {
+	if (deviceProfile !== 'fts-ls') return
+	const target = document.getElementById('fts-target')?.value || 'ul'
+	if (!force && ftsFormTarget === target) return
+	const module = selectedFtsModule()
+	if (!module) return
+	ftsFormTarget = target
+	const assignments = {
+		'fts-description-input': firstValue(module, ['description'], ''),
+		'fts-distance-input': firstValue(module, ['distance_km', 'equivalent_distance'], ''),
+		'fts-gain-input': firstValue(module, ['additional_gain_db', 'additional_gain_set'], 0),
+		'fts-pol-speed-input': String(firstValue(module, ['polarization_controller_speed'], 'fast')).toLowerCase(),
+		'fts-pol-mode-input': String(firstValue(module, ['polarization_controller_mode'], 'continuous')).toLowerCase(),
+	}
+	Object.entries(assignments).forEach(([id, value]) => {
+		const input = document.getElementById(id)
+		if (input && document.activeElement !== input) input.value = value
+	})
+}
+
+const ftsTransferActions = new Set([
+	'power_reset', 'factory_default', 'laser_power', 'laser_central_frequency',
+	'laser_mode', 'laser_force_relock', 'optical_power',
+])
+
+async function sendFtsAction(button) {
+	const action = button.dataset.ftsAction
+	const parameters = {}
+	if (button.hasAttribute('data-fts-target')) parameters.target = document.getElementById('fts-target')?.value
+	if (button.dataset.ftsValueFrom) parameters.value = document.getElementById(button.dataset.ftsValueFrom)?.value
+	if (button.dataset.ftsEnabledFrom) parameters.enabled = document.getElementById(button.dataset.ftsEnabledFrom)?.value === 'true'
+	let confirmed = false
+	if (ftsTransferActions.has(action) || ['reboot'].includes(action)) {
+		confirmed = window.confirm('This operation may interrupt frequency transfer or restart the station. Continue?')
+		if (!confirmed) return
+	}
+	button.disabled = true
+	try {
+		const response = await fetch('/api/fts-ls/command', {
+			method: 'POST',
+			headers: {'Content-Type': 'application/json'},
+			body: JSON.stringify({ action, parameters, confirmed }),
+		})
+		handleAuthResponse(response)
+		if (!response.ok) throw await responseError(response, 'FTS-LS command failed')
+		showNotification('FTS-LS command accepted.')
+		ftsFormTarget = null
+		window.setTimeout(updateDashboard, 500)
+	} catch (error) {
+		showNotification(error.message || 'FTS-LS command failed.', 'error')
+	} finally {
+		button.disabled = false
+	}
+}
+
+function setupFtsControls() {
+	if (deviceProfile !== 'fts-ls') return
+	document.getElementById('fts-target')?.addEventListener('change', () => {
+		ftsFormTarget = null
+		updateFtsTargetForm(true)
+	})
+	document.querySelectorAll('[data-fts-action]').forEach(button => {
+		button.addEventListener('click', () => sendFtsAction(button))
+	})
+	const historyRange = document.getElementById('fts-history-range')
+	historyRange?.addEventListener('change', () => {
+		const exportLink = document.getElementById('fts-history-export')
+		if (exportLink) exportLink.href = `/api/fts-ls/history/export.csv?range=${encodeURIComponent(historyRange.value)}`
+		loadFtsHistory()
+	})
+	document.getElementById('fts-history-refresh')?.addEventListener('click', loadFtsHistory)
+}
+
+function ftsNumeric(value) {
+	if (value === null || value === undefined || value === '') return null
+	const numeric = Number(value)
+	return Number.isFinite(numeric) ? numeric : null
+}
+
+function flattenFtsHistoryPoint(point) {
+	const snapshot = point.snapshot || {}
+	const flattened = { time: point.time }
+	const laser = snapshot.laser || {}
+	const tec = snapshot.tec || {}
+	flattened.laser_frequency = ftsNumeric(firstValue(laser, ['optical_frequency', 'frequency', 'current_frequency']))
+	flattened.tec_set = ftsNumeric(firstValue(tec, ['temperature_set_c', 'temperature_set']))
+	flattened.tec_read = ftsNumeric(firstValue(tec, ['temperature_read_c', 'temperature_read']))
+	for (const module of [snapshot.uplink || {}, ...(snapshot.ports || [])]) {
+		const name = String(module.name || '').toUpperCase()
+		if (!['UL', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7'].includes(name)) continue
+		flattened[`${name}_power`] = ftsNumeric(module.optical_power)
+		flattened[`${name}_noise_lf`] = ftsNumeric(module.noise_lf)
+		flattened[`${name}_noise_hf`] = ftsNumeric(module.noise_hf)
+		flattened[`${name}_jitter`] = ftsNumeric(module.jitter)
+	}
+	return flattened
+}
+
+function ftsTimeBounds(points, range) {
+	const durations = {
+		'1h': 60 * 60 * 1000,
+		'24h': 24 * 60 * 60 * 1000,
+		'7d': 7 * 24 * 60 * 60 * 1000,
+		'30d': 30 * 24 * 60 * 60 * 1000,
+	}
+	const times = points.map(point => new Date(point.time).getTime()).filter(Number.isFinite)
+	if (range !== 'all') {
+		const max = Date.now()
+		return { min: max - durations[range], max }
+	}
+	if (times.length) return { min: times[0], max: times.at(-1) }
+	const max = Date.now()
+	return { min: max - 60 * 60 * 1000, max }
+}
+
+function ftsModuleDatasets(points, suffix, names) {
+	return names.map(name => ({
+		label: name,
+		data: getValues(points, `${name}_${suffix}`),
+		spanGaps: false,
+	}))
+}
+
+function updateFtsHistoryCharts(points, range) {
+	const chartPoints = addHistoryGapMarkers(points.map(flattenFtsHistoryPoint), range)
+	const timestamps = getFullTimestamps(chartPoints)
+	const bounds = ftsTimeBounds(chartPoints, range)
+	const modules = ['UL', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7']
+	const ports = modules.slice(1)
+	ftsOpticalPowerChart = createOrUpdateChart(ftsOpticalPowerChart, 'fts-optical-power-chart', chartPoints, timestamps, ftsModuleDatasets(chartPoints, 'power', modules), 'Power [dBm]', bounds)
+	ftsLfNoiseChart = createOrUpdateChart(ftsLfNoiseChart, 'fts-lf-noise-chart', chartPoints, timestamps, ftsModuleDatasets(chartPoints, 'noise_lf', modules), 'LF noise [a.u.]', bounds)
+	ftsHfNoiseChart = createOrUpdateChart(ftsHfNoiseChart, 'fts-hf-noise-chart', chartPoints, timestamps, ftsModuleDatasets(chartPoints, 'noise_hf', modules), 'HF noise [a.u.]', bounds)
+	ftsJitterChart = createOrUpdateChart(ftsJitterChart, 'fts-jitter-chart', chartPoints, timestamps, ftsModuleDatasets(chartPoints, 'jitter', ports), 'Jitter [%]', bounds)
+	ftsLaserFrequencyChart = createOrUpdateChart(ftsLaserFrequencyChart, 'fts-laser-frequency-chart', chartPoints, timestamps, [{label: 'Laser', data: getValues(chartPoints, 'laser_frequency'), spanGaps: false}], 'Frequency [GHz]', bounds)
+	ftsTecChart = createOrUpdateChart(ftsTecChart, 'fts-tec-chart', chartPoints, timestamps, [
+		{label: 'Setpoint', data: getValues(chartPoints, 'tec_set'), spanGaps: false},
+		{label: 'Measured', data: getValues(chartPoints, 'tec_read'), spanGaps: false},
+	], 'Temperature [°C]', bounds)
+}
+
+async function loadFtsHistory() {
+	if (deviceProfile !== 'fts-ls' || !currentUser) return
+	lastFtsHistoryRefresh = Date.now()
+	const body = document.getElementById('fts-history-body')
+	const range = document.getElementById('fts-history-range')?.value || '24h'
+	try {
+		setTextIfExists('fts-history-loading', 'Loading…')
+		const response = await fetch(`/api/fts-ls/history?range=${encodeURIComponent(range)}&limit=10000`)
+		handleAuthResponse(response)
+		if (!response.ok) throw await responseError(response, 'Could not load FTS-LS history')
+		const result = await response.json()
+		const points = result.points || []
+		updateFtsHistoryCharts(points, range)
+		setTextIfExists('fts-history-loading', '')
+		if (!body) return
+		body.innerHTML = points.length ? points.slice().reverse().map(point => {
+			const snapshot = point.snapshot || {}
+			const laser = snapshot.laser || {}
+			const tec = snapshot.tec || {}
+			const portStates = (snapshot.ports || []).map(port => `${port.name || '?'}:${String(port.state || '--').slice(0, 4)}`).join(' · ')
+			return `<tr>
+				<td>${escapeHtml(formatDateTime(point.time))}</td>
+				<td>${escapeHtml(displayValue(firstValue(laser, ['state', 'status'])))}</td>
+				<td>${escapeHtml(displayValue(firstValue(laser, ['optical_frequency', 'frequency']), ' GHz'))}</td>
+				<td>${escapeHtml(displayValue(firstValue(tec, ['temperature_read_c', 'temperature_read']), ' °C'))}</td>
+				<td>${escapeHtml(displayValue(firstValue(snapshot.uplink || {}, ['state'])))}</td>
+				<td>${escapeHtml(portStates || '--')}</td>
+			</tr>`
+		}).join('') : '<tr><td colspan="6">No snapshots in this range</td></tr>'
+	} catch (error) {
+		setTextIfExists('fts-history-loading', 'Could not load charts')
+		if (body) body.innerHTML = `<tr><td colspan="6">${escapeHtml(error.message || 'History unavailable')}</td></tr>`
+	}
+}
+
 async function startDataRefresh() {
 	await loadSettings()
 	await updateDashboard()
@@ -1968,6 +2260,7 @@ setupRangeButtons()
 setupAccessControl()
 setupAuth()
 setupChartExpansion()
+setupFtsControls()
 
 checkAuth().then(isAuthenticated => {
 	if (isAuthenticated) {
@@ -2002,4 +2295,8 @@ setInterval(() => {
 		&& Date.now() - lastStatisticsRefresh >= historyRefreshInterval(statisticsRange)) {
 		updateStatisticsTable()
 	}
+	const ftsHistoryTab = document.querySelector('.tab-panel[data-tab="fts-history"]')
+	if (ftsHistoryTab
+		&& ftsHistoryTab.classList.contains('active')
+		&& Date.now() - lastFtsHistoryRefresh >= 10000) loadFtsHistory()
 }, 3000)

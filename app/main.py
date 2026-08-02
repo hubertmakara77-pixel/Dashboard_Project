@@ -13,6 +13,8 @@ from app.api import auth as auth_routes
 from app.api import dashboard as dashboard_routes
 from app.api import diagnostics as service_routes
 from app.api import history as history_routes
+from app.api import fts_ls as fts_ls_routes
+from app.core import config
 from app.core import state
 from app.services import database as database_service
 from app.services import serial as serial_reader
@@ -73,6 +75,7 @@ app.include_router(auth_routes.router)
 app.include_router(dashboard_routes.router)
 app.include_router(history_routes.router)
 app.include_router(service_routes.router)
+app.include_router(fts_ls_routes.router)
 
 templates = fastapi.templating.Jinja2Templates(directory="templates")
 
@@ -92,5 +95,8 @@ def home(request: starlette.requests.Request):
     return templates.TemplateResponse(
         request=request,
         name="index.html",
-        context={"static_asset_version": STATIC_ASSET_VERSION},
+        context={
+            "static_asset_version": STATIC_ASSET_VERSION,
+            "device_profile": config.DEVICE_PROFILE,
+        },
     )

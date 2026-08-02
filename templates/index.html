@@ -6,7 +6,7 @@
     <title>Amp Panel</title>
     <link rel="stylesheet" href="/static/css/style.css?v={{ static_asset_version }}">
 </head>
-<body>
+<body data-device-profile="{{ device_profile }}">
     <div id="login-screen" class="login-screen">
         <form id="login-form" class="login-panel">
             <h1>Amp Panel</h1>
@@ -36,8 +36,9 @@
 
                 <div class="nav-group">
                     <span class="nav-group-title">Monitor</span>
-                    <button type="button" class="nav-link" data-tab="overview" data-title="Overview">Overview</button>
-                    <button type="button" class="nav-link" data-tab="statistics" data-title="Statistics">Statistics</button>
+                    <button type="button" class="nav-link profile-amplifier-only" data-tab="overview" data-title="Overview">Overview</button>
+                    <button type="button" class="nav-link profile-amplifier-only" data-tab="statistics" data-title="Statistics">Statistics</button>
+                    <button type="button" class="nav-link profile-fts-only" data-tab="fts-history" data-title="Station History">Station History</button>
                     <button type="button" class="nav-link" data-tab="warnings" data-title="Warnings">Warnings</button>
                 </div>
 
@@ -70,7 +71,7 @@
 
             <main class="content">
                 <section class="tab-panel active" data-tab="standard-view">
-                    <div class="standard-grid">
+                    <div class="standard-grid profile-amplifier-only">
                         <div class="amp-board">
                             <div class="amp-diagram" aria-label="Amplifier diagram">
                                 <svg class="amp-lines" viewBox="0 0 900 330" role="img">
@@ -131,10 +132,54 @@
                         </div>
 
                     </div>
+
+                    <div class="fts-station profile-fts-only" aria-label="FTS-LS modular laser station">
+                        <div class="fts-station-header">
+                            <div><span class="fts-eyebrow">Frequency Transfer System</span><h2>Laser Station · 1 × 7</h2></div>
+                            <div class="fts-power-summary">
+                                <span>Power A <strong id="fts-power-a" class="fts-state unknown">--</strong></span>
+                                <span>Power B <strong id="fts-power-b" class="fts-state unknown">--</strong></span>
+                            </div>
+                        </div>
+                        <div class="fts-fixed-rack">
+                            <article class="fts-module fts-laser-module">
+                                <div class="fts-module-title"><span class="fts-led unknown" id="fts-laser-led"></span><strong>Internal laser</strong></div>
+                                <dl class="fts-metrics">
+                                    <div><dt>State</dt><dd id="fts-laser-state">--</dd></div>
+                                    <div><dt>Frequency</dt><dd id="fts-laser-frequency">--</dd></div>
+                                    <div><dt>Wavelength</dt><dd id="fts-laser-wavelength">--</dd></div>
+                                    <div><dt>Scan centre</dt><dd id="fts-laser-centre">--</dd></div>
+                                    <div><dt>Scan span</dt><dd id="fts-laser-span">--</dd></div>
+                                </dl>
+                            </article>
+                            <article class="fts-module fts-aux-module">
+                                <div class="fts-module-title"><span class="fts-led unknown" id="fts-synth-led"></span><strong>10 MHz synthesizer</strong></div>
+                                <dl class="fts-metrics">
+                                    <div><dt>Status</dt><dd id="fts-synth-state">--</dd></div>
+                                    <div><dt>Reference</dt><dd id="fts-synth-reference">--</dd></div>
+                                    <div><dt>External 10 MHz</dt><dd id="fts-synth-external">--</dd></div>
+                                </dl>
+                            </article>
+                            <article class="fts-module fts-aux-module">
+                                <div class="fts-module-title"><span class="fts-led unknown" id="fts-tec-led"></span><strong>TEC heater</strong></div>
+                                <dl class="fts-metrics">
+                                    <div><dt>Status</dt><dd id="fts-tec-state">--</dd></div>
+                                    <div><dt>Set / read</dt><dd id="fts-tec-temperature">--</dd></div>
+                                    <div><dt>Heating power</dt><dd id="fts-tec-power">--</dd></div>
+                                </dl>
+                            </article>
+                        </div>
+                        <div class="fts-signal-bus" aria-hidden="true"><span>phase-stabilized optical carrier</span></div>
+                        <div id="fts-modules" class="fts-module-grid"></div>
+                        <div class="fts-live-footer">
+                            <span>Active alarms <strong id="fts-warning-count">0</strong></span>
+                            <a class="export-csv-button" href="/api/fts-ls/history/export.csv?range=24h">Export 24 h CSV</a>
+                        </div>
+                    </div>
                 </section>
 
                 <section class="tab-panel" data-tab="device-settings" data-operator-only>
-                    <div class="data-panel device-settings-panel">
+                    <div class="data-panel device-settings-panel profile-amplifier-only">
                         <div class="threshold-panel">
                             <div class="limit-list">
                                     <label class="limit-row limit-wide-row">
@@ -287,6 +332,34 @@
                     </div>
                 </section>
 
+                <section class="tab-panel profile-fts-only" data-tab="fts-history">
+                    <div class="data-panel">
+                        <div class="settings-header control-save-header">
+                            <div><h2>FTS-LS history</h2><p class="settings-description">Complete modular station snapshots stored in SQLite.</p></div>
+                            <div class="action-buttons">
+                                <select id="fts-history-range"><option value="1h">1 hour</option><option value="24h" selected>24 hours</option><option value="7d">7 days</option><option value="30d">30 days</option><option value="all">All</option></select>
+                                <button id="fts-history-refresh" type="button">Refresh</button>
+                                <a id="fts-history-export" class="export-csv-button" href="/api/fts-ls/history/export.csv?range=24h">Export CSV</a>
+                            </div>
+                        </div>
+                        <p class="charts-filter-hint"><span>Click a series name in the legend to show or hide it.</span><span id="fts-history-loading" class="loading-status" role="status"></span></p>
+                        <div class="charts-grid fts-history-charts">
+                            <div class="chart-card"><div class="chart-card-header"><h3>Optical input power</h3><button type="button" class="chart-expand-button" aria-label="Expand optical input power chart" title="Expand chart"></button></div><canvas id="fts-optical-power-chart"></canvas></div>
+                            <div class="chart-card"><div class="chart-card-header"><h3>Low-frequency noise</h3><button type="button" class="chart-expand-button" aria-label="Expand low-frequency noise chart" title="Expand chart"></button></div><canvas id="fts-lf-noise-chart"></canvas></div>
+                            <div class="chart-card"><div class="chart-card-header"><h3>High-frequency noise</h3><button type="button" class="chart-expand-button" aria-label="Expand high-frequency noise chart" title="Expand chart"></button></div><canvas id="fts-hf-noise-chart"></canvas></div>
+                            <div class="chart-card"><div class="chart-card-header"><h3>Downlink jitter</h3><button type="button" class="chart-expand-button" aria-label="Expand downlink jitter chart" title="Expand chart"></button></div><canvas id="fts-jitter-chart"></canvas></div>
+                            <div class="chart-card"><div class="chart-card-header"><h3>Laser frequency</h3><button type="button" class="chart-expand-button" aria-label="Expand laser frequency chart" title="Expand chart"></button></div><canvas id="fts-laser-frequency-chart"></canvas></div>
+                            <div class="chart-card"><div class="chart-card-header"><h3>TEC temperature</h3><button type="button" class="chart-expand-button" aria-label="Expand TEC temperature chart" title="Expand chart"></button></div><canvas id="fts-tec-chart"></canvas></div>
+                        </div>
+                        <div class="table-scroll">
+                            <table class="plain-table">
+                                <thead><tr><th>Time</th><th>Laser</th><th>Frequency</th><th>TEC</th><th>UL</th><th>P1–P7</th></tr></thead>
+                                <tbody id="fts-history-body"><tr><td colspan="6">No snapshots loaded</td></tr></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
                 <section class="tab-panel" data-tab="warnings">
                     <div class="data-panel warnings-panel">
                         <div class="table-header">
@@ -384,6 +457,74 @@
                             <button id="warning-previous-page" type="button">Previous</button>
                             <span id="warning-page-status">0–0 of 0</span>
                             <button id="warning-next-page" type="button">Next</button>
+                        </div>
+                    </div>
+
+                </section>
+
+                <section class="tab-panel profile-fts-only" data-tab="device-settings" data-operator-only>
+                    <div class="fts-settings">
+                        <div class="data-panel">
+                            <div class="settings-header"><h2>Laser</h2></div>
+                            <div class="fts-control-grid">
+                                <label class="form-field">Power<select id="fts-laser-power"><option value="true">On</option><option value="false">Off</option></select></label>
+                                <button type="button" data-fts-action="laser_power" data-fts-enabled-from="fts-laser-power">Apply power</button>
+                                <label class="form-field">Central frequency [GHz]<input id="fts-laser-frequency-input" type="number" min="194392.6" max="194405.6" step="0.1"></label>
+                                <button type="button" data-fts-action="laser_central_frequency" data-fts-value-from="fts-laser-frequency-input">Set frequency</button>
+                                <label class="form-field">Mode<select id="fts-laser-mode"><option value="normal">Normal lock</option><option value="central-frequency">Central frequency (service)</option></select></label>
+                                <button type="button" data-fts-action="laser_mode" data-fts-value-from="fts-laser-mode">Set mode</button>
+                                <label class="form-field">Scan span [MHz]<input id="fts-laser-span-input" type="number" min="100" max="10000" step="100"></label>
+                                <button type="button" data-fts-action="laser_frequency_span" data-fts-value-from="fts-laser-span-input">Set span</button>
+                                <button type="button" class="fts-wide-action" data-fts-action="laser_force_relock">Force one-time re-lock</button>
+                            </div>
+                            <p class="network-warning">Changing laser power, frequency, mode or forcing a re-lock can interrupt frequency transfer for several minutes.</p>
+                        </div>
+                        <div class="data-panel">
+                            <div class="settings-header"><h2>TEC and 10 MHz reference</h2></div>
+                            <div class="fts-control-grid">
+                                <label class="form-field">TEC power<select id="fts-tec-power-input"><option value="true">On</option><option value="false">Off</option></select></label>
+                                <button type="button" data-fts-action="tec_power" data-fts-enabled-from="fts-tec-power-input">Apply TEC power</button>
+                                <label class="form-field">TEC setpoint [&deg;C]<input id="fts-tec-temperature-input" type="number" min="0" max="100" step="0.1"></label>
+                                <button type="button" data-fts-action="tec_temperature" data-fts-value-from="fts-tec-temperature-input">Set temperature</button>
+                                <label class="form-field">External 10 MHz<select id="fts-reference-input"><option value="true">Allowed</option><option value="false">Not allowed</option></select></label>
+                                <button type="button" data-fts-action="external_reference" data-fts-enabled-from="fts-reference-input">Apply reference policy</button>
+                            </div>
+                        </div>
+                        <div class="data-panel">
+                            <div class="settings-header"><h2>Uplink / modular port</h2></div>
+                            <div class="fts-port-controls">
+                                <label class="form-field">Module<select id="fts-target"><option value="ul">UL</option><option value="port1">P1</option><option value="port2">P2</option><option value="port3">P3</option><option value="port4">P4</option><option value="port5">P5</option><option value="port6">P6</option><option value="port7">P7</option></select></label>
+                                <label class="form-field fts-port-wide">Description<input id="fts-description-input" maxlength="120"></label>
+                                <button type="button" data-fts-action="description" data-fts-target data-fts-value-from="fts-description-input">Save description</button>
+                                <label class="form-field">Optical output<select id="fts-optical-power-input"><option value="true">On</option><option value="false">Off</option></select></label>
+                                <button type="button" data-fts-action="optical_power" data-fts-target data-fts-enabled-from="fts-optical-power-input">Apply optical power</button>
+                                <label class="form-field">Equivalent distance [km]<input id="fts-distance-input" type="number" min="10" max="2000" step="1"></label>
+                                <button type="button" data-fts-action="downlink_distance" data-fts-target data-fts-value-from="fts-distance-input">Set distance</button>
+                                <label class="form-field">Additional NC gain [dB]<select id="fts-gain-input"><option value="0">0</option><option value="12">12</option><option value="24">24</option></select></label>
+                                <button type="button" data-fts-action="downlink_gain" data-fts-target data-fts-value-from="fts-gain-input">Set NC gain</button>
+                                <label class="form-field">Polarization control<select id="fts-pol-power-input"><option value="true">On</option><option value="false">Off</option></select></label>
+                                <button type="button" data-fts-action="polarization_control" data-fts-target data-fts-enabled-from="fts-pol-power-input">Apply polarization</button>
+                                <label class="form-field">Controller speed<select id="fts-pol-speed-input"><option value="fast">Fast</option><option value="slow">Slow</option></select></label>
+                                <button type="button" data-fts-action="polarization_speed" data-fts-target data-fts-value-from="fts-pol-speed-input">Set speed</button>
+                                <label class="form-field">Controller mode<select id="fts-pol-mode-input"><option value="continuous">Continuous</option><option value="triggered">Triggered</option></select></label>
+                                <button type="button" data-fts-action="polarization_mode" data-fts-target data-fts-value-from="fts-pol-mode-input">Set mode</button>
+                            </div>
+                            <p class="settings-description">Downlink-only controls are accepted for P1–P7. Polarization controls apply to UL and equipped Feedback Link ports.</p>
+                        </div>
+                        <div class="data-panel">
+                            <div class="settings-header"><h2>Device connectivity test</h2></div>
+                            <div class="fts-control-grid">
+                                <label class="form-field">IP address or DNS name<input id="fts-ping-input" placeholder="192.0.2.1"></label>
+                                <button type="button" data-fts-action="ping" data-fts-value-from="fts-ping-input">Ping from FTS-LS</button>
+                            </div>
+                        </div>
+                        <div class="data-panel" data-admin-only>
+                            <div class="settings-header"><h2>Station actions</h2></div>
+                            <div class="action-buttons">
+                                <button type="button" data-fts-action="reboot">Reboot management system</button>
+                                <button type="button" data-fts-action="power_reset">Reset complete station</button>
+                                <button type="button" data-fts-action="factory_default">Restore optical defaults</button>
+                            </div>
                         </div>
                     </div>
                 </section>

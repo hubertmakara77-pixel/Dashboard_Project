@@ -1,0 +1,195 @@
+import csv
+import io
+
+import fastapi
+import pydantic
+import starlette.requests
+import starlette.responses
+
+from app.api import security as api_security
+from app.core import config, state
+from app.services import database as database_service
+from app.services import fts_ls
+
+
+router = fastapi.APIRouter(prefix="/api/fts-ls")
+
+TRANSFER_AFFECTING_ACTIONS = {
+    "power_reset",
+    "factory_default",
+    "laser_power",
+    "laser_central_frequency",
+    "laser_mode",
+    "laser_force_relock",
+    "optical_power",
+}
+ADMIN_ONLY_ACTIONS = {"reboot", "power_reset", "factory_default"}
+RANGES = {"5m", "1h", "24h", "7d", "30d", "all"}
+
+
+class DeviceCommandRequest(pydantic.BaseModel):
+    action: str
+    parameters: dict = pydantic.Field(default_factory=dict)
+    confirmed: bool = False
+
+
+def require_profile() -> None:
+    if config.DEVICE_PROFILE != "fts-ls":
+        raise fastapi.HTTPException(
+            status_code=409,
+            detail="The FTS-LS API is unavailable for the amplifier profile.",
+        )
+
+
+@router.get("/capabilities")
+def capabilities(
+    _current_user: dict = fastapi.Depends(
+        api_security.require_roles("Administrator", "Operator", "Viewer")
+    ),
+):
+    require_profile()
+    return {
+        "profile": "fts-ls",
+        "model": "Frequency Transfer System - Laser Station",
+        "ports": 7,
+        "module_types": ["Downlink", "Feedback Link", "Beat Detector", "Unequipped"],
+        "controls": [
+            "laser_power", "laser_central_frequency", "laser_mode",
+            "laser_frequency_span", "laser_force_relock", "tec_power",
+            "tec_temperature", "external_reference", "description",
+            "optical_power", "downlink_distance", "downlink_gain",
+            "polarization_control", "polarization_speed",
+            "polarization_mode", "ping", "reboot", "power_reset",
+            "factory_default",
+        ],
+        "ranges": {
+            "laser_central_frequency_ghz": [
+                config.FTS_LS_FREQUENCY_MIN_GHZ,
+                config.FTS_LS_FREQUENCY_MAX_GHZ,
+            ],
+            "laser_frequency_span_mhz": [100, 10000],
+            "downlink_distance_km": [10, 2000],
+            "additional_nc_gain_db": [0, 12, 24],
+        },
+    }
+
+
+@router.get("/status")
+def get_status(
+    _current_user: dict = fastapi.Depends(
+        api_security.require_roles("Administrator", "Operator", "Viewer")
+    ),
+):
+    require_profile()
+    with state.state_lock:
+        return {
+            "connected": state.serial_connected,
+            "error": state.serial_error,
+            "last_update": state.last_update,
+            "status": state.fts_ls_status,
+        }
+
+
+@router.post("/command")
+def command(
+    body: DeviceCommandRequest,
+    request: starlette.requests.Request,
+    current_user: dict = fastapi.Depends(
+        api_security.require_roles("Administrator", "Operator")
+    ),
+):
+    require_profile()
+    action = body.action.strip().lower().replace("-", "_")
+    if action in ADMIN_ONLY_ACTIONS and current_user["role"] != "Administrator":
+        raise fastapi.HTTPException(status_code=403, detail="Administrator access required.")
+    if action in TRANSFER_AFFECTING_ACTIONS and not body.confirmed:
+        raise fastapi.HTTPException(
+            status_code=409,
+            detail="This operation can interrupt frequency transfer and requires confirmation.",
+        )
+    try:
+        result = fts_ls.submit_action(action, body.parameters)
+    except ValueError as exc:
+        raise fastapi.HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise fastapi.HTTPException(status_code=503, detail=str(exc)) from exc
+    api_security.audit_event(
+        request,
+        f"fts_ls_{action}",
+        current_user["username"],
+        api_security.audit_changes({}, body.parameters),
+    )
+    return result
+
+
+def _history(range_value: str, start: str, end: str, limit: int) -> list[dict]:
+    if range_value not in RANGES:
+        raise fastapi.HTTPException(status_code=400, detail="Invalid history range.")
+    points = database_service.query_device_snapshots(
+        "fts-ls", range_value, start or None, end or None, limit
+    )
+    if points is None:
+        raise fastapi.HTTPException(status_code=503, detail="History database is unavailable.")
+    return points
+
+
+@router.get("/history")
+def history(
+    range_value: str = fastapi.Query(default="24h", alias="range"),
+    start: str = "",
+    end: str = "",
+    limit: int = fastapi.Query(default=2000, ge=1, le=10000),
+    _current_user: dict = fastapi.Depends(
+        api_security.require_roles("Administrator", "Operator", "Viewer")
+    ),
+):
+    require_profile()
+    return {"profile": "fts-ls", "points": _history(range_value, start, end, limit)}
+
+
+def _flatten(point: dict) -> dict:
+    snapshot = point["snapshot"]
+    row = {"time": point["time"]}
+    for key, value in snapshot.get("laser", {}).items():
+        if not isinstance(value, (dict, list)):
+            row[f"laser_{key}"] = value
+    for key, value in snapshot.get("tec", {}).items():
+        if not isinstance(value, (dict, list)):
+            row[f"tec_{key}"] = value
+    for key, value in snapshot.get("synth", {}).items():
+        if not isinstance(value, (dict, list)):
+            row[f"synth_{key}"] = value
+    for module in [snapshot.get("uplink", {}), *snapshot.get("ports", [])]:
+        prefix = str(module.get("name", "module")).lower()
+        for key, value in module.items():
+            if key != "connectors" and not isinstance(value, (dict, list)):
+                row[f"{prefix}_{key}"] = value
+    return row
+
+
+@router.get("/history/export.csv")
+def export_history(
+    range_value: str = fastapi.Query(default="24h", alias="range"),
+    start: str = "",
+    end: str = "",
+    limit: int = fastapi.Query(default=10000, ge=1, le=10000),
+    _current_user: dict = fastapi.Depends(
+        api_security.require_roles("Administrator", "Operator", "Viewer")
+    ),
+):
+    require_profile()
+    rows = [_flatten(point) for point in _history(range_value, start, end, limit)]
+    fieldnames = ["time"]
+    for row in rows:
+        for key in row:
+            if key not in fieldnames:
+                fieldnames.append(key)
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(rows)
+    return starlette.responses.Response(
+        output.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=fts-ls-history.csv"},
+    )

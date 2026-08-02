@@ -6,6 +6,7 @@ import pathlib
 import shutil
 import sqlite3
 import threading
+from typing import Any
 
 from app.core import config, state
 from app.services import syslog as syslog_service
@@ -137,6 +138,46 @@ def _create_schema(opened_connection: sqlite3.Connection) -> None:
             sample_count INTEGER NOT NULL,
             statistics_json TEXT NOT NULL
         )
+        """
+    )
+    opened_connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS device_snapshots (
+            id INTEGER PRIMARY KEY,
+            timestamp_ms INTEGER NOT NULL,
+            profile TEXT NOT NULL,
+            snapshot_json TEXT NOT NULL
+        )
+        """
+    )
+    opened_connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_device_snapshots_timestamp "
+        "ON device_snapshots (timestamp_ms)"
+    )
+    opened_connection.execute(
+        """
+        INSERT OR IGNORE INTO database_metadata (key, value)
+        VALUES ('device_snapshot_count', (SELECT COUNT(*) FROM device_snapshots))
+        """
+    )
+    opened_connection.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS device_snapshots_count_after_insert
+        AFTER INSERT ON device_snapshots
+        BEGIN
+            UPDATE database_metadata SET value = value + 1
+            WHERE key = 'device_snapshot_count';
+        END
+        """
+    )
+    opened_connection.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS device_snapshots_count_after_delete
+        AFTER DELETE ON device_snapshots
+        BEGIN
+            UPDATE database_metadata SET value = value - 1
+            WHERE key = 'device_snapshot_count';
+        END
         """
     )
 
@@ -344,7 +385,7 @@ def init_database() -> None:
                 if schema_version < 4:
                     opened_connection.execute("DELETE FROM hourly_statistics")
                     _backfill_hourly_statistics(opened_connection)
-                opened_connection.execute("PRAGMA user_version=4")
+                opened_connection.execute("PRAGMA user_version=5")
             connection = opened_connection
             last_error = None
         except (OSError, sqlite3.Error) as error:
@@ -397,6 +438,23 @@ def _prune_to_limit(max_records: int) -> int:
                 "DELETE FROM hourly_statistics WHERE bucket_ms <= ?",
                 (first_bucket_ms,),
             )
+        discarded_records += records_to_remove
+    return records_to_remove
+
+
+def _prune_device_snapshots(max_records: int, profile: str) -> int:
+    global discarded_records
+    row_count = connection.execute(
+        "SELECT COUNT(*) FROM device_snapshots WHERE profile = ?", (profile,)
+    ).fetchone()[0]
+    records_to_remove = max(0, int(row_count) - max_records)
+    if records_to_remove:
+        connection.execute(
+            "DELETE FROM device_snapshots WHERE id IN ("
+            "SELECT id FROM device_snapshots WHERE profile = ? "
+            "ORDER BY id ASC LIMIT ?)",
+            (profile, records_to_remove),
+        )
         discarded_records += records_to_remove
     return records_to_remove
 
@@ -484,6 +542,40 @@ def write_setpoint(gain_set: float, timestamp: str | None = None) -> bool:
             return False
 
 
+def write_device_snapshot(
+    profile: str,
+    snapshot: dict,
+    timestamp: str | None = None,
+) -> bool:
+    global last_error
+    try:
+        timestamp_value = _timestamp_ms(timestamp)
+        payload = json.dumps(snapshot, separators=(",", ":"), allow_nan=False)
+    except (TypeError, ValueError) as error:
+        _set_error("device snapshot serialization", error)
+        return False
+    init_database()
+    if connection is None:
+        return False
+    max_records = max(0, int(state.service_settings["database_max_records"]))
+    with database_lock:
+        try:
+            connection.execute(
+                "INSERT INTO device_snapshots (timestamp_ms, profile, snapshot_json) "
+                "VALUES (?, ?, ?)",
+                (timestamp_value, profile, payload),
+            )
+            if max_records:
+                _prune_device_snapshots(max_records, profile)
+            connection.commit()
+            last_error = None
+            return True
+        except (OSError, sqlite3.Error) as error:
+            connection.rollback()
+            _set_error("device snapshot write", error)
+            return False
+
+
 def get_record_count() -> int:
     init_database()
     if connection is None:
@@ -498,6 +590,26 @@ def get_record_count() -> int:
             return 0
 
 
+def get_device_snapshot_count(profile: str | None = None) -> int:
+    init_database()
+    if connection is None:
+        return 0
+    with database_lock:
+        try:
+            if profile:
+                return int(connection.execute(
+                    "SELECT COUNT(*) FROM device_snapshots WHERE profile = ?",
+                    (profile,),
+                ).fetchone()[0])
+            return int(connection.execute(
+                "SELECT value FROM database_metadata "
+                "WHERE key = 'device_snapshot_count'"
+            ).fetchone()[0])
+        except sqlite3.Error as error:
+            _set_error("device snapshot status", error)
+            return 0
+
+
 def apply_record_limit() -> int:
     init_database()
     if connection is None:
@@ -505,7 +617,10 @@ def apply_record_limit() -> int:
     with database_lock:
         try:
             max_records = max(0, int(state.service_settings["database_max_records"]))
-            removed = _prune_to_limit(max_records) if max_records else 0
+            if max_records and config.DEVICE_PROFILE == "fts-ls":
+                removed = _prune_device_snapshots(max_records, "fts-ls")
+            else:
+                removed = _prune_to_limit(max_records) if max_records else 0
             connection.commit()
             return removed
         except sqlite3.Error as error:
@@ -533,17 +648,24 @@ def get_storage_status() -> dict:
     if connection is not None:
         with database_lock:
             try:
+                source_table = (
+                    "device_snapshots" if config.DEVICE_PROFILE == "fts-ls" else "samples"
+                )
+                source_filter = "WHERE profile = 'fts-ls'" if source_table == "device_snapshots" else ""
                 latest_timestamp = connection.execute(
-                    "SELECT MAX(timestamp_ms) FROM samples"
+                    f"SELECT MAX(timestamp_ms) FROM {source_table} {source_filter}"
                 ).fetchone()[0]
                 if latest_timestamp is not None:
+                    recent_filter = (
+                        "profile = 'fts-ls' AND " if source_table == "device_snapshots" else ""
+                    )
                     recent = connection.execute(
-                        """
+                        f"""
                         SELECT COUNT(*) AS sample_count,
                                MIN(timestamp_ms) AS first_ms,
                                MAX(timestamp_ms) AS last_ms
-                        FROM samples
-                        WHERE timestamp_ms >= ?
+                        FROM {source_table}
+                        WHERE {recent_filter}timestamp_ms >= ?
                         """,
                         (int(latest_timestamp) - HOUR_MS,),
                     ).fetchone()
@@ -560,7 +682,11 @@ def get_storage_status() -> dict:
                 _set_error("storage estimate", error)
 
     record_limit = max(0, int(state.service_settings["database_max_records"]))
-    records = get_record_count()
+    records = (
+        get_device_snapshot_count("fts-ls")
+        if config.DEVICE_PROFILE == "fts-ls"
+        else get_record_count()
+    )
     estimated_retention_seconds = None
     estimated_seconds_to_limit = None
     estimated_seconds_until_disk_full = None
@@ -588,12 +714,87 @@ def get_storage_status() -> dict:
 
 def get_runtime_status() -> dict:
     init_database()
+    records = (
+        get_device_snapshot_count(config.DEVICE_PROFILE)
+        if config.DEVICE_PROFILE == "fts-ls"
+        else get_record_count()
+    )
     return {
         "state": "ready" if connection is not None else "error",
         "ready": connection is not None,
-        "records": get_record_count() if connection is not None else 0,
+        "records": records if connection is not None else 0,
         "error": last_error,
     }
+
+
+def query_device_snapshots(
+    profile: str,
+    range_value: str,
+    start: str | None = None,
+    end: str | None = None,
+    limit: int = 2000,
+) -> list[dict] | None:
+    init_database()
+    if connection is None:
+        return None
+    try:
+        start_ms = _parse_boundary(start)
+        if start_ms is None:
+            range_start = _range_start(range_value)
+            start_ms = round(range_start.timestamp() * 1000) if range_start else None
+        end_ms = _parse_boundary(end)
+        clauses = ["profile = ?"]
+        parameters: list[Any] = [profile]
+        if start_ms is not None:
+            clauses.append("timestamp_ms >= ?")
+            parameters.append(start_ms)
+        if end_ms is not None:
+            clauses.append("timestamp_ms <= ?")
+            parameters.append(end_ms)
+        point_limit = max(1, min(int(limit), 10_000))
+        where_clause = " AND ".join(clauses)
+        with database_lock:
+            if point_limit == 1:
+                rows = connection.execute(
+                    "SELECT timestamp_ms, snapshot_json FROM device_snapshots "
+                    f"WHERE {where_clause} "
+                    "ORDER BY timestamp_ms DESC, id DESC LIMIT 1",
+                    parameters,
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    f"""
+                    WITH ordered AS (
+                        SELECT timestamp_ms,
+                               snapshot_json,
+                               ROW_NUMBER() OVER (ORDER BY timestamp_ms ASC, id ASC) AS row_nr,
+                               COUNT(*) OVER () AS total_rows
+                        FROM device_snapshots
+                        WHERE {where_clause}
+                    )
+                    SELECT timestamp_ms, snapshot_json
+                    FROM ordered
+                    WHERE (row_nr - 1) % MAX(
+                        1, (total_rows - 1 + ?) / ?
+                    ) = 0
+                       OR row_nr = total_rows
+                    ORDER BY row_nr ASC
+                    LIMIT ?
+                    """,
+                    [*parameters, point_limit - 2, point_limit - 1, point_limit],
+                ).fetchall()
+        return [
+            {
+                "time": datetime.datetime.fromtimestamp(
+                    row["timestamp_ms"] / 1000, datetime.timezone.utc
+                ).isoformat(),
+                "snapshot": json.loads(row["snapshot_json"]),
+            }
+            for row in rows
+        ]
+    except (TypeError, ValueError, json.JSONDecodeError, sqlite3.Error) as error:
+        _set_error("device snapshot query", error)
+        return None
 
 
 def _range_start(range_value: str) -> datetime.datetime | None:
