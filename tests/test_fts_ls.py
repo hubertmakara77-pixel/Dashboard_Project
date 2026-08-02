@@ -68,7 +68,9 @@ UNEQUIPPED
         result = fts_ls.parse_show_status(output, state.empty_fts_ls_status())
 
         self.assertEqual(result["uplink"]["optical_power"], -52)
+        self.assertEqual(result["uplink"]["connectors"], ["O", "BN", "BNA"])
         self.assertEqual(result["ports"][0]["type"], "Downlink")
+        self.assertEqual(result["ports"][0]["connectors"], ["O", "BN", "TR"])
         self.assertEqual(result["ports"][0]["jitter"], 8)
         self.assertEqual(result["ports"][2]["state"], "UNLOCKED")
         self.assertEqual(result["ports"][4]["connectors"], [])

@@ -165,6 +165,16 @@ function displayValue(value, unit = '') {
 	return `${value}${unit}`
 }
 
+function displayMeasurement(value, unit) {
+	if (value === null || value === undefined || value === '') return '--'
+	if (typeof value === 'boolean') return value ? 'ON' : 'OFF'
+	const raw = String(value).trim()
+	if (!raw || raw === '-' || raw === '--') return '--'
+	const numeric = raw.match(/^[-+]?\d+(?:[.,]\d+)?/)
+	if (!numeric) return raw
+	return `${numeric[0].replace(',', '.')} ${unit}`
+}
+
 function ftsStateClass(value) {
 	const normalized = String(value ?? 'unknown').trim().toLowerCase()
 	if (['locked', 'on', 'ok', 'true', 'present', 'allowed'].includes(normalized)) return normalized === 'true' ? 'on' : normalized
@@ -200,10 +210,15 @@ function ftsConnectorLabel(connector) {
 	const labels = {
 		O: 'Optical',
 		BN: 'Beat note',
-		BN_A: 'Auxiliary beat note',
-		TR: 'Round-trip',
+		BNA: 'Amplified beat note',
+		BN_A: 'Amplified beat note',
+		TR: 'Tracking oscillator output',
 	}
 	return labels[connector] || connector
+}
+
+function ftsConnectorCode(connector) {
+	return connector === 'BN_A' ? 'BNA' : connector
 }
 
 function renderFtsModule(module, index, uplink = false) {
@@ -215,15 +230,15 @@ function renderFtsModule(module, index, uplink = false) {
 	const slotLabel = uplink ? 'UPLINK' : `SLOT ${index + 1}`
 	const metrics = []
 	if (!unequipped) {
-		metrics.push(ftsMetric('Optical input', firstValue(module, ['optical_power_display', 'optical_power']), module.optical_power_display ? '' : ' dBm'))
+		metrics.push(ftsMetric('Optical input', displayMeasurement(firstValue(module, ['optical_power_display', 'optical_power']), 'dBm')))
 		metrics.push(ftsMetric('LF / HF noise', `${displayValue(firstValue(module, ['noise_lf']))} / ${displayValue(firstValue(module, ['noise_hf']))}`))
-		if (firstValue(module, ['jitter']) !== null) metrics.push(ftsMetric('Jitter', firstValue(module, ['jitter']), ' %'))
-		if (firstValue(module, ['distance_km', 'equivalent_distance']) !== null) metrics.push(ftsMetric('Equivalent distance', firstValue(module, ['distance_km', 'equivalent_distance']), ' km'))
+		if (firstValue(module, ['jitter']) !== null) metrics.push(ftsMetric('Jitter', displayMeasurement(firstValue(module, ['jitter']), '%')))
+		if (firstValue(module, ['distance_km', 'equivalent_distance']) !== null) metrics.push(ftsMetric('Equivalent distance', displayMeasurement(firstValue(module, ['distance_km', 'equivalent_distance']), 'km')))
 	}
 	const connectors = (module.connectors || []).map(connector => `
 		<span class="fts-connector" title="${escapeHtml(ftsConnectorLabel(connector))}">
 			<span class="fts-connector-socket" aria-hidden="true"></span>
-			<span>${escapeHtml(connector)}</span>
+			<span>${escapeHtml(ftsConnectorCode(connector))}</span>
 		</span>`).join('')
 	return `
 		<article class="fts-module fts-pluggable-module ${stateClass} ${unequipped ? 'unequipped' : ''}" data-fts-module-target="${escapeHtml(target)}"${unequipped ? '' : ' tabindex="0"'}>
@@ -268,10 +283,10 @@ function renderFtsStatus(status) {
 	const tec = status.tec || {}
 	const laserState = firstValue(laser, ['state', 'status'], '--')
 	setTextIfExists('fts-laser-state', displayValue(laserState))
-	setTextIfExists('fts-laser-frequency', displayValue(firstValue(laser, ['optical_frequency', 'frequency', 'current_frequency']), ' GHz'))
-	setTextIfExists('fts-laser-wavelength', displayValue(firstValue(laser, ['optical_wavelength', 'wavelength']), ' nm'))
-	setTextIfExists('fts-laser-centre', displayValue(firstValue(laser, ['central_frequency_set', 'central_frequency']), ' GHz'))
-	setTextIfExists('fts-laser-span', displayValue(firstValue(laser, ['scanning_frequency_span_set', 'frequency_span']), ' MHz'))
+	setTextIfExists('fts-laser-frequency', displayMeasurement(firstValue(laser, ['optical_frequency', 'frequency', 'current_frequency']), 'GHz'))
+	setTextIfExists('fts-laser-wavelength', displayMeasurement(firstValue(laser, ['optical_wavelength', 'wavelength']), 'nm'))
+	setTextIfExists('fts-laser-centre', displayMeasurement(firstValue(laser, ['central_frequency_set', 'central_frequency']), 'GHz'))
+	setTextIfExists('fts-laser-span', displayMeasurement(firstValue(laser, ['scanning_frequency_span_set', 'frequency_span']), 'MHz'))
 	const laserLed = document.getElementById('fts-laser-led')
 	if (laserLed) laserLed.className = `fts-led ${ftsStateClass(laserState)}`
 
@@ -284,8 +299,8 @@ function renderFtsStatus(status) {
 
 	const tecState = firstValue(tec, ['status', 'state'], '--')
 	setTextIfExists('fts-tec-state', displayValue(tecState))
-	setTextIfExists('fts-tec-temperature', `${displayValue(firstValue(tec, ['temperature_set_c', 'temperature_set']))} / ${displayValue(firstValue(tec, ['temperature_read_c', 'temperature_read']))} °C`)
-	setTextIfExists('fts-tec-power', displayValue(firstValue(tec, ['power_usage_percent', 'power_usage']), ' %'))
+	setTextIfExists('fts-tec-temperature', `${displayMeasurement(firstValue(tec, ['temperature_set_c', 'temperature_set']), '°C')} / ${displayMeasurement(firstValue(tec, ['temperature_read_c', 'temperature_read']), '°C')}`)
+	setTextIfExists('fts-tec-power', displayMeasurement(firstValue(tec, ['power_usage_percent', 'power_usage']), '%'))
 	const tecLed = document.getElementById('fts-tec-led')
 	if (tecLed) tecLed.className = `fts-led ${ftsStateClass(tecState)}`
 
@@ -296,17 +311,19 @@ function renderFtsStatus(status) {
 		...(status.uplink ? [{ module: status.uplink, index: 0, uplink: true }] : []),
 		...(status.ports || []).map((module, index) => ({ module, index, uplink: false })),
 	]
-	const equipped = inventory.filter(item => ftsModuleIsEquipped(item.module))
-	const slotCount = inventory.filter(item => !item.uplink).length
+	const portPositions = inventory.filter(item => !item.uplink)
+	const equippedPorts = portPositions.filter(item => ftsModuleIsEquipped(item.module))
+	const uplinkEquipped = inventory.some(item => item.uplink && ftsModuleIsEquipped(item.module))
+	const slotCount = portPositions.length
 	const modules = document.getElementById('fts-modules')
 	if (modules) {
 		modules.innerHTML = inventory.length
 			? inventory.map(item => renderFtsModule(item.module, item.index, item.uplink)).join('')
 			: '<p class="fts-empty-rack">No optical modules were reported by the station.</p>'
 	}
-	setTextIfExists('fts-equipped-count', `${equipped.length} equipped`)
-	setTextIfExists('fts-rack-summary', `${equipped.length} active module${equipped.length === 1 ? '' : 's'} detected across ${slotCount} configurable slot${slotCount === 1 ? '' : 's'}.`)
-	setTextIfExists('fts-module-inventory', inventory.length ? `${equipped.length} of ${inventory.length} modules equipped` : 'No module inventory received')
+	setTextIfExists('fts-equipped-count', `${equippedPorts.length} / ${slotCount} positions equipped`)
+	setTextIfExists('fts-rack-summary', `${equippedPorts.length} of ${slotCount} configurable port positions equipped; uplink ${uplinkEquipped ? 'present' : 'unavailable'}.`)
+	setTextIfExists('fts-module-inventory', inventory.length ? `UL + ${equippedPorts.length} of ${slotCount} modular ports equipped` : 'No module inventory received')
 	syncFtsModuleTargets(inventory)
 	highlightSelectedFtsModule()
 	updateFtsSettingsForms()
@@ -2127,6 +2144,7 @@ function setupAuth() {
 
 let ftsFormTarget = null
 const ftsDirtyInputs = new Set()
+const ftsInputBaselines = new Map()
 
 function selectedFtsModule() {
 	const target = document.getElementById('fts-target')?.value || 'ul'
@@ -2143,6 +2161,8 @@ function setFtsInputValue(id, value, force = false) {
 	else if (value === true) input.value = 'true'
 	else if (value === false) input.value = 'false'
 	else input.value = value ?? ''
+	ftsInputBaselines.set(id, input.value)
+	if (force) ftsDirtyInputs.delete(id)
 }
 
 function updateFtsFormState(form) {
@@ -2270,6 +2290,7 @@ async function saveFtsSettings(form) {
 			if (input.dataset.ftsValueKind === 'enabled') parameters.enabled = input.value === 'true'
 			else parameters.value = input.value
 			await postFtsAction(input.dataset.ftsSettingAction, parameters, transferAffecting)
+			ftsInputBaselines.set(input.id, input.value)
 			ftsDirtyInputs.delete(input.id)
 			completed += 1
 		}
@@ -2289,9 +2310,11 @@ function setupFtsControls() {
 		updateFtsFormState(form)
 		form.querySelectorAll('[data-fts-setting-action]').forEach(input => {
 			const markDirty = () => {
-				ftsDirtyInputs.add(input.id)
+				if (input.value === ftsInputBaselines.get(input.id)) ftsDirtyInputs.delete(input.id)
+				else ftsDirtyInputs.add(input.id)
 				updateFtsFormState(form)
 			}
+			ftsInputBaselines.set(input.id, input.value)
 			input.addEventListener('input', markDirty)
 			input.addEventListener('change', markDirty)
 		})

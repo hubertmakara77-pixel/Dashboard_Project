@@ -43,7 +43,7 @@ def empty_fts_ls_status() -> dict:
             "name": "UL",
             "type": "Uplink",
             "state": "UNKNOWN",
-            "connectors": ["O", "BN", "BN_A"],
+            "connectors": ["O", "BN", "BNA"],
         },
         "ports": [
             {

@@ -192,7 +192,7 @@ def _connectors(module_type: str) -> list[str]:
     if "unequipped" in lowered:
         return []
     if "uplink" in lowered:
-        return ["O", "BN", "BN_A"]
+        return ["O", "BN", "BNA"]
     return ["O", "BN", "TR"]
 
 

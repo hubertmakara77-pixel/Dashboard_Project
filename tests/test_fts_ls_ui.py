@@ -62,6 +62,23 @@ class FtsLsUiTests(unittest.TestCase):
         self.assertIn('class="service-diagnostics-list"', template)
         self.assertNotIn('class="service-diagnostics-grid"', template)
 
+    def test_front_panel_uses_manual_connector_names_and_normalized_units(self):
+        template = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "static" / "js" / "dashboard.js").read_text(encoding="utf-8")
+
+        self.assertIn("FTS-LS front panel", template)
+        self.assertNotIn("Optical module rack", template)
+        self.assertIn("function displayMeasurement", script)
+        self.assertIn("connector === 'BN_A' ? 'BNA'", script)
+        self.assertIn("displayMeasurement(firstValue(module, ['jitter']), '%')", script)
+        self.assertIn("displayMeasurement(firstValue(module, ['optical_power_display', 'optical_power']), 'dBm')", script)
+
+    def test_dirty_state_is_based_on_a_loaded_value_baseline(self):
+        script = (ROOT / "static" / "js" / "dashboard.js").read_text(encoding="utf-8")
+
+        self.assertIn("const ftsInputBaselines = new Map()", script)
+        self.assertIn("input.value === ftsInputBaselines.get(input.id)", script)
+
 
 if __name__ == "__main__":
     unittest.main()
