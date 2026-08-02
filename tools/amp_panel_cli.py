@@ -36,7 +36,7 @@ except ImportError:  # pragma: no cover - available on the Debian target
 
 PRODUCT_NAME = "Amp Panel"
 PACKAGE_NAME = "amp-panel"
-VERSION = "1.0.2"
+VERSION = "1.1.1"
 EXIT_NOT_CONFIGURED = 2
 
 ETC_DIR = pathlib.Path(os.getenv("AMP_PANEL_ETC_DIR", "/etc/amp-panel"))
@@ -150,6 +150,7 @@ def _run(
     *,
     check: bool = False,
     capture: bool = False,
+    timeout: float | None = None,
 ) -> subprocess.CompletedProcess:
     environment = None
     if command and command[0] in {"systemctl", "journalctl"}:
@@ -161,13 +162,25 @@ def _run(
                 "PAGER": "cat",
             }
         )
-    return subprocess.run(
-        command,
-        check=check,
-        text=True,
-        capture_output=capture,
-        env=environment,
-    )
+    try:
+        return subprocess.run(
+            command,
+            check=check,
+            text=True,
+            capture_output=capture,
+            env=environment,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        duration = f"{timeout:g}" if timeout is not None else "unknown"
+        raise ConfigurationError(
+            f"Command did not finish within {duration} seconds: "
+            f"{' '.join(command)}"
+        ) from exc
+
+
+def _configuration_progress(message: str) -> None:
+    print(f"[amp-panel] {message}", flush=True)
 
 
 def _command_exists(command: str) -> bool:
@@ -886,14 +899,18 @@ def write_system_configuration(values: dict[str, str]) -> None:
 def _service_exists(service: str) -> bool:
     if not _command_exists("systemctl"):
         return False
-    result = _run(["systemctl", "show", service, "--property=LoadState", "--value"], capture=True)
+    result = _run(
+        ["systemctl", "show", service, "--property=LoadState", "--value"],
+        capture=True,
+        timeout=15,
+    )
     return result.returncode == 0 and result.stdout.strip() not in {"", "not-found"}
 
 
 def _service_is_active(service: str) -> bool:
     if not _service_exists(service):
         return False
-    result = _run(["systemctl", "is-active", service], capture=True)
+    result = _run(["systemctl", "is-active", service], capture=True, timeout=15)
     return result.returncode == 0 and result.stdout.strip() == "active"
 
 
@@ -1132,7 +1149,11 @@ def apply_hostname(values: dict[str, str]) -> None:
     current = socket.gethostname().split(".", 1)[0].lower()
     if current == requested:
         return
-    result = _run(["hostnamectl", "set-hostname", requested], capture=True)
+    result = _run(
+        ["hostnamectl", "set-hostname", requested],
+        capture=True,
+        timeout=15,
+    )
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip()
         raise ConfigurationError(
@@ -1144,23 +1165,31 @@ def reload_services(*, start: bool) -> None:
     if not _command_exists("systemctl"):
         return
     if _command_exists("rsyslogd"):
-        validation = _run(["rsyslogd", "-N1"], capture=True)
+        _configuration_progress("Validating the syslog configuration...")
+        validation = _run(["rsyslogd", "-N1"], capture=True, timeout=15)
         if validation.returncode != 0:
             detail = validation.stderr.strip() or validation.stdout.strip()
             raise ConfigurationError(f"rsyslog configuration is invalid: {detail}")
-    daemon_reload = _run(["systemctl", "daemon-reload"], capture=True)
+    _configuration_progress("Reloading systemd configuration...")
+    daemon_reload = _run(
+        ["systemctl", "daemon-reload"], capture=True, timeout=30
+    )
     if daemon_reload.returncode != 0:
         detail = daemon_reload.stderr.strip() or daemon_reload.stdout.strip()
         raise ConfigurationError(f"systemd daemon-reload failed: {detail}")
     for service in ("rsyslog.service", "avahi-daemon.service", "systemd-timesyncd.service"):
         if _service_exists(service):
-            restarted = _run(["systemctl", "restart", service], capture=True)
+            _configuration_progress(f"Restarting {service}...")
+            restarted = _run(
+                ["systemctl", "restart", service], capture=True, timeout=30
+            )
             if restarted.returncode != 0:
                 detail = restarted.stderr.strip() or restarted.stdout.strip()
                 raise ConfigurationError(
                     f"Could not restart {service}: {detail}"
                 )
     if start:
+        _configuration_progress("Enabling Amp Panel services...")
         enabled = _run(
             [
                 "systemctl",
@@ -1169,15 +1198,18 @@ def reload_services(*, start: bool) -> None:
                 CURRENT_SERVICE,
             ],
             capture=True,
+            timeout=30,
         )
         if enabled.returncode != 0:
             detail = enabled.stderr.strip() or enabled.stdout.strip()
             raise ConfigurationError(
                 f"Could not enable Amp Panel services: {detail}"
             )
+        _configuration_progress("Restarting Amp Panel services...")
         restart = _run(
             ["systemctl", "restart", NETWORK_AGENT_SERVICE, CURRENT_SERVICE],
             capture=True,
+            timeout=30,
         )
         if restart.returncode != 0:
             detail = restart.stderr.strip() or restart.stdout.strip()
@@ -1251,23 +1283,30 @@ def configure_command(args: argparse.Namespace) -> int:
             values["MDNS_HOSTNAME"] = args.mdns_hostname.lower()
         if not args.non_interactive:
             values = interactive_configuration(values)
+        _configuration_progress("Validating settings...")
         validate_configuration(values)
+        _configuration_progress("Checking for an earlier installation...")
         legacy_state = stop_legacy_installation(
             source,
             pathlib.Path(values["AMP_PANEL_DATA_DIR"]),
         )
+        _configuration_progress("Preparing the measurement data directory...")
         migrate_legacy_data(values)
         prepare_data_directory(values)
+        _configuration_progress("Applying the device hostname...")
         apply_hostname(values)
+        _configuration_progress("Writing configuration files...")
         write_env_file(CONFIG_FILE, values)
         write_system_configuration(values)
         _copy_legacy_log()
+        _configuration_progress("Applying system services...")
         reload_services(start=not args.no_start)
         finalize_legacy_installation(legacy_state)
     except (ConfigurationError, OSError, sqlite3.Error) as exc:
         restore_legacy_installation(legacy_state)
         print(f"amp-panel: configuration incomplete: {exc}", file=sys.stderr)
         return EXIT_NOT_CONFIGURED
+    _configuration_progress("Configuration completed successfully.")
     print(f"Configuration: {CONFIG_FILE}")
     print(f"Data directory: {values['AMP_PANEL_DATA_DIR']}")
     print(f"Panel address: http://{values['MDNS_HOSTNAME']}.local:{values['AMP_PANEL_PORT']}")

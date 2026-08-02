@@ -1,3 +1,11 @@
+amp-panel (1.1.1) unstable; urgency=medium
+
+  * Keep Overview, Statistics and CSV controls consistent for FTS-LS.
+  * Rework FTS-LS settings into Save and Cancel sections.
+  * Show configuration progress and bound system command execution time.
+
+ -- Amp Panel Team <amp-panel@localhost>  Sun, 02 Aug 2026 20:00:00 +0200
+
 amp-panel (1.1.0) unstable; urgency=medium
 
   * Add selectable optical amplifier and FTS-LS Laser Station profiles.

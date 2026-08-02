@@ -1,6 +1,7 @@
 import base64
 import pathlib
 import sqlite3
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -9,6 +10,22 @@ from tools import amp_panel_cli
 
 
 class AmpPanelCliTests(unittest.TestCase):
+    def test_run_reports_a_timed_out_configuration_command(self):
+        with mock.patch.object(
+            amp_panel_cli.subprocess,
+            "run",
+            side_effect=subprocess.TimeoutExpired(["systemctl", "restart", "demo"], 30),
+        ):
+            with self.assertRaisesRegex(
+                amp_panel_cli.ConfigurationError,
+                r"within 30 seconds: systemctl restart demo",
+            ):
+                amp_panel_cli._run(
+                    ["systemctl", "restart", "demo"],
+                    capture=True,
+                    timeout=30,
+                )
+
     def test_status_is_non_interactive_and_omits_journal_lines(self):
         completed = mock.Mock(returncode=0)
         with (

@@ -35,7 +35,6 @@ let warningHistoryTotal = 0
 let warningHistoryStart = null
 let warningHistoryEnd = null
 let lastWarningHistoryRefresh = 0
-let lastFtsHistoryRefresh = 0
 const warningHistoryLimit = 100
 const chartSeriesVisibility = new Map()
 const deviceProfile = document.body.dataset.deviceProfile || 'amplifier'
@@ -244,7 +243,7 @@ function renderFtsStatus(status) {
 	setFtsState('fts-power-b', firstValue(power, ['b', 'power_b'], '--'))
 	const modules = document.getElementById('fts-modules')
 	if (modules) modules.innerHTML = [status.uplink || {}, ...(status.ports || [])].map(renderFtsModule).join('')
-	updateFtsTargetForm()
+	updateFtsSettingsForms()
 }
 
 function formatDateTime(value) {
@@ -330,7 +329,6 @@ function setActiveTab(tabName) {
 
 	if (tabName === 'overview') updateOverviewCharts()
 	if (tabName === 'statistics') updateStatisticsTable()
-	if (tabName === 'fts-history') loadFtsHistory()
 	if (tabName === 'warnings') updateWarningsTable(true)
 	if (tabName === 'access-control') loadAccessUsers()
 	if (tabName === 'snmp-settings') loadSnmpSettings()
@@ -1542,7 +1540,7 @@ function formatOutsideLimits(field, statistics) {
 	return `<span class="status-error">Yes (${reason})</span>`
 }
 
-async function updateStatisticsTable() {
+async function updateAmplifierStatisticsTable() {
 	if (!currentUser) return
 
 	const requestSequence = ++statisticsRequestSequence
@@ -1782,7 +1780,7 @@ function setupChartExpansion() {
 	})
 }
 
-async function updateOverviewCharts() {
+async function updateAmplifierOverviewCharts() {
 	if (!currentUser) return
 
 	const requestSequence = ++overviewRequestSequence
@@ -1931,7 +1929,10 @@ function setupRangeButtons() {
 			const query = panel.dataset.tab === 'statistics'
 				? buildStatisticsQuery()
 				: buildOverviewQuery()
-			window.location.href = '/api/history/export.csv?' + query
+			const endpoint = deviceProfile === 'fts-ls'
+				? '/api/fts-ls/history/export.csv?'
+				: '/api/history/export.csv?'
+			window.location.href = endpoint + query
 		})
 	})
 }
@@ -2059,6 +2060,7 @@ function setupAuth() {
 }
 
 let ftsFormTarget = null
+const ftsDirtyInputs = new Set()
 
 function selectedFtsModule() {
 	const target = document.getElementById('fts-target')?.value || 'ul'
@@ -2068,30 +2070,99 @@ function selectedFtsModule() {
 	return match ? (latestFtsStatus.ports || [])[Number(match[1]) - 1] : null
 }
 
+function setFtsInputValue(id, value, force = false) {
+	const input = document.getElementById(id)
+	if (!input || (!force && ftsDirtyInputs.has(id)) || document.activeElement === input) return
+	if (input.type === 'number') input.value = ftsNumeric(value) ?? ''
+	else if (value === true) input.value = 'true'
+	else if (value === false) input.value = 'false'
+	else input.value = value ?? ''
+}
+
+function updateFtsFormState(form) {
+	if (!form) return
+	const dirty = [...form.querySelectorAll('[data-fts-setting-action]')]
+		.some(input => ftsDirtyInputs.has(input.id))
+	form.classList.toggle('dirty', dirty)
+	const save = form.querySelector('.fts-save-settings')
+	if (save) save.disabled = !dirty || !canOperate()
+}
+
+function clearFtsFormChanges(form) {
+	form?.querySelectorAll('[data-fts-setting-action]').forEach(input => {
+		ftsDirtyInputs.delete(input.id)
+	})
+	updateFtsFormState(form)
+}
+
 function updateFtsTargetForm(force = false) {
 	if (deviceProfile !== 'fts-ls') return
 	const target = document.getElementById('fts-target')?.value || 'ul'
-	if (!force && ftsFormTarget === target) return
+	if (!force && ftsFormTarget === target && !latestFtsStatus) return
 	const module = selectedFtsModule()
 	if (!module) return
 	ftsFormTarget = target
 	const assignments = {
 		'fts-description-input': firstValue(module, ['description'], ''),
+		'fts-optical-power-input': String(firstValue(module, ['state'], '')).toUpperCase() !== 'SHUTDOWN',
 		'fts-distance-input': firstValue(module, ['distance_km', 'equivalent_distance'], ''),
 		'fts-gain-input': firstValue(module, ['additional_gain_db', 'additional_gain_set'], 0),
+		'fts-pol-power-input': firstValue(module, ['polarization_control'], true),
 		'fts-pol-speed-input': String(firstValue(module, ['polarization_controller_speed'], 'fast')).toLowerCase(),
 		'fts-pol-mode-input': String(firstValue(module, ['polarization_controller_mode'], 'continuous')).toLowerCase(),
 	}
 	Object.entries(assignments).forEach(([id, value]) => {
-		const input = document.getElementById(id)
-		if (input && document.activeElement !== input) input.value = value
+		setFtsInputValue(id, value, force)
 	})
+
+	const type = String(firstValue(module, ['type'], target === 'ul' ? 'Uplink' : 'Unknown')).toLowerCase()
+	const isDownlink = type.includes('downlink')
+	const hasPolarization = target === 'ul' || type.includes('feedback')
+	document.querySelectorAll('[data-fts-downlink-only]').forEach(field => {
+		field.hidden = !isDownlink
+		field.querySelectorAll('input, select').forEach(input => { input.disabled = !isDownlink })
+	})
+	document.querySelectorAll('[data-fts-polarization-only]').forEach(field => {
+		field.hidden = !hasPolarization
+		field.querySelectorAll('input, select').forEach(input => { input.disabled = !hasPolarization })
+	})
+	setTextIfExists('fts-port-settings-hint', `${target === 'ul' ? 'UL' : target.toUpperCase()} · ${firstValue(module, ['type'], 'Unknown')}`)
+	updateFtsFormState(document.getElementById('fts-port-settings-form'))
+}
+
+function updateFtsSettingsForms(force = false) {
+	if (!latestFtsStatus) return
+	const laser = latestFtsStatus.laser || {}
+	const tec = latestFtsStatus.tec || {}
+	const synth = latestFtsStatus.synth || {}
+	const laserState = String(firstValue(laser, ['state', 'status'], 'ON')).toUpperCase()
+	setFtsInputValue('fts-laser-power', !['OFF', 'SHUTDOWN', 'FALSE'].includes(laserState), force)
+	setFtsInputValue('fts-laser-mode', String(firstValue(laser, ['mode'], 'normal')).toLowerCase().replaceAll('_', '-'), force)
+	setFtsInputValue('fts-laser-frequency-input', firstValue(laser, ['central_frequency_set', 'central_frequency'], ''), force)
+	setFtsInputValue('fts-laser-span-input', firstValue(laser, ['scanning_frequency_span_set', 'frequency_span'], ''), force)
+	const tecState = String(firstValue(tec, ['state', 'status'], 'ON')).toUpperCase()
+	setFtsInputValue('fts-tec-power-input', !['OFF', 'FALSE'].includes(tecState), force)
+	setFtsInputValue('fts-tec-temperature-input', firstValue(tec, ['temperature_set_c', 'temperature_set'], ''), force)
+	setFtsInputValue('fts-reference-input', firstValue(synth, ['external_frequency_allowed', 'external_10_mhz_allowed'], true), force)
+	updateFtsTargetForm(force)
+	document.querySelectorAll('.fts-settings-form').forEach(updateFtsFormState)
 }
 
 const ftsTransferActions = new Set([
 	'power_reset', 'factory_default', 'laser_power', 'laser_central_frequency',
 	'laser_mode', 'laser_force_relock', 'optical_power',
 ])
+
+async function postFtsAction(action, parameters, confirmed = false) {
+	const response = await fetch('/api/fts-ls/command', {
+		method: 'POST',
+		headers: {'Content-Type': 'application/json'},
+		body: JSON.stringify({ action, parameters, confirmed }),
+	})
+	handleAuthResponse(response)
+	if (!response.ok) throw await responseError(response, 'FTS-LS command failed')
+	return response.json()
+}
 
 async function sendFtsAction(button) {
 	const action = button.dataset.ftsAction
@@ -2106,13 +2177,7 @@ async function sendFtsAction(button) {
 	}
 	button.disabled = true
 	try {
-		const response = await fetch('/api/fts-ls/command', {
-			method: 'POST',
-			headers: {'Content-Type': 'application/json'},
-			body: JSON.stringify({ action, parameters, confirmed }),
-		})
-		handleAuthResponse(response)
-		if (!response.ok) throw await responseError(response, 'FTS-LS command failed')
+		await postFtsAction(action, parameters, confirmed)
 		showNotification('FTS-LS command accepted.')
 		ftsFormTarget = null
 		window.setTimeout(updateDashboard, 500)
@@ -2123,28 +2188,79 @@ async function sendFtsAction(button) {
 	}
 }
 
+async function saveFtsSettings(form) {
+	const inputs = [...form.querySelectorAll('[data-fts-setting-action]')]
+		.filter(input => ftsDirtyInputs.has(input.id) && !input.disabled)
+	if (!inputs.length) return
+	const transferAffecting = inputs.some(input => ftsTransferActions.has(input.dataset.ftsSettingAction))
+	if (transferAffecting && !window.confirm('These changes may interrupt frequency transfer for several minutes. Continue?')) return
+	const save = form.querySelector('.fts-save-settings')
+	if (save) save.disabled = true
+	let completed = 0
+	try {
+		for (const input of inputs) {
+			const parameters = {}
+			if (input.hasAttribute('data-fts-target')) parameters.target = document.getElementById('fts-target')?.value
+			if (input.dataset.ftsValueKind === 'enabled') parameters.enabled = input.value === 'true'
+			else parameters.value = input.value
+			await postFtsAction(input.dataset.ftsSettingAction, parameters, transferAffecting)
+			ftsDirtyInputs.delete(input.id)
+			completed += 1
+		}
+		showNotification(`${completed} setting${completed === 1 ? '' : 's'} saved.`)
+		ftsFormTarget = null
+		window.setTimeout(updateDashboard, 500)
+	} catch (error) {
+		showNotification(`${completed} of ${inputs.length} settings saved. ${error.message || 'The next command failed.'}`, 'error')
+	} finally {
+		updateFtsFormState(form)
+	}
+}
+
 function setupFtsControls() {
 	if (deviceProfile !== 'fts-ls') return
-	document.getElementById('fts-target')?.addEventListener('change', () => {
+	document.querySelectorAll('.fts-settings-form').forEach(form => {
+		updateFtsFormState(form)
+		form.querySelectorAll('[data-fts-setting-action]').forEach(input => {
+			const markDirty = () => {
+				ftsDirtyInputs.add(input.id)
+				updateFtsFormState(form)
+			}
+			input.addEventListener('input', markDirty)
+			input.addEventListener('change', markDirty)
+		})
+		form.addEventListener('submit', event => {
+			event.preventDefault()
+			saveFtsSettings(form)
+		})
+		form.querySelector('.fts-cancel-settings')?.addEventListener('click', () => {
+			clearFtsFormChanges(form)
+			updateFtsSettingsForms()
+		})
+	})
+	document.getElementById('fts-target')?.addEventListener('change', event => {
+		const form = document.getElementById('fts-port-settings-form')
+		const hasChanges = [...form.querySelectorAll('[data-fts-setting-action]')]
+			.some(input => ftsDirtyInputs.has(input.id))
+		if (hasChanges && !window.confirm('Discard unsaved changes for the selected module?')) {
+			event.target.value = ftsFormTarget || 'ul'
+			return
+		}
+		clearFtsFormChanges(form)
 		ftsFormTarget = null
 		updateFtsTargetForm(true)
 	})
 	document.querySelectorAll('[data-fts-action]').forEach(button => {
 		button.addEventListener('click', () => sendFtsAction(button))
 	})
-	const historyRange = document.getElementById('fts-history-range')
-	historyRange?.addEventListener('change', () => {
-		const exportLink = document.getElementById('fts-history-export')
-		if (exportLink) exportLink.href = `/api/fts-ls/history/export.csv?range=${encodeURIComponent(historyRange.value)}`
-		loadFtsHistory()
-	})
-	document.getElementById('fts-history-refresh')?.addEventListener('click', loadFtsHistory)
 }
 
 function ftsNumeric(value) {
 	if (value === null || value === undefined || value === '') return null
 	const numeric = Number(value)
-	return Number.isFinite(numeric) ? numeric : null
+	if (Number.isFinite(numeric)) return numeric
+	const match = String(value).match(/[-+]?\d+(?:[.,]\d+)?/)
+	return match ? Number(match[0].replace(',', '.')) : null
 }
 
 function flattenFtsHistoryPoint(point) {
@@ -2168,6 +2284,7 @@ function flattenFtsHistoryPoint(point) {
 
 function ftsTimeBounds(points, range) {
 	const durations = {
+		'5m': 5 * 60 * 1000,
 		'1h': 60 * 60 * 1000,
 		'24h': 24 * 60 * 60 * 1000,
 		'7d': 7 * 24 * 60 * 60 * 1000,
@@ -2208,39 +2325,123 @@ function updateFtsHistoryCharts(points, range) {
 	], 'Temperature [°C]', bounds)
 }
 
-async function loadFtsHistory() {
+async function loadFtsOverview() {
 	if (deviceProfile !== 'fts-ls' || !currentUser) return
-	lastFtsHistoryRefresh = Date.now()
-	const body = document.getElementById('fts-history-body')
-	const range = document.getElementById('fts-history-range')?.value || '24h'
+	const requestSequence = ++overviewRequestSequence
+	if (overviewRequestController) overviewRequestController.abort()
+	overviewRequestController = new AbortController()
+	const requestController = overviewRequestController
+	lastOverviewChartRefresh = Date.now()
+	setTextIfExists('fts-overview-loading', 'Loading…')
 	try {
-		setTextIfExists('fts-history-loading', 'Loading…')
-		const response = await fetch(`/api/fts-ls/history?range=${encodeURIComponent(range)}&limit=10000`)
+		const response = await fetch(`/api/fts-ls/history?${buildOverviewQuery()}&limit=10000`, {
+			signal: requestController.signal,
+		})
 		handleAuthResponse(response)
 		if (!response.ok) throw await responseError(response, 'Could not load FTS-LS history')
 		const result = await response.json()
-		const points = result.points || []
-		updateFtsHistoryCharts(points, range)
-		setTextIfExists('fts-history-loading', '')
-		if (!body) return
-		body.innerHTML = points.length ? points.slice().reverse().map(point => {
-			const snapshot = point.snapshot || {}
-			const laser = snapshot.laser || {}
-			const tec = snapshot.tec || {}
-			const portStates = (snapshot.ports || []).map(port => `${port.name || '?'}:${String(port.state || '--').slice(0, 4)}`).join(' · ')
-			return `<tr>
-				<td>${escapeHtml(formatDateTime(point.time))}</td>
-				<td>${escapeHtml(displayValue(firstValue(laser, ['state', 'status'])))}</td>
-				<td>${escapeHtml(displayValue(firstValue(laser, ['optical_frequency', 'frequency']), ' GHz'))}</td>
-				<td>${escapeHtml(displayValue(firstValue(tec, ['temperature_read_c', 'temperature_read']), ' °C'))}</td>
-				<td>${escapeHtml(displayValue(firstValue(snapshot.uplink || {}, ['state'])))}</td>
-				<td>${escapeHtml(portStates || '--')}</td>
-			</tr>`
-		}).join('') : '<tr><td colspan="6">No snapshots in this range</td></tr>'
+		if (requestSequence !== overviewRequestSequence) return
+		updateFtsHistoryCharts(result.points || [], overviewRange)
+		setTextIfExists('fts-overview-loading', '')
+		lastOverviewChartRefresh = Date.now()
 	} catch (error) {
-		setTextIfExists('fts-history-loading', 'Could not load charts')
-		if (body) body.innerHTML = `<tr><td colspan="6">${escapeHtml(error.message || 'History unavailable')}</td></tr>`
+		if (error.name === 'AbortError' || requestSequence !== overviewRequestSequence) return
+		setTextIfExists('fts-overview-loading', 'Could not load data')
+		console.error('Error fetching FTS-LS history:', error)
+	} finally {
+		if (requestSequence === overviewRequestSequence) overviewRequestController = null
 	}
+}
+
+function ftsStatisticsFields() {
+	const modules = ['UL', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7']
+	const fields = []
+	modules.forEach(name => {
+		fields.push({key: `${name}_power`, label: `${name} Optical Power`, unit: 'dBm', min: -65, max: -33})
+		fields.push({key: `${name}_noise_lf`, label: `${name} Low-frequency Noise`, unit: '', max: 100})
+		fields.push({key: `${name}_noise_hf`, label: `${name} High-frequency Noise`, unit: ''})
+		if (name !== 'UL') fields.push({key: `${name}_jitter`, label: `${name} Jitter`, unit: '%', max: 50})
+	})
+	fields.push({key: 'laser_frequency', label: 'Laser Frequency', unit: 'GHz'})
+	fields.push({key: 'tec_set', label: 'TEC Setpoint', unit: '°C'})
+	fields.push({key: 'tec_read', label: 'TEC Temperature', unit: '°C'})
+	return fields
+}
+
+function ftsFieldStatistics(points, field) {
+	const values = points.map(point => point[field.key]).filter(Number.isFinite)
+	if (!values.length) return null
+	const sum = values.reduce((total, value) => total + value, 0)
+	const average = sum / values.length
+	const variance = values.reduce((total, value) => total + ((value - average) ** 2), 0) / values.length
+	return {
+		count: values.length,
+		min: Math.min(...values),
+		max: Math.max(...values),
+		average,
+		stddev: Math.sqrt(Math.max(0, variance)),
+		outside: values.filter(value =>
+			(field.min !== undefined && value < field.min) ||
+			(field.max !== undefined && value > field.max)
+		).length,
+	}
+}
+
+async function loadFtsStatistics() {
+	if (deviceProfile !== 'fts-ls' || !currentUser) return
+	const requestSequence = ++statisticsRequestSequence
+	if (statisticsRequestController) statisticsRequestController.abort()
+	statisticsRequestController = new AbortController()
+	const requestController = statisticsRequestController
+	lastStatisticsRefresh = Date.now()
+	setTextIfExists('fts-statistics-source', 'Loading…')
+	try {
+		const response = await fetch(`/api/fts-ls/history?${buildStatisticsQuery()}&limit=10000`, {
+			signal: requestController.signal,
+		})
+		handleAuthResponse(response)
+		if (!response.ok) throw await responseError(response, 'Could not load FTS-LS statistics')
+		const result = await response.json()
+		if (requestSequence !== statisticsRequestSequence) return
+		const rawPoints = result.points || []
+		const points = rawPoints.map(flattenFtsHistoryPoint)
+		const rows = ftsStatisticsFields().map(field => [field, ftsFieldStatistics(points, field)])
+			.filter(([, statistics]) => statistics)
+		const body = document.getElementById('fts-statistics-body')
+		if (body) {
+			body.innerHTML = rows.length ? rows.map(([field, statistics]) => {
+				const unit = field.unit ? ` ${field.unit}` : ''
+				const outside = field.min === undefined && field.max === undefined
+					? '--'
+					: statistics.outside
+						? `<span class="status-error">${statistics.outside}</span>`
+						: '<span class="status-ok">0</span>'
+				return `<tr><td>${escapeHtml(field.label)}</td><td>${statistics.count}</td>` +
+					`<td>${formatPlainNumber(statistics.min, 3)}${unit}</td>` +
+					`<td>${formatPlainNumber(statistics.max, 3)}${unit}</td>` +
+					`<td>${formatPlainNumber(statistics.average, 3)}${unit}</td>` +
+					`<td>${formatPlainNumber(statistics.stddev, 3)}${unit}</td><td>${outside}</td></tr>`
+			}).join('') : '<tr><td colspan="7">No numeric data in this range</td></tr>'
+		}
+		const rangeText = statisticsStart || statisticsEnd ? 'custom range' : statisticsRange
+		setTextIfExists('fts-statistics-source', `${rawPoints.length} snapshots, ${rangeText}`)
+		lastStatisticsRefresh = Date.now()
+	} catch (error) {
+		if (error.name === 'AbortError' || requestSequence !== statisticsRequestSequence) return
+		setTextIfExists('fts-statistics-source', 'Could not load data')
+		const body = document.getElementById('fts-statistics-body')
+		if (body) body.innerHTML = `<tr><td colspan="7">${escapeHtml(error.message || 'Statistics unavailable')}</td></tr>`
+	} finally {
+		if (requestSequence === statisticsRequestSequence) statisticsRequestController = null
+	}
+}
+
+function updateOverviewCharts() {
+	return deviceProfile === 'fts-ls' ? loadFtsOverview() : updateAmplifierOverviewCharts()
+}
+
+function updateStatisticsTable() {
+	return deviceProfile === 'fts-ls' ? loadFtsStatistics() : updateAmplifierStatisticsTable()
 }
 
 async function startDataRefresh() {
@@ -2295,8 +2496,4 @@ setInterval(() => {
 		&& Date.now() - lastStatisticsRefresh >= historyRefreshInterval(statisticsRange)) {
 		updateStatisticsTable()
 	}
-	const ftsHistoryTab = document.querySelector('.tab-panel[data-tab="fts-history"]')
-	if (ftsHistoryTab
-		&& ftsHistoryTab.classList.contains('active')
-		&& Date.now() - lastFtsHistoryRefresh >= 10000) loadFtsHistory()
 }, 3000)
