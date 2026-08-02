@@ -515,6 +515,7 @@ def validate_configuration(values: dict[str, str]) -> None:
         raise ConfigurationError(
             "Minimum safe gain must be lower than maximum safe gain."
         )
+    _safe_int(values.get("PORT_COUNT", "2"), "Number of equipped ports", 2, 7)
     serial_port = values.get("SERIAL_PORT", "")
     if serial_port != "/dev/null" and not SERIAL_PATTERN.fullmatch(serial_port):
         raise ConfigurationError(
@@ -582,6 +583,10 @@ def interactive_configuration(values: dict[str, str]) -> dict[str, str]:
     values["GAIN_SET_MAX"] = _prompt(
         "Maximum safe gain from the device specification",
         values["GAIN_SET_MAX"],
+    )
+    values["PORT_COUNT"] = _prompt(
+        "How many optical ports does this device have (2-7)",
+        values.get("PORT_COUNT", "2"),
     )
     values["RADIUS_SERVER"] = _prompt("RADIUS server", values["RADIUS_SERVER"])
     values["RADIUS_PORT"] = _prompt("RADIUS UDP port", values["RADIUS_PORT"])
