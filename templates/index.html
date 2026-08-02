@@ -106,6 +106,7 @@
                             </div>
 
                             <div class="lv-tab-panel" data-lvpanel="ports">
+                                {% if port_count >= 1 %}
                                 <div class="network-status-grid">
                                     <div><span>Port 1 - Type</span><strong>Output A</strong></div>
                                     <div><span>Port 1 - State</span><strong id="lv-port1-state">--</strong></div>
@@ -114,6 +115,8 @@
                                     <div><span>Port 1 - Jitter</span><strong>No data</strong></div>
                                     <div><span>Port 1 - Description</span><strong>Output port A (PoA)</strong></div>
                                 </div>
+                                {% endif %}
+                                {% if port_count >= 2 %}
                                 <div class="network-status-grid" style="margin-top: 14px;">
                                     <div><span>Port 2 - Type</span><strong>Output B</strong></div>
                                     <div><span>Port 2 - State</span><strong id="lv-port2-state">--</strong></div>
@@ -122,13 +125,24 @@
                                     <div><span>Port 2 - Jitter</span><strong>No data</strong></div>
                                     <div><span>Port 2 - Description</span><strong>Output port B (PoB)</strong></div>
                                 </div>
-                                <div class="network-status-grid" style="margin-top: 14px; opacity: 0.5;">
-                                    <div><span>Port 3</span><strong>Unequipped</strong></div>
-                                    <div><span>Port 4</span><strong>Unequipped</strong></div>
-                                    <div><span>Port 5</span><strong>Unequipped</strong></div>
-                                    <div><span>Port 6</span><strong>Unequipped</strong></div>
-                                    <div><span>Port 7</span><strong>Unequipped</strong></div>
+                                {% endif %}
+                                {% for extra_port in range(3, port_count + 1) %}
+                                <div class="network-status-grid" style="margin-top: 14px;">
+                                    <div><span>Port {{ extra_port }} - Type</span><strong>Equipped</strong></div>
+                                    <div><span>Port {{ extra_port }} - State</span><strong>No data</strong></div>
+                                    <div><span>Port {{ extra_port }} - Estimated Optical Power</span><strong>No data</strong></div>
+                                    <div><span>Port {{ extra_port }} - Noise LF / HF</span><strong>No data</strong></div>
+                                    <div><span>Port {{ extra_port }} - Jitter</span><strong>No data</strong></div>
+                                    <div><span>Port {{ extra_port }} - Description</span><strong>No sensor wired yet</strong></div>
                                 </div>
+                                {% endfor %}
+                                {% if port_count < 7 %}
+                                <div class="network-status-grid" style="margin-top: 14px; opacity: 0.5;">
+                                    {% for unequipped_port in range(port_count + 1, 8) %}
+                                    <div><span>Port {{ unequipped_port }}</span><strong>Unequipped</strong></div>
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
                             </div>
 
                             <div class="lv-tab-panel" data-lvpanel="synth">
