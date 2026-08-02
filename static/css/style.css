@@ -1318,3 +1318,34 @@ select {
     color: #777;
     font-style: italic;
 }
+.lv-tabbar {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+}
+ 
+.lv-tab-btn {
+    flex: 1;
+    min-width: 90px;
+    padding: 8px 6px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-size: 13px;
+}
+ 
+.lv-tab-btn.active {
+    background: rgb(0, 106, 60);
+    border-color: rgb(0, 106, 60);
+}
+ 
+.lv-tab-panel {
+    display: none;
+}
+ 
+.lv-tab-panel.active {
+    display: block;
+}
