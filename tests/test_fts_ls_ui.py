@@ -41,6 +41,27 @@ class FtsLsUiTests(unittest.TestCase):
         self.assertEqual(template.count('class="fts-save-settings"'), 3)
         self.assertEqual(template.count('class="fts-cancel-settings"'), 3)
 
+    def test_live_view_builds_module_inventory_from_device_data(self):
+        template = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "static" / "js" / "dashboard.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="fts-modules"', template)
+        self.assertNotIn("UL + 7 modular ports", template)
+        self.assertIn("const inventory = [", script)
+        self.assertIn("...(status.ports || []).map", script)
+        self.assertIn("syncFtsModuleTargets(inventory)", script)
+        self.assertIn("data-fts-module-target", script)
+
+    def test_fts_settings_and_service_diagnostics_are_flat_section_panels(self):
+        template = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('class="data-panel fts-settings-panel"', template)
+        self.assertIn('class="fts-settings-list"', template)
+        self.assertNotIn('class="fts-settings-grid"', template)
+        self.assertIn('class="data-panel service-diagnostics-panel"', template)
+        self.assertIn('class="service-diagnostics-list"', template)
+        self.assertNotIn('class="service-diagnostics-grid"', template)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -184,11 +184,35 @@ function ftsMetric(label, value, unit = '') {
 	return `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(displayValue(value, unit))}</dd></div>`
 }
 
-function renderFtsModule(module) {
+function ftsModuleTarget(module, index, uplink = false) {
+	if (uplink) return 'ul'
+	const nameMatch = String(module?.name || '').match(/(?:port|p)\s*([0-9]+)/i)
+	return `port${nameMatch ? nameMatch[1] : index + 1}`
+}
+
+function ftsModuleIsEquipped(module) {
+	const type = String(firstValue(module, ['type'], 'Unknown')).toLowerCase()
+	const stateValue = String(firstValue(module, ['state'], 'UNKNOWN')).toLowerCase()
+	return !type.includes('unequipped') && stateValue !== 'unequipped'
+}
+
+function ftsConnectorLabel(connector) {
+	const labels = {
+		O: 'Optical',
+		BN: 'Beat note',
+		BN_A: 'Auxiliary beat note',
+		TR: 'Round-trip',
+	}
+	return labels[connector] || connector
+}
+
+function renderFtsModule(module, index, uplink = false) {
 	const stateValue = firstValue(module, ['state'], 'UNKNOWN')
 	const stateClass = ftsStateClass(stateValue)
 	const type = firstValue(module, ['type'], 'Unknown')
-	const unequipped = String(type).toLowerCase().includes('unequipped')
+	const unequipped = !ftsModuleIsEquipped(module)
+	const target = ftsModuleTarget(module, index, uplink)
+	const slotLabel = uplink ? 'UPLINK' : `SLOT ${index + 1}`
 	const metrics = []
 	if (!unequipped) {
 		metrics.push(ftsMetric('Optical input', firstValue(module, ['optical_power_display', 'optical_power']), module.optical_power_display ? '' : ' dBm'))
@@ -196,17 +220,44 @@ function renderFtsModule(module) {
 		if (firstValue(module, ['jitter']) !== null) metrics.push(ftsMetric('Jitter', firstValue(module, ['jitter']), ' %'))
 		if (firstValue(module, ['distance_km', 'equivalent_distance']) !== null) metrics.push(ftsMetric('Equivalent distance', firstValue(module, ['distance_km', 'equivalent_distance']), ' km'))
 	}
-	const connectors = (module.connectors || []).map(connector => `<span class="fts-connector">${escapeHtml(connector)}</span>`).join('')
+	const connectors = (module.connectors || []).map(connector => `
+		<span class="fts-connector" title="${escapeHtml(ftsConnectorLabel(connector))}">
+			<span class="fts-connector-socket" aria-hidden="true"></span>
+			<span>${escapeHtml(connector)}</span>
+		</span>`).join('')
 	return `
-		<article class="fts-module ${stateClass} ${unequipped ? 'unequipped' : ''}">
-			<div class="fts-module-title"><span class="fts-led ${stateClass}"></span><strong>${escapeHtml(module.name || '--')}</strong><small>${escapeHtml(type)}</small></div>
+		<article class="fts-module fts-pluggable-module ${stateClass} ${unequipped ? 'unequipped' : ''}" data-fts-module-target="${escapeHtml(target)}"${unequipped ? '' : ' tabindex="0"'}>
+			<div class="fts-slot-label">${escapeHtml(slotLabel)}</div>
+			<div class="fts-module-title"><span class="fts-led ${stateClass}"></span><strong>${escapeHtml(module.name || slotLabel)}</strong><small>${escapeHtml(type)}</small></div>
 			<dl class="fts-metrics">
 				${ftsMetric('State', stateValue)}
 				${metrics.join('')}
 				${ftsMetric('Description', firstValue(module, ['description']))}
 			</dl>
-			<div class="fts-port-connectors">${connectors}</div>
+			<div class="fts-port-connectors">${connectors || '<span class="fts-no-connectors">No physical ports</span>'}</div>
 		</article>`
+}
+
+function syncFtsModuleTargets(modules) {
+	const select = document.getElementById('fts-target')
+	if (!select) return
+	const selected = select.value
+	select.replaceChildren(...modules.map(({ module, index, uplink }) => {
+		const option = document.createElement('option')
+		option.value = ftsModuleTarget(module, index, uplink)
+		option.textContent = `${module.name || (uplink ? 'UL' : `P${index + 1}`)} · ${firstValue(module, ['type'], 'Unknown')}`
+		option.disabled = !ftsModuleIsEquipped(module)
+		return option
+	}))
+	if ([...select.options].some(option => option.value === selected && !option.disabled)) select.value = selected
+	else select.value = [...select.options].find(option => !option.disabled)?.value || ''
+}
+
+function highlightSelectedFtsModule() {
+	const selected = document.getElementById('fts-target')?.value
+	document.querySelectorAll('[data-fts-module-target]').forEach(module => {
+		module.classList.toggle('selected', Boolean(selected) && module.dataset.ftsModuleTarget === selected)
+	})
 }
 
 function renderFtsStatus(status) {
@@ -241,8 +292,23 @@ function renderFtsStatus(status) {
 	const power = status.power || {}
 	setFtsState('fts-power-a', firstValue(power, ['a', 'power_a'], '--'))
 	setFtsState('fts-power-b', firstValue(power, ['b', 'power_b'], '--'))
+	const inventory = [
+		...(status.uplink ? [{ module: status.uplink, index: 0, uplink: true }] : []),
+		...(status.ports || []).map((module, index) => ({ module, index, uplink: false })),
+	]
+	const equipped = inventory.filter(item => ftsModuleIsEquipped(item.module))
+	const slotCount = inventory.filter(item => !item.uplink).length
 	const modules = document.getElementById('fts-modules')
-	if (modules) modules.innerHTML = [status.uplink || {}, ...(status.ports || [])].map(renderFtsModule).join('')
+	if (modules) {
+		modules.innerHTML = inventory.length
+			? inventory.map(item => renderFtsModule(item.module, item.index, item.uplink)).join('')
+			: '<p class="fts-empty-rack">No optical modules were reported by the station.</p>'
+	}
+	setTextIfExists('fts-equipped-count', `${equipped.length} equipped`)
+	setTextIfExists('fts-rack-summary', `${equipped.length} active module${equipped.length === 1 ? '' : 's'} detected across ${slotCount} configurable slot${slotCount === 1 ? '' : 's'}.`)
+	setTextIfExists('fts-module-inventory', inventory.length ? `${equipped.length} of ${inventory.length} modules equipped` : 'No module inventory received')
+	syncFtsModuleTargets(inventory)
+	highlightSelectedFtsModule()
 	updateFtsSettingsForms()
 }
 
@@ -2249,7 +2315,22 @@ function setupFtsControls() {
 		clearFtsFormChanges(form)
 		ftsFormTarget = null
 		updateFtsTargetForm(true)
+		highlightSelectedFtsModule()
 	})
+	const moduleRack = document.getElementById('fts-modules')
+	const selectModule = event => {
+		if (event.type === 'keydown' && !['Enter', ' '].includes(event.key)) return
+		const module = event.target.closest('[data-fts-module-target]:not(.unequipped)')
+		if (!module || !moduleRack?.contains(module)) return
+		if (event.type === 'keydown') event.preventDefault()
+		const select = document.getElementById('fts-target')
+		if (!select) return
+		select.value = module.dataset.ftsModuleTarget
+		select.dispatchEvent(new Event('change', { bubbles: true }))
+		highlightSelectedFtsModule()
+	}
+	moduleRack?.addEventListener('click', selectModule)
+	moduleRack?.addEventListener('keydown', selectModule)
 	document.querySelectorAll('[data-fts-action]').forEach(button => {
 		button.addEventListener('click', () => sendFtsAction(button))
 	})

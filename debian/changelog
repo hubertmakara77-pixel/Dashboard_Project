@@ -1,3 +1,11 @@
+amp-panel (1.1.2) unstable; urgency=medium
+
+  * Build the FTS-LS live rack dynamically from detected modules and ports.
+  * Select equipped optical modules directly from Live View.
+  * Flatten FTS-LS Settings and Service Diagnostics into section-based panels.
+
+ -- Amp Panel Team <amp-panel@localhost>  Sun, 02 Aug 2026 20:30:00 +0200
+
 amp-panel (1.1.1) unstable; urgency=medium
 
   * Keep Overview, Statistics and CSV controls consistent for FTS-LS.

@@ -134,13 +134,17 @@
 
                     <div class="fts-station profile-fts-only" aria-label="FTS-LS modular laser station">
                         <div class="fts-station-header">
-                            <div><span class="fts-eyebrow">Frequency Transfer System</span><h2>Laser Station · 1 × 7</h2></div>
+                            <div>
+                                <span class="fts-eyebrow">Frequency Transfer System</span>
+                                <h2>Modular optical station</h2>
+                                <p id="fts-rack-summary" class="fts-rack-summary">Waiting for module inventory...</p>
+                            </div>
                             <div class="fts-power-summary">
                                 <span>Power A <strong id="fts-power-a" class="fts-state unknown">--</strong></span>
                                 <span>Power B <strong id="fts-power-b" class="fts-state unknown">--</strong></span>
                             </div>
                         </div>
-                        <div class="fts-fixed-rack">
+                        <div class="fts-controller-rack" aria-label="Station controller modules">
                             <article class="fts-module fts-laser-module">
                                 <div class="fts-module-title"><span class="fts-led unknown" id="fts-laser-led"></span><strong>Internal laser</strong></div>
                                 <dl class="fts-metrics">
@@ -168,11 +172,20 @@
                                 </dl>
                             </article>
                         </div>
-                        <div class="fts-signal-bus" aria-hidden="true"><span>phase-stabilized optical carrier</span></div>
-                        <div id="fts-modules" class="fts-module-grid"></div>
+                        <section class="fts-optical-rack" aria-labelledby="fts-optical-rack-title">
+                            <div class="fts-rack-header">
+                                <div>
+                                    <span class="fts-rack-label">Optical module rack</span>
+                                    <h3 id="fts-optical-rack-title">Detected modules and physical ports</h3>
+                                </div>
+                                <span id="fts-equipped-count" class="fts-equipped-count">0 equipped</span>
+                            </div>
+                            <div class="fts-signal-bus" aria-hidden="true"><span>phase-stabilized optical carrier</span></div>
+                            <div id="fts-modules" class="fts-module-grid" aria-live="polite"></div>
+                        </section>
                         <div class="fts-live-footer">
                             <span>Active alarms <strong id="fts-warning-count">0</strong></span>
-                            <span>UL + 7 modular ports</span>
+                            <span id="fts-module-inventory">No module inventory received</span>
                         </div>
                     </div>
                 </section>
@@ -502,8 +515,15 @@
                 </section>
 
                 <section class="tab-panel profile-fts-only" data-tab="device-settings" data-operator-only>
-                    <div class="fts-settings-grid">
-                        <form id="fts-laser-settings-form" class="data-panel fts-settings-form">
+                    <div class="data-panel fts-settings-panel">
+                        <div class="settings-header fts-settings-page-header">
+                            <div>
+                                <h2>Device Settings</h2>
+                                <p class="settings-description">Configure the station using the same section-based layout as the amplifier profile.</p>
+                            </div>
+                        </div>
+                        <div class="fts-settings-list">
+                        <form id="fts-laser-settings-form" class="fts-settings-form fts-settings-section">
                             <div class="settings-header control-save-header">
                                 <div><h2>Laser</h2><p class="settings-description">Internal laser and automatic locking range.</p></div>
                                 <div class="action-buttons">
@@ -523,7 +543,7 @@
                             <p class="network-warning">Power, frequency, mode and re-lock operations may interrupt frequency transfer for several minutes.</p>
                         </form>
 
-                        <form id="fts-system-settings-form" class="data-panel fts-settings-form">
+                        <form id="fts-system-settings-form" class="fts-settings-form fts-settings-section">
                             <div class="settings-header control-save-header">
                                 <div><h2>TEC and 10 MHz</h2><p class="settings-description">Interferometer heating and reference policy.</p></div>
                                 <div class="action-buttons">
@@ -538,7 +558,7 @@
                             </div>
                         </form>
 
-                        <form id="fts-port-settings-form" class="data-panel fts-settings-form fts-port-settings-form">
+                        <form id="fts-port-settings-form" class="fts-settings-form fts-settings-section fts-port-settings-form">
                             <div class="settings-header control-save-header">
                                 <div><h2>Modular port</h2><p class="settings-description" id="fts-port-settings-hint">Select UL or one of the P1–P7 modules.</p></div>
                                 <div class="action-buttons">
@@ -558,7 +578,7 @@
                             </div>
                         </form>
 
-                        <div class="data-panel fts-tools-panel">
+                        <div class="fts-settings-section fts-tools-panel">
                             <div class="settings-header"><div><h2>Tools</h2><p class="settings-description">Run a connectivity test from the station.</p></div></div>
                             <div class="fts-tool-row">
                                 <label class="form-field">IP address or DNS name<input id="fts-ping-input" placeholder="192.0.2.1"></label>
@@ -566,13 +586,14 @@
                             </div>
                         </div>
 
-                        <div class="data-panel fts-station-actions" data-admin-only>
+                        <div class="fts-settings-section fts-station-actions" data-admin-only>
                             <div class="settings-header"><div><h2>Station actions</h2><p class="settings-description">Administrative operations affecting the complete station.</p></div></div>
                             <div class="action-buttons">
                                 <button type="button" data-fts-action="reboot">Reboot management system</button>
                                 <button type="button" data-fts-action="power_reset">Reset complete station</button>
                                 <button type="button" data-fts-action="factory_default">Restore optical defaults</button>
                             </div>
+                        </div>
                         </div>
                     </div>
                 </section>
@@ -710,6 +731,7 @@
                 </section>
 
                 <section class="tab-panel" data-tab="service-diagnostics" data-admin-only>
+                    <div class="data-panel service-diagnostics-panel">
                     <div class="service-page-header">
                         <div>
                             <h2>Service Diagnostics</h2>
@@ -718,8 +740,8 @@
                         <button id="refresh-services-button" type="button">Refresh status</button>
                     </div>
 
-                    <div class="service-diagnostics-grid">
-                        <div class="data-panel network-panel">
+                    <div class="service-diagnostics-list">
+                        <section class="service-diagnostics-section">
                             <div class="settings-header"><h2>Data Acquisition</h2></div>
                             <div class="network-status-grid service-status-grid">
                                 <div><span>Status</span><strong id="service-serial-state">--</strong></div>
@@ -727,8 +749,8 @@
                                 <div><span>Baud rate</span><strong id="service-serial-baudrate">--</strong></div>
                                 <div><span>Last error</span><strong id="service-serial-error">--</strong></div>
                             </div>
-                        </div>
-                        <div class="data-panel network-panel">
+                        </section>
+                        <section class="service-diagnostics-section">
                             <div class="settings-header"><h2>History Storage</h2></div>
                             <div class="network-status-grid service-status-grid">
                                 <div><span>Status</span><strong id="service-database-state">--</strong></div>
@@ -744,8 +766,8 @@
                                 <div><span>Last error</span><strong id="service-database-error">--</strong></div>
                                 <div class="service-wide-status"><span>Database file</span><strong id="service-database-file">--</strong></div>
                             </div>
-                        </div>
-                        <div class="data-panel network-panel">
+                        </section>
+                        <section class="service-diagnostics-section">
                             <div class="settings-header"><h2>System Logging</h2></div>
                             <div class="network-status-grid service-status-grid">
                                 <div><span>Local logging</span><strong id="service-syslog-local">--</strong></div>
@@ -757,10 +779,10 @@
                                 <div><span>Heartbeat interval</span><strong id="service-syslog-heartbeat">--</strong></div>
                             </div>
                             <p class="network-warning">Remote forwarding status means configured, not delivery confirmation. Rsyslog queues messages while the receiver is unavailable.</p>
-                        </div>
+                        </section>
                     </div>
 
-                    <form id="service-settings-form" class="control-strip service-settings-form">
+                    <form id="service-settings-form" class="service-settings-form service-diagnostics-section">
                         <div class="settings-header control-save-header">
                             <div>
                                 <h2>Service Configuration</h2>
@@ -798,6 +820,7 @@
                             </fieldset>
                         </div>
                     </form>
+                    </div>
                 </section>
             </main>
         </div>
