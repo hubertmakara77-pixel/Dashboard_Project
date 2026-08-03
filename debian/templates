@@ -25,7 +25,7 @@ Type: string
 Default: /var/lib/amp-panel
 Description: Directory for the SQLite database and persistent state:
  Use /var/lib/amp-panel, or an absolute path below /mnt, /media or /srv.
- Existing data is copied during migration and the source copy is preserved.
+ Existing data in the selected directory is preserved.
 
 Template: amp-panel/serial-port
 Type: string

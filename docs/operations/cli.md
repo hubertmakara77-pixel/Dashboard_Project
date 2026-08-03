@@ -5,7 +5,7 @@ that modify configuration or data through `sudo`.
 
 | Command | Operation |
 | --- | --- |
-| `amp-panel configure` | validates, migrates, and writes configuration |
+| `amp-panel configure` | validates and writes configuration |
 | `amp-panel start` | starts the application service |
 | `amp-panel stop` | stops the application service |
 | `amp-panel restart` | restarts the application service |

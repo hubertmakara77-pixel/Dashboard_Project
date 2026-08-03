@@ -29,24 +29,24 @@ config_dir="/etc/freeradius/3.0"
 authorize_file="$config_dir/mods-config/files/authorize"
 [[ -f "$authorize_file" ]] || fail "Could not locate FreeRADIUS authorize file"
 
-sed -i '/^# BEGIN AMP-DASHBOARD CLIENT$/,/^# END AMP-DASHBOARD CLIENT$/d' "$config_dir/clients.conf"
+sed -i '/^# BEGIN AMP-PANEL CLIENT$/,/^# END AMP-PANEL CLIENT$/d' "$config_dir/clients.conf"
 cat >> "$config_dir/clients.conf" <<CLIENT
 
-# BEGIN AMP-DASHBOARD CLIENT
-client amp_dashboard {
+# BEGIN AMP-PANEL CLIENT
+client amp_panel {
     ipaddr = ${client_ip}
     secret = ${radius_secret}
     require_message_authenticator = yes
 }
-# END AMP-DASHBOARD CLIENT
+# END AMP-PANEL CLIENT
 CLIENT
 
-sed -i '/^# BEGIN AMP-DASHBOARD USER$/,/^# END AMP-DASHBOARD USER$/d' "$authorize_file"
+sed -i '/^# BEGIN AMP-PANEL USER$/,/^# END AMP-PANEL USER$/d' "$authorize_file"
 cat >> "$authorize_file" <<USER
 
-# BEGIN AMP-DASHBOARD USER
+# BEGIN AMP-PANEL USER
 ${radius_user} Cleartext-Password := "${radius_password}"
-# END AMP-DASHBOARD USER
+# END AMP-PANEL USER
 USER
 chown root:freerad "$config_dir/clients.conf" "$authorize_file" 2>/dev/null || true
 chmod 0640 "$config_dir/clients.conf" "$authorize_file"

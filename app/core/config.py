@@ -37,7 +37,7 @@ def _gain_bounds(
 ) -> tuple[float, float]:
     if minimum_value is None and maximum_value is None:
         # Allows isolated unit tests and direct developer imports. Production
-        # Compose requires both variables explicitly.
+        # configuration should set both variables explicitly.
         return -100.0, 100.0
     if not minimum_value or not maximum_value:
         raise RuntimeError("GAIN_SET_MIN and GAIN_SET_MAX must both be configured.")

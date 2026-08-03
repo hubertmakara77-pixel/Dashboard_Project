@@ -64,8 +64,6 @@ VERSION_FILE = pathlib.Path(os.getenv("AMP_PANEL_VERSION_FILE", "/usr/lib/amp-pa
 
 CURRENT_SERVICE = "amp-panel.service"
 NETWORK_AGENT_SERVICE = "amp-panel-network-agent.service"
-LEGACY_SERVICE = "amp-dashboard.service"
-LEGACY_NETWORK_AGENT_SERVICE = "amp-network-agent.service"
 
 KEY_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$")
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9._@-]{1,128}$")
@@ -126,7 +124,6 @@ CONFIG_KEYS = (
     "RADIUS_RETRIES",
     "RADIUS_NAS_IDENTIFIER",
     "NETWORK_AGENT_SOCKET",
-    "MIGRATED_FROM",
 )
 
 
@@ -257,45 +254,6 @@ def write_env_file(path: pathlib.Path, values: dict[str, str]) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def _legacy_working_directory() -> pathlib.Path | None:
-    if not _command_exists("systemctl"):
-        return None
-    result = _run(
-        [
-            "systemctl",
-            "show",
-            LEGACY_SERVICE,
-            "--property=WorkingDirectory",
-            "--value",
-        ],
-        capture=True,
-    )
-    if result.returncode != 0:
-        return None
-    value = result.stdout.strip()
-    return pathlib.Path(value) if value.startswith("/") else None
-
-
-def configuration_candidates() -> list[pathlib.Path]:
-    candidates = [CONFIG_FILE]
-    explicit_legacy = os.getenv("AMP_PANEL_LEGACY_CONFIG", "").strip()
-    if explicit_legacy:
-        candidates.append(pathlib.Path(explicit_legacy))
-    candidates.append(pathlib.Path("/etc/amp-dashboard/dashboard.env"))
-    working_directory = _legacy_working_directory()
-    if working_directory is not None:
-        candidates.append(working_directory / ".env")
-    candidates.append(pathlib.Path("/home/debian/Dashboard_Project/.env"))
-    result = []
-    seen = set()
-    for candidate in candidates:
-        normalized = str(candidate)
-        if normalized not in seen:
-            seen.add(normalized)
-            result.append(candidate)
-    return result
-
-
 def _secure_configuration_file(path: pathlib.Path) -> bool:
     if not path.is_file():
         return False
@@ -309,10 +267,7 @@ def _secure_configuration_file(path: pathlib.Path) -> bool:
 
 
 def discover_configuration() -> pathlib.Path | None:
-    for candidate in configuration_candidates():
-        if _secure_configuration_file(candidate):
-            return candidate
-    return None
+    return CONFIG_FILE if _secure_configuration_file(CONFIG_FILE) else None
 
 
 def _hardware_id() -> str:
@@ -438,10 +393,7 @@ def _normalized_data_dir(value: str, source: pathlib.Path | None = None) -> path
     }
     if path in forbidden:
         raise ConfigurationError(f"Unsafe data directory: {path}")
-    application_roots = (
-        pathlib.Path("/var/lib/amp-panel"),
-        pathlib.Path("/var/lib/amp-dashboard"),
-    )
+    application_roots = (pathlib.Path("/var/lib/amp-panel"),)
     external_roots = (
         pathlib.Path("/mnt"),
         pathlib.Path("/media"),
@@ -457,69 +409,13 @@ def _normalized_data_dir(value: str, source: pathlib.Path | None = None) -> path
     return path
 
 
-def translate_configuration(
-    source_values: dict[str, str],
-    source_path: pathlib.Path,
-) -> dict[str, str]:
+def merge_configuration(source_values: dict[str, str]) -> dict[str, str]:
     translated = default_configuration()
     for key in CONFIG_KEYS:
         if key in source_values:
             translated[key] = source_values[key]
-
-    translated["AMP_PANEL_PORT"] = source_values.get(
-        "AMP_PANEL_PORT",
-        source_values.get("DASHBOARD_PORT", translated["AMP_PANEL_PORT"]),
-    )
-    raw_data_dir = source_values.get(
-        "AMP_PANEL_DATA_DIR",
-        source_values.get("DASHBOARD_DATA_DIR", translated["AMP_PANEL_DATA_DIR"]),
-    )
-    raw_path = pathlib.Path(raw_data_dir).expanduser()
-    legacy_data_dir = (
-        pathlib.Path(os.path.abspath(source_path.parent / raw_path))
-        if not raw_path.is_absolute()
-        else pathlib.Path(os.path.abspath(raw_path))
-    )
-    try:
-        data_dir = _normalized_data_dir(str(legacy_data_dir))
-    except ConfigurationError:
-        # Old Docker installations commonly kept data in ./data below the
-        # checkout. Move those files to the FHS location so the checkout can
-        # be removed after installing the package.
-        if source_path == CONFIG_FILE:
-            raise
-        data_dir = _normalized_data_dir(str(DEFAULT_DATA_DIR))
-        translated["_LEGACY_DATA_DIR"] = str(legacy_data_dir)
+    data_dir = _normalized_data_dir(translated["AMP_PANEL_DATA_DIR"])
     translated["AMP_PANEL_DATA_DIR"] = str(data_dir)
-
-    serial_port = source_values.get("SERIAL_PORT", translated["SERIAL_PORT"])
-    if serial_port.startswith("/host/dev/"):
-        serial_port = serial_port.removeprefix("/host")
-    translated["SERIAL_PORT"] = serial_port
-
-    database_file = source_values.get("DATABASE_FILE", "")
-    if not database_file or database_file.startswith("/app/data/"):
-        database_file = str(data_dir / "measurements.db")
-    elif not pathlib.Path(database_file).is_absolute():
-        database_file = str(data_dir / pathlib.Path(database_file).name)
-    translated["DATABASE_FILE"] = database_file
-
-    state_file = source_values.get("PERSISTED_STATE_FILE", "")
-    if not state_file or state_file.startswith("/app/data/"):
-        state_file = str(data_dir / "persisted_state.json")
-    elif not pathlib.Path(state_file).is_absolute():
-        state_file = str(data_dir / pathlib.Path(state_file).name)
-    translated["PERSISTED_STATE_FILE"] = state_file
-
-    if translated.get("SYSLOG_HOST") in {"host.docker.internal", ""}:
-        translated["SYSLOG_HOST"] = "127.0.0.1"
-    translated["SYSLOG_APP_NAME"] = "amp-panel"
-    translated["SYSLOG_EXPORT_FILE"] = str(LOG_DIR / "amp-panel.log")
-    translated["NETWORK_AGENT_SOCKET"] = str(RUN_DIR / "network-agent.sock")
-    translated["MDNS_HOSTNAME"] = translated["MDNS_HOSTNAME"].removesuffix(".local")
-    translated["AMP_PANEL_CONFIG_VERSION"] = "2"
-    if source_path != CONFIG_FILE:
-        translated["MIGRATED_FROM"] = str(source_path)
     return translated
 
 
@@ -736,36 +632,6 @@ def prepare_data_directory(values: dict[str, str]) -> None:
         raise ConfigurationError(f"Data directory is not writable: {data_dir}")
 
 
-def migrate_legacy_data(values: dict[str, str]) -> None:
-    raw_source = values.get("_LEGACY_DATA_DIR", "")
-    if not raw_source:
-        return
-    source_dir = pathlib.Path(raw_source)
-    destination_dir = pathlib.Path(values["AMP_PANEL_DATA_DIR"])
-    if not source_dir.is_dir() or source_dir == destination_dir:
-        return
-    destination_dir.mkdir(parents=True, exist_ok=True)
-    source_database = source_dir / "measurements.db"
-    if source_database.is_file():
-        try:
-            connection = sqlite3.connect(source_database, timeout=10)
-            connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
-            connection.close()
-        except sqlite3.Error as exc:
-            raise ConfigurationError(f"Could not validate legacy SQLite database: {exc}") from exc
-        if integrity != "ok":
-            raise ConfigurationError(f"Legacy SQLite integrity check failed: {integrity}")
-    for name in ("measurements.db", "persisted_state.json"):
-        source = source_dir / name
-        destination = destination_dir / name
-        if not source.is_file() or destination.exists():
-            continue
-        temporary = destination_dir / f".{name}.migrating"
-        shutil.copy2(source, temporary)
-        os.replace(temporary, destination)
-
-
 def _write_text(path: pathlib.Path, content: str, mode: int = 0o644) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
@@ -873,222 +739,6 @@ def _service_exists(service: str) -> bool:
     return result.returncode == 0 and result.stdout.strip() not in {"", "not-found"}
 
 
-def _service_is_active(service: str) -> bool:
-    if not _service_exists(service):
-        return False
-    result = _run(["systemctl", "is-active", service], capture=True, timeout=15)
-    return result.returncode == 0 and result.stdout.strip() == "active"
-
-
-def _metadata_snapshot(paths: Iterable[pathlib.Path]) -> list[tuple]:
-    snapshot = []
-    for path in paths:
-        try:
-            stat = path.stat()
-        except OSError:
-            continue
-        snapshot.append(
-            (
-                path,
-                stat.st_uid,
-                stat.st_gid,
-                stat.st_mode & 0o777,
-            )
-        )
-    return snapshot
-
-
-def _file_snapshot(paths: Iterable[pathlib.Path]) -> dict[pathlib.Path, tuple]:
-    snapshot = {}
-    for path in paths:
-        try:
-            stat = path.stat()
-            snapshot[path] = (
-                path.read_bytes(),
-                stat.st_uid,
-                stat.st_gid,
-                stat.st_mode & 0o777,
-            )
-        except OSError:
-            snapshot[path] = ()
-    return snapshot
-
-
-def stop_legacy_installation(
-    source: pathlib.Path | None,
-    data_dir: pathlib.Path,
-) -> dict[str, object] | None:
-    if source is None or source == CONFIG_FILE:
-        return None
-    state: dict[str, object] = {
-        "source": source,
-        "service_active": _service_is_active(LEGACY_SERVICE),
-        "agent_active": _service_is_active(LEGACY_NETWORK_AGENT_SERVICE),
-        "compose_active": False,
-        "disabled_files": [],
-        "original_hostname": socket.gethostname(),
-        "data_metadata": _metadata_snapshot(
-            [data_dir, *(data_dir.iterdir() if data_dir.is_dir() else [])]
-        ),
-        "generated_files": _file_snapshot(
-            (
-                CONFIG_FILE,
-                SYSTEMD_OVERRIDE_DIR / "paths.conf",
-                RSYSLOG_FILE,
-                LOGROTATE_FILE,
-                AVAHI_FILE,
-                TIMESYNCD_FILE,
-            )
-        ),
-    }
-    if state["service_active"]:
-        result = _run(["systemctl", "stop", LEGACY_SERVICE], capture=True)
-        if result.returncode != 0:
-            restore_legacy_installation(state)
-            raise ConfigurationError("Could not stop the legacy Amp Dashboard service safely.")
-    if state["agent_active"]:
-        result = _run(
-            ["systemctl", "stop", LEGACY_NETWORK_AGENT_SERVICE],
-            capture=True,
-        )
-        if result.returncode != 0:
-            restore_legacy_installation(state)
-            raise ConfigurationError("Could not stop the legacy network agent safely.")
-    working_directory = source.parent
-    compose_file = working_directory / "docker-compose.yml"
-    if not state["service_active"] and compose_file.is_file() and _command_exists("docker"):
-        running = _run(
-            [
-                "docker",
-                "compose",
-                "-f",
-                str(compose_file),
-                "ps",
-                "--status",
-                "running",
-                "-q",
-            ],
-            capture=True,
-        )
-        state["compose_active"] = running.returncode == 0 and bool(running.stdout.strip())
-        if state["compose_active"]:
-            stopped = _run(
-                ["docker", "compose", "-f", str(compose_file), "down"],
-                capture=True,
-            )
-            if stopped.returncode != 0:
-                restore_legacy_installation(state)
-                raise ConfigurationError("Could not stop the legacy Docker installation safely.")
-    for legacy_file in (
-        pathlib.Path("/etc/rsyslog.d/30-amp-dashboard.conf"),
-        pathlib.Path("/etc/avahi/services/amp-dashboard.service"),
-        pathlib.Path("/etc/systemd/timesyncd.conf.d/amp-dashboard.conf"),
-    ):
-        if not legacy_file.is_file():
-            continue
-        disabled = legacy_file.with_name(f"{legacy_file.name}.disabled-by-amp-panel")
-        if not disabled.exists():
-            try:
-                os.replace(legacy_file, disabled)
-                state["disabled_files"].append((legacy_file, disabled))
-            except OSError as exc:
-                restore_legacy_installation(state)
-                raise ConfigurationError(
-                    f"Could not disable legacy configuration {legacy_file}: {exc}"
-                ) from exc
-    return state
-
-
-def finalize_legacy_installation(state: dict[str, object] | None) -> None:
-    if state is None or not _command_exists("systemctl"):
-        return
-    for service in (LEGACY_SERVICE, LEGACY_NETWORK_AGENT_SERVICE):
-        if _service_exists(service):
-            _run(["systemctl", "disable", service])
-
-
-def restore_legacy_installation(state: dict[str, object] | None) -> None:
-    if state is None:
-        return
-    if _command_exists("systemctl"):
-        _run(
-            [
-                "systemctl",
-                "disable",
-                "--now",
-                CURRENT_SERVICE,
-                NETWORK_AGENT_SERVICE,
-            ]
-        )
-    for path, saved in state["generated_files"].items():
-        try:
-            if saved:
-                content, uid, gid, mode = saved
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(content)
-                os.chmod(path, mode)
-                if os.name == "posix":
-                    os.chown(path, uid, gid)
-            else:
-                path.unlink(missing_ok=True)
-        except OSError:
-            pass
-    try:
-        SYSTEMD_OVERRIDE_DIR.rmdir()
-    except OSError:
-        pass
-    for path, uid, gid, mode in state["data_metadata"]:
-        try:
-            os.chmod(path, mode)
-            if os.name == "posix":
-                os.chown(path, uid, gid)
-        except OSError:
-            pass
-    for legacy_file, disabled in reversed(state["disabled_files"]):
-        try:
-            if pathlib.Path(disabled).exists() and not pathlib.Path(legacy_file).exists():
-                os.replace(disabled, legacy_file)
-        except OSError:
-            pass
-    original_hostname = str(state["original_hostname"])
-    if _command_exists("hostnamectl") and socket.gethostname() != original_hostname:
-        _run(["hostnamectl", "set-hostname", original_hostname])
-    if _command_exists("systemctl"):
-        _run(["systemctl", "daemon-reload"])
-        for service in (
-            "rsyslog.service",
-            "avahi-daemon.service",
-            "systemd-timesyncd.service",
-        ):
-            if _service_exists(service):
-                _run(["systemctl", "restart", service])
-        if state["agent_active"]:
-            _run(["systemctl", "start", LEGACY_NETWORK_AGENT_SERVICE])
-        if state["service_active"]:
-            _run(["systemctl", "start", LEGACY_SERVICE])
-    if state["compose_active"] and _command_exists("docker"):
-        source = pathlib.Path(state["source"])
-        compose_file = source.parent / "docker-compose.yml"
-        _run(
-            ["docker", "compose", "-f", str(compose_file), "up", "-d"],
-        )
-
-
-def _copy_legacy_log() -> None:
-    destination = LOG_DIR / "amp-panel.log"
-    candidates = (
-        pathlib.Path("/var/log/amp-dashboard/amp-dashboard.log"),
-        pathlib.Path("/var/log/amp-dashboard.log"),
-    )
-    if destination.exists() and destination.stat().st_size:
-        return
-    for source in candidates:
-        if source.is_file():
-            with source.open("rb") as input_stream, destination.open("ab") as output_stream:
-                shutil.copyfileobj(input_stream, output_stream)
-            break
-
-
 def apply_hostname(values: dict[str, str]) -> None:
     if (
         os.name != "posix"
@@ -1164,19 +814,18 @@ def reload_services(*, start: bool) -> None:
 def _configuration_from_source(path: pathlib.Path | None) -> dict[str, str]:
     if path is None:
         return default_configuration()
-    return translate_configuration(read_env_file(path), path)
+    return merge_configuration(read_env_file(path))
 
 
 def configure_command(args: argparse.Namespace) -> int:
-    """Validate, migrate and atomically apply the requested host configuration."""
+    """Validate and atomically apply the requested host configuration."""
     if os.name == "posix" and os.geteuid() != 0:
         print(
             "amp-panel: configuration changes require root; run: sudo amp-panel configure",
             file=sys.stderr,
         )
         return 1
-    source = pathlib.Path(args.source) if args.source else discover_configuration()
-    legacy_state: dict[str, object] | None = None
+    source = discover_configuration()
     try:
         values = _configuration_from_source(source)
         source_device_profile = values.get("DEVICE_PROFILE", "amplifier")
@@ -1227,25 +876,16 @@ def configure_command(args: argparse.Namespace) -> int:
             values = interactive_configuration(values)
         _configuration_progress("Validating settings...")
         validate_configuration(values)
-        _configuration_progress("Checking for an earlier installation...")
-        legacy_state = stop_legacy_installation(
-            source,
-            pathlib.Path(values["AMP_PANEL_DATA_DIR"]),
-        )
         _configuration_progress("Preparing the measurement data directory...")
-        migrate_legacy_data(values)
         prepare_data_directory(values)
         _configuration_progress("Applying the device hostname...")
         apply_hostname(values)
         _configuration_progress("Writing configuration files...")
         write_env_file(CONFIG_FILE, values)
         write_system_configuration(values)
-        _copy_legacy_log()
         _configuration_progress("Applying system services...")
         reload_services(start=not args.no_start)
-        finalize_legacy_installation(legacy_state)
     except (ConfigurationError, OSError, sqlite3.Error) as exc:
-        restore_legacy_installation(legacy_state)
         print(f"amp-panel: configuration incomplete: {exc}", file=sys.stderr)
         return EXIT_NOT_CONFIGURED
     _configuration_progress("Configuration completed successfully.")
@@ -1448,7 +1088,6 @@ def build_parser() -> argparse.ArgumentParser:
     configure = subparsers.add_parser("configure", help="configure Amp Panel")
     configure.add_argument("--non-interactive", action="store_true")
     configure.add_argument("--no-start", action="store_true")
-    configure.add_argument("--source")
     configure.add_argument("--answers-file")
     configure.add_argument("--admin-username")
     configure.add_argument("--port", type=int)

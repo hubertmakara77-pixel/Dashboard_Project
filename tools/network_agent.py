@@ -191,10 +191,6 @@ def _route_interface(client_ip: str, runner: Runner) -> str:
         return ""
     routes = json.loads(_run(["ip", "-j", "route", "get", str(address)], runner) or "[]")
     interface = str(routes[0].get("dev", "")).strip() if routes else ""
-    # Docker may replace the real browser address with its bridge gateway.
-    # That address belongs to the host itself, so `ip route get` reports lo.
-    # Treat it as proxy-obscured instead of incorrectly blocking every
-    # physical interface.
     if interface == "lo":
         return ""
     if not interface:

@@ -19,16 +19,9 @@ apt-get update
 apt-get install -y rsyslog logrotate
 getent group adm >/dev/null || groupadd --system adm
 install -d -o root -g adm -m 0750 /var/log/amp-panel
-if [[ -s /var/log/amp-dashboard/amp-dashboard.log &&
-      ! -e /var/log/amp-panel/amp-panel.log ]]; then
-  cp -a /var/log/amp-dashboard/amp-dashboard.log /var/log/amp-panel/amp-panel.log
-else
-  touch /var/log/amp-panel/amp-panel.log
-fi
+touch /var/log/amp-panel/amp-panel.log
 chown root:adm /var/log/amp-panel/amp-panel.log
 chmod 0640 /var/log/amp-panel/amp-panel.log
-rm -f /etc/rsyslog.d/30-amp-dashboard-receiver.conf
-rm -f /etc/logrotate.d/amp-dashboard-receiver
 
 module="imtcp"
 input="input(type=\"imtcp\" port=\"${port}\")"
@@ -36,7 +29,7 @@ input="input(type=\"imtcp\" port=\"${port}\")"
 cat > /etc/rsyslog.d/30-amp-panel-receiver.conf <<RSYSLOG
 module(load="${module}")
 template(name="ampPanelRemoteLine" type="string" string="%timereported:::date-rfc3339% %msg:2:\$%\\n")
-if (\$programname == "amp-panel" or \$programname == "amp-dashboard") then {
+if (\$programname == "amp-panel") then {
     action(type="omfile" file="/var/log/amp-panel/amp-panel.log" fileOwner="root" fileGroup="adm" fileCreateMode="0640" template="ampPanelRemoteLine")
     stop
 }

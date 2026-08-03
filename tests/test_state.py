@@ -69,15 +69,15 @@ class StateSecurityTests(unittest.TestCase):
         self.assertNotIn("password_hash", users[0])
         self.assertNotIn("password_salt", users[0])
 
-    def test_legacy_password_hashes_are_removed(self):
+    def test_unsupported_password_hashes_are_removed(self):
         users = state.merge_access_users(
             [
                 {
                     "username": "operator",
                     "role": "Operator",
                     "active": True,
-                    "password_hash": "legacy-hash",
-                    "password_salt": "legacy-salt",
+                    "password_hash": "unsupported-hash",
+                    "password_salt": "unsupported-salt",
                 }
             ]
         )

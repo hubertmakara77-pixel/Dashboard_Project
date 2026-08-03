@@ -2,7 +2,6 @@ import datetime
 import gzip
 import json
 import pathlib
-import shlex
 import socket
 import threading
 import zoneinfo
@@ -90,41 +89,6 @@ def _parse_event_time(value: object) -> datetime.datetime | None:
     return parsed.astimezone(datetime.timezone.utc)
 
 
-def _legacy_warning(line: str, payload: str) -> dict | None:
-    try:
-        tokens = shlex.split(payload)
-    except ValueError:
-        return None
-    values = {}
-    for token in tokens:
-        if "=" in token:
-            key, value = token.split("=", 1)
-            values[key] = value
-    if not values:
-        return None
-    event_time = _parse_event_time(line.split(maxsplit=1)[0])
-    return {
-        "event": "OPEN",
-        "event_time": event_time.isoformat() if event_time else None,
-        "field": values.get("field", "system"),
-        "kind": values.get("kind", "legacy"),
-        "label": values.get("field", "System"),
-        "value": _float_or_none(values.get("value")),
-        "target": _float_or_none(values.get("threshold")),
-        "delta": _float_or_none(values.get("delta")),
-        "allowed": None,
-        "message": values.get("message", payload),
-        "legacy": True,
-    }
-
-
-def _float_or_none(value: object) -> float | None:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def parse_warning_log_line(line: str) -> dict | None:
     marker = "; warning; "
     if marker not in line:
@@ -140,7 +104,7 @@ def parse_warning_log_line(line: str) -> dict | None:
         if _parse_event_time(event.get("event_time")) is None:
             return None
         return event
-    return _legacy_warning(line, payload)
+    return None
 
 
 def _warning_log_paths(path: pathlib.Path) -> list[pathlib.Path]:

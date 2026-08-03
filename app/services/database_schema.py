@@ -8,8 +8,7 @@ from app.core import device_schema
 def create_schema(connection: sqlite3.Connection) -> None:
     """Create current tables, indexes, metadata counters and count triggers.
 
-    The function is idempotent and must run inside the caller's migration
-    transaction before legacy data is copied.
+    The function is idempotent and must run inside the caller's transaction.
     """
     measurement_columns = ",\n            ".join(
         f"{field} REAL" for field in device_schema.AMPLIFIER_HISTORY_FIELDS

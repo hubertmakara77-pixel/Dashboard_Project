@@ -18,8 +18,6 @@ connection = None
 database_lock = threading.RLock()
 last_error = None
 discarded_records = 0
-LEGACY_SETPOINT_MEASUREMENT = "optical_amp_setpoint"
-
 HISTORY_FIELDS = device_schema.AMPLIFIER_HISTORY_FIELDS
 FIELD_COLUMNS = ", ".join(HISTORY_FIELDS)
 FIELD_PLACEHOLDERS = ", ".join("?" for _ in HISTORY_FIELDS)
@@ -83,54 +81,8 @@ def _backfill_hourly_statistics(opened_connection: sqlite3.Connection) -> None:
     )
 
 
-def _legacy_measurements_exist(opened_connection: sqlite3.Connection) -> bool:
-    table = opened_connection.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='measurements'"
-    ).fetchone()
-    if not table:
-        return False
-    columns = {row["name"] for row in opened_connection.execute("PRAGMA table_info(measurements)")}
-    return "fields_json" in columns and "timestamp_epoch" in columns
-
-
-def _migrate_legacy_measurements(opened_connection: sqlite3.Connection) -> None:
-    if not _legacy_measurements_exist(opened_connection):
-        return
-
-    rows = opened_connection.execute(
-        "SELECT measurement, timestamp_epoch, fields_json FROM measurements ORDER BY id"
-    )
-    sample_sql = (
-        f"INSERT INTO samples (timestamp_ms, {FIELD_COLUMNS}) VALUES (?, {FIELD_PLACEHOLDERS})"
-    )
-    for row in rows:
-        try:
-            fields = json.loads(row["fields_json"])
-            timestamp_ms = round(float(row["timestamp_epoch"]) * 1000)
-        except (TypeError, ValueError, json.JSONDecodeError):
-            continue
-        if row["measurement"] == LEGACY_SETPOINT_MEASUREMENT:
-            gain_set = fields.get("gain_set")
-            if isinstance(gain_set, (int, float)) and not isinstance(gain_set, bool):
-                opened_connection.execute(
-                    "INSERT INTO setpoint_events (timestamp_ms, gain_set) VALUES (?, ?)",
-                    (timestamp_ms, float(gain_set)),
-                )
-            continue
-        values = [
-            float(fields[field])
-            if isinstance(fields.get(field), (int, float))
-            and not isinstance(fields.get(field), bool)
-            else None
-            for field in HISTORY_FIELDS
-        ]
-        opened_connection.execute(sample_sql, (timestamp_ms, *values))
-
-    opened_connection.execute("DROP TABLE measurements")
-
-
 def init_database() -> None:
-    """Open SQLite, migrate legacy data and prepare persistent summaries.
+    """Open SQLite and prepare persistent summaries.
 
     Initialization is idempotent and serialized because API handlers and the serial
     worker may reach the service concurrently during startup.
@@ -154,7 +106,6 @@ def init_database() -> None:
             with opened_connection:
                 schema_version = opened_connection.execute("PRAGMA user_version").fetchone()[0]
                 _create_schema(opened_connection)
-                _migrate_legacy_measurements(opened_connection)
                 if schema_version < 4:
                     opened_connection.execute("DELETE FROM hourly_statistics")
                     _backfill_hourly_statistics(opened_connection)

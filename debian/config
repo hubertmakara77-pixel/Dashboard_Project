@@ -3,25 +3,7 @@ set -e
 
 . /usr/share/debconf/confmodule
 
-legacy_config=""
 if [ -f /etc/amp-panel/amp-panel.env ]; then
-    legacy_config=/etc/amp-panel/amp-panel.env
-elif [ -f /etc/amp-dashboard/dashboard.env ]; then
-    legacy_config=/etc/amp-dashboard/dashboard.env
-elif [ -f /home/debian/Dashboard_Project/.env ]; then
-    legacy_config=/home/debian/Dashboard_Project/.env
-elif command -v systemctl >/dev/null 2>&1; then
-    legacy_working_directory="$(
-        systemctl show amp-dashboard.service \
-            --property=WorkingDirectory --value 2>/dev/null || true
-    )"
-    if [ -n "${legacy_working_directory}" ] &&
-       [ -f "${legacy_working_directory}/.env" ]; then
-        legacy_config="${legacy_working_directory}/.env"
-    fi
-fi
-
-if [ -n "${legacy_config}" ]; then
     exit 0
 fi
 

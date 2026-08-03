@@ -1,6 +1,5 @@
 import base64
 import pathlib
-import sqlite3
 import subprocess
 import tempfile
 import unittest
@@ -159,61 +158,6 @@ class AmpPanelCliTests(unittest.TestCase):
         self.assertEqual(values["FTS_LS_PASSWORD"], password)
         self.assertEqual(values["GAIN_SET_MIN"], "-100")
         self.assertEqual(values["GAIN_SET_MAX"], "100")
-
-    def test_legacy_data_copy_keeps_source_database(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = pathlib.Path(directory)
-            source = root / "legacy"
-            destination = root / "current"
-            source.mkdir()
-            database = sqlite3.connect(source / "measurements.db")
-            database.execute("CREATE TABLE samples (value REAL)")
-            database.execute("INSERT INTO samples VALUES (12.5)")
-            database.commit()
-            database.close()
-            (source / "persisted_state.json").write_text(
-                '{"configured": true}',
-                encoding="utf-8",
-            )
-            values = {
-                "_LEGACY_DATA_DIR": str(source),
-                "AMP_PANEL_DATA_DIR": str(destination),
-            }
-
-            amp_panel_cli.migrate_legacy_data(values)
-
-            self.assertTrue((source / "measurements.db").is_file())
-            copied = sqlite3.connect(destination / "measurements.db")
-            self.assertEqual(
-                copied.execute("SELECT value FROM samples").fetchone()[0],
-                12.5,
-            )
-            copied.close()
-            self.assertTrue((destination / "persisted_state.json").is_file())
-
-    def test_legacy_mdns_suffix_and_docker_device_path_are_translated(self):
-        defaults = amp_panel_cli.default_configuration()
-        defaults["MDNS_HOSTNAME"] = "amp-panel"
-        source_values = {
-            "MDNS_HOSTNAME": "amplifier-01.local",
-            "SERIAL_PORT": "/host/dev/ttyUSB0",
-            "DASHBOARD_PORT": "8088",
-            "DASHBOARD_DATA_DIR": "/mnt/amp-data",
-        }
-        with mock.patch.object(
-            amp_panel_cli,
-            "_normalized_data_dir",
-            return_value=pathlib.Path("/mnt/amp-data"),
-        ):
-            translated = amp_panel_cli.translate_configuration(
-                source_values,
-                pathlib.Path("/opt/Dashboard_Project/.env"),
-            )
-
-        self.assertEqual(translated["MDNS_HOSTNAME"], "amplifier-01")
-        self.assertEqual(translated["SERIAL_PORT"], "/dev/ttyUSB0")
-        self.assertEqual(translated["AMP_PANEL_PORT"], "8088")
-
 
 if __name__ == "__main__":
     unittest.main()

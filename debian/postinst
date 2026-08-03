@@ -24,19 +24,8 @@ chmod 0600 "${answers_file}"
 trap 'rm -f "${answers_file}"' EXIT HUP INT TERM
 
 existing_configuration=false
-if [ -f /etc/amp-panel/amp-panel.env ] ||
-   [ -f /etc/amp-dashboard/dashboard.env ] ||
-   [ -f /home/debian/Dashboard_Project/.env ]; then
+if [ -f /etc/amp-panel/amp-panel.env ]; then
     existing_configuration=true
-elif command -v systemctl >/dev/null 2>&1; then
-    legacy_working_directory="$(
-        systemctl show amp-dashboard.service \
-            --property=WorkingDirectory --value 2>/dev/null || true
-    )"
-    if [ -n "${legacy_working_directory}" ] &&
-       [ -f "${legacy_working_directory}/.env" ]; then
-        existing_configuration=true
-    fi
 fi
 
 read_answer() {

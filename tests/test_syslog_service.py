@@ -95,7 +95,7 @@ class SyslogServiceTests(unittest.TestCase):
 
     def test_warning_history_reads_current_and_rotated_gzip_logs(self):
         with tempfile.TemporaryDirectory() as directory:
-            log_path = pathlib.Path(directory) / "amp-dashboard.log"
+            log_path = pathlib.Path(directory) / "amp-panel.log"
             open_event = {
                 "event": "OPEN",
                 "event_time": "2026-07-25T12:00:00+00:00",
@@ -115,13 +115,13 @@ class SyslogServiceTests(unittest.TestCase):
                 "duration_seconds": 300,
             }
             log_path.write_text(
-                "2026-07-25T12:05:00+00:00 amp-dashboard: "
+                "2026-07-25T12:05:00+00:00 amp-panel: "
                 f"device=test; warning; {json.dumps(cleared_event)}\n",
                 encoding="utf-8",
             )
             with gzip.open(f"{log_path}.1.gz", "wt", encoding="utf-8") as stream:
                 stream.write(
-                    "2026-07-25T12:00:00+00:00 amp-dashboard: "
+                    "2026-07-25T12:00:00+00:00 amp-panel: "
                     f"device=test; warning; {json.dumps(open_event)}\n"
                 )
 
@@ -134,18 +134,6 @@ class SyslogServiceTests(unittest.TestCase):
         self.assertEqual(history["total"], 1)
         self.assertEqual(history["events"][0]["event"], "CLEARED")
         self.assertEqual(history["events"][0]["duration_seconds"], 300)
-
-    def test_legacy_warning_line_remains_visible(self):
-        event = syslog_service.parse_warning_log_line(
-            "2026-07-25T12:00:00+00:00 amp-dashboard: "
-            "device=test; warning; WARNING field=PiA kind=min value=-30 "
-            'threshold=-25 delta=-5 message="PiA below limit"\n'
-        )
-
-        self.assertIsNotNone(event)
-        self.assertEqual(event["event"], "OPEN")
-        self.assertEqual(event["field"], "PiA")
-        self.assertEqual(event["message"], "PiA below limit")
 
     def test_lifecycle_event_contains_event_and_fields(self):
         with (

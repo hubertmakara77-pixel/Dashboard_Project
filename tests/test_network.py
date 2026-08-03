@@ -96,7 +96,7 @@ class NetworkAgentTests(unittest.TestCase):
     def test_reads_host_configuration(self):
         with mock.patch(
             "tools.network_agent.socket.gethostname",
-            return_value="amp-dashboard-a1b2c3d4",
+            return_value="amp-panel-a1b2c3d4",
         ):
             current = get_network_state(FakeRunner())
         self.assertTrue(current["supported"])
@@ -104,7 +104,7 @@ class NetworkAgentTests(unittest.TestCase):
         self.assertEqual(current["interfaces"][0]["netmask"], "255.255.255.0")
         self.assertEqual(
             current["mdns_hostname"],
-            "amp-dashboard-a1b2c3d4.local",
+            "amp-panel-a1b2c3d4.local",
         )
 
     def test_applies_static_configuration_without_shell(self):
@@ -193,23 +193,6 @@ class NetworkAgentTests(unittest.TestCase):
                 },
                 FakeRunner(),
             )
-
-    def test_docker_bridge_gateway_is_not_treated_as_loopback_access(self):
-        runner = FakeRunner()
-        result = apply_network_settings(
-            {
-                "interface": "eth0",
-                "mode": "dhcp",
-                "_requester_ip": "172.18.0.1",
-            },
-            runner,
-        )
-        self.assertEqual(result["access_interface"], "")
-        confirm_network_settings(
-            result["confirmation"]["token"],
-            runner,
-            "172.18.0.1",
-        )
 
     def test_rejects_confirmation_through_a_different_interface(self):
         runner = FakeRunner()

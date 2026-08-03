@@ -48,12 +48,10 @@ Deletion increments the process's discarded-record counter and sends a syslog
 warning. Reducing the limit in diagnostics applies it immediately.
 `setpoint_events` are not included in the sample limit.
 
-## Migrations
+## Schema initialization
 
-Schema creation is idempotent at startup. A legacy `measurements` table containing
-`fields_json` and `timestamp_epoch` is migrated to columnar `samples`; records of
-type `optical_amp_setpoint` are moved to `setpoint_events`. Older schemas rebuild
-hourly aggregates and set `PRAGMA user_version` to 5.
+Schema creation is idempotent at startup. Supported schema versions rebuild
+hourly aggregates when required and set `PRAGMA user_version` to 5.
 
 ## Diagnostic state
 

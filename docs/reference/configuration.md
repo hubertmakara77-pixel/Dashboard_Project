@@ -11,7 +11,7 @@ safe production default.
 | `AMP_PANEL_CONFIG_VERSION` | `2` | package configuration format version |
 | `AMP_PANEL_PORT` | `8000` | web port, 1024–65535 |
 | `AMP_PANEL_DATA_DIR` | `/var/lib/amp-panel` | data directory; paths below `/mnt`, `/media`, and `/srv` are also allowed |
-| `DEVICE_PROFILE` | `amplifier` | `amplifier` or `fts-ls`; the code also recognizes migration aliases |
+| `DEVICE_PROFILE` | `amplifier` | `amplifier` or `fts-ls` |
 | `DEVICE_NAME` | generated | syslog/SNMP device identifier |
 | `MDNS_HOSTNAME` | host name | Avahi label without `.local`, up to 63 characters |
 | `INITIAL_ADMIN_USERNAME` | `admin` | first Administrator, 1–128 allowed characters |
@@ -91,12 +91,4 @@ and `laser-station`, but new configurations should use canonical values only.
 ## Internal package paths
 
 `NETWORK_AGENT_SOCKET` defaults to `/run/amp-panel/network-agent.sock`.
-`MIGRATED_FROM` is optional metadata identifying an older configuration source.
-Do not modify these values from the dashboard.
-
-## Docker Compose differences
-
-`.env.example` also contains `DASHBOARD_PORT`, `DASHBOARD_DATA_DIR`, container
-UID/GID values, and `/app/data` paths. These belong to container deployment. The
-package configurator translates them during migration; do not copy them directly
-into a new `amp-panel.env`.
+Do not modify this value from the dashboard.

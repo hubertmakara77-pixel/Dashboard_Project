@@ -178,7 +178,7 @@ def update_warning_state(
 
 def available_serial_ports() -> list[str]:
     ports = set()
-    for base in (pathlib.Path("/host/dev"), pathlib.Path("/dev")):
+    for base in (pathlib.Path("/dev"),):
         for pattern in ("ttyACM*", "ttyUSB*", "ttyS*", "ttyO*"):
             ports.update(str(path) for path in base.glob(pattern))
         serial_by_id = base / "serial" / "by-id"

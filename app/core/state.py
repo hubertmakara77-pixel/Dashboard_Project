@@ -242,12 +242,3 @@ dashboard_settings = merge_dashboard_settings(persisted_state.get("dashboard_set
 access_users = merge_access_users(persisted_state.get("access_users"))
 snmp_settings = merge_snmp_settings(persisted_state.get("snmp_settings"))
 service_settings = merge_service_settings(persisted_state.get("service_settings"))
-
-# Remove legacy local password hashes. RADIUS is now the sole password store and
-# verifier; the dashboard persists only roles and application access.
-_saved_access_users = persisted_state.get("access_users")
-if isinstance(_saved_access_users, list) and any(
-    isinstance(user, dict) and ("password_hash" in user or "password_salt" in user)
-    for user in _saved_access_users
-):
-    save_persisted_access_users()

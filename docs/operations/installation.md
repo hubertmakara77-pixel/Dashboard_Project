@@ -9,9 +9,6 @@ runtime files in `/run/amp-panel`. The application runs as the unprivileged
 `amp-panel` user. A separate root service performs only controlled NetworkManager
 operations.
 
-Docker remains useful for development and migration from older installations,
-but the procedure below describes the system package.
-
 ## Package installation
 
 Copy the `.deb` file for the target architecture to the device, then run:
@@ -53,27 +50,12 @@ sudo amp-panel configure
 sudo amp-panel doctor
 ```
 
-The configurator can read the current file and translate older path names. SQLite
+The configurator reads the current configuration when it is present. SQLite
 schema migrations run at startup. Do not copy only `measurements.db` while the
 service is running without accounting for WAL/SHM files; follow the backup
 procedure.
 
-## Migrating an older installation
-
-The configurator searches locations including `/etc/amp-dashboard/dashboard.env`,
-the old working directory's `.env`, and `/home/debian/Dashboard_Project/.env`.
-Ports under `/host/dev/...` are translated to `/dev/...`, container data under
-`/app/data` is moved to a host directory, and the legacy service or Compose stack
-is stopped during migration.
-
-An explicit source can be supplied:
-
-```console
-sudo amp-panel configure --source /path/to/old.env
-```
-
-Configuration is written atomically with mode `0600`. If the process fails, the
-configurator attempts to restore the previous installation.
+Configuration is written atomically with mode `0600`.
 
 ## Building the package
 
