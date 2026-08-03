@@ -187,7 +187,7 @@ async function updateAmplifierStatisticsTable() {
 			['PP', 'PP', ''],
 			['SPP', 'SPP', ''],
 			['gain_set', 'Gain Setpoint', 'dB'],
-			['gain_actual', 'Actual Gain', 'dB'],
+			['gain_actual', 'Actual gain', 'dB'],
 			['gain_delta', 'Gain Delta', 'dB'],
 			['temperature', 'Temperature', '\u00B0C'],
 		]
@@ -435,7 +435,7 @@ async function updateAmplifierOverviewCharts() {
 			fullTimestamps,
 			[
 				{ label: 'Gain set', data: getValues(points, 'gain_set'), spanGaps: false },
-				{ label: 'Gain actual', data: getValues(points, 'gain_actual'), spanGaps: false },
+				{ label: 'Actual gain', data: getValues(points, 'gain_actual'), spanGaps: false },
 			],
 			'Gain [dB]',
 			timeBounds,
@@ -560,7 +560,7 @@ const SNMP_FIELD_LABELS = {
 	PiB: 'PiB',
 	PoB: 'PoB',
 	gain_set: 'Gain set',
-	gain_actual: 'Gain actual',
+	gain_actual: 'Actual gain',
 	gain_delta: 'Gain delta',
 	temperature: 'Temperature',
 	seq_nr: 'Sequence nr',

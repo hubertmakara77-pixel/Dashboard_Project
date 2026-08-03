@@ -31,7 +31,6 @@ DETAIL_SECTIONS = (
     "port7",
     "tec",
     "synth",
-    "power",
 )
 SYSTEM_COMMANDS = (
     ("network", "show network settings"),
@@ -68,10 +67,6 @@ SECTION_FIELD_ALIASES = {
         "reference": "10_mhz_reference_source",
         "external_frequency": "external_10_mhz",
         "external_10_mhz_allowed": "external_frequency_allowed",
-    },
-    "power": {
-        "a": "power_a",
-        "b": "power_b",
     },
     "module": {
         "estimated_optical_power": "optical_power_display",
@@ -241,7 +236,10 @@ def parse_key_values(output: str) -> dict[str, Any]:
         if not key:
             continue
         lowered = value.lower()
-        if lowered in {"on", "allowed", "present"}:
+        if key in {"state", "status"}:
+            # State text is reported without assigning device-specific meaning.
+            parsed[key] = value
+        elif lowered in {"on", "allowed", "present"}:
             parsed[key] = True
         elif lowered in {"off", "not allowed", "absent"}:
             parsed[key] = False
@@ -339,9 +337,6 @@ def apply_detailed_output(status: FtsStatus, section: str, output: str) -> FtsSt
     elif section == "synth":
         destination = status["synth"]
         alias_section = "synth"
-    elif section == "power":
-        destination = status["power"]
-        alias_section = "power"
     elif section == "system":
         destination = status["system"]
         alias_section = "system"

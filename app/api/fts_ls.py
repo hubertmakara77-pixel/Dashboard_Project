@@ -1,11 +1,14 @@
 import csv
+import datetime
 import io
+import threading
 
 import fastapi
 import pydantic
 import starlette.requests
 import starlette.responses
 
+from app.api import history as history_api
 from app.api import security as api_security
 from app.core import config, state
 from app.services import database as database_service
@@ -23,7 +26,7 @@ TRANSFER_AFFECTING_ACTIONS = {
     "optical_power",
 }
 ADMIN_ONLY_ACTIONS = {"reboot", "power_reset", "factory_default"}
-RANGES = {"5m", "1h", "24h", "7d", "30d", "all"}
+CSV_EXPORT_LOCK = threading.Lock()
 
 
 class DeviceCommandRequest(pydantic.BaseModel):
@@ -131,29 +134,39 @@ def command(
     return result
 
 
-def _history(range_value: str, start: str, end: str, limit: int) -> list[dict]:
-    if range_value not in RANGES:
-        raise fastapi.HTTPException(status_code=400, detail="Invalid history range.")
-    points = database_service.query_device_snapshots(
-        "fts-ls", range_value, start or None, end or None, limit
-    )
+def _history(
+    range_value: str,
+    start: str | None,
+    end: str | None,
+    limit: int,
+) -> tuple[str, str | None, str | None, list[dict]]:
+    range_value, start, end = history_api.normalize_history_request(range_value, start, end)
+    points = database_service.query_device_snapshots("fts-ls", range_value, start, end, limit)
     if points is None:
         raise fastapi.HTTPException(status_code=503, detail="History database is unavailable.")
-    return points
+    return range_value, start, end, points
 
 
 @router.get("/history")
 def history(
-    range_value: str = fastapi.Query(default="24h", alias="range"),
-    start: str = "",
-    end: str = "",
+    range_value: str = fastapi.Query(default="5m", alias="range"),
+    start: str | None = None,
+    end: str | None = None,
     limit: int = fastapi.Query(default=2000, ge=1, le=10000),
     _current_user: dict = fastapi.Depends(
         api_security.require_roles("Administrator", "Operator", "Viewer")
     ),
 ):
     require_profile()
-    return {"profile": "fts-ls", "points": _history(range_value, start, end, limit)}
+    range_value, start, end, points = _history(range_value, start, end, limit)
+    return {
+        "source": "sqlite",
+        "profile": "fts-ls",
+        "range": range_value,
+        "start": start,
+        "end": end,
+        "points": points,
+    }
 
 
 def _flatten(point: dict) -> dict:
@@ -178,27 +191,49 @@ def _flatten(point: dict) -> dict:
 
 @router.get("/history/export.csv")
 def export_history(
-    range_value: str = fastapi.Query(default="24h", alias="range"),
-    start: str = "",
-    end: str = "",
+    request: starlette.requests.Request,
+    range_value: str = fastapi.Query(default="5m", alias="range"),
+    start: str | None = None,
+    end: str | None = None,
     limit: int = fastapi.Query(default=10000, ge=1, le=10000),
-    _current_user: dict = fastapi.Depends(
+    current_user: dict = fastapi.Depends(
         api_security.require_roles("Administrator", "Operator", "Viewer")
     ),
 ):
     require_profile()
-    rows = [_flatten(point) for point in _history(range_value, start, end, limit)]
-    fieldnames = ["time"]
-    for row in rows:
-        for key in row:
-            if key not in fieldnames:
-                fieldnames.append(key)
-    output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
-    writer.writeheader()
-    writer.writerows(rows)
+    if not CSV_EXPORT_LOCK.acquire(blocking=False):
+        raise fastapi.HTTPException(status_code=429, detail="Another CSV export is in progress")
+    try:
+        range_value, start, end, points = _history(range_value, start, end, limit)
+        rows = [_flatten(point) for point in points]
+        fieldnames = ["time"]
+        for row in rows:
+            for key in row:
+                if key not in fieldnames:
+                    fieldnames.append(key)
+        output = io.StringIO()
+        output.write("sep=;\r\n")
+        writer = csv.DictWriter(
+            output,
+            fieldnames=fieldnames,
+            extrasaction="ignore",
+            delimiter=";",
+            lineterminator="\r\n",
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+        api_security.audit_event(
+            request,
+            "history_csv_exported",
+            current_user["username"],
+            f"profile=fts-ls; range={range_value}; start={start}; end={end}",
+        )
+        content = output.getvalue()
+    finally:
+        CSV_EXPORT_LOCK.release()
+    filename = f"fts_ls_history_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     return starlette.responses.Response(
-        output.getvalue(),
+        content,
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": "attachment; filename=fts-ls-history.csv"},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

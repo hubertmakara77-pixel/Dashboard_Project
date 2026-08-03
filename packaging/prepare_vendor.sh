@@ -16,6 +16,11 @@ command -v python3 >/dev/null 2>&1 || {
     echo "python3 is required" >&2
     exit 1
 }
+python3 -m pip --version >/dev/null 2>&1 || {
+    echo "python3-pip is required to prepare vendored Python dependencies" >&2
+    echo "Install it as root with: apt install python3-pip" >&2
+    exit 1
+}
 
 rm -rf -- "${vendor_dir}"
 mkdir -p -- "${vendor_dir}"

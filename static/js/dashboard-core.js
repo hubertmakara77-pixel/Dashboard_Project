@@ -14,7 +14,6 @@
  * @property {FtsModuleStatus[]} ports Seven physical P1-P7 slots.
  * @property {Object<string, *>} synth
  * @property {Object<string, *>} tec
- * @property {Object<string, *>} power
  * @property {Object<string, *>} system
  */
 
@@ -202,19 +201,7 @@ function ftsStateClass(value) {
 	const normalized = String(value ?? 'unknown')
 		.trim()
 		.toLowerCase()
-	if (['locked', 'on', 'ok', 'true', 'present', 'allowed'].includes(normalized))
-		return normalized === 'true' ? 'on' : normalized
-	if (['unlocked', 'off', 'false', 'absent'].includes(normalized))
-		return normalized === 'false' ? 'off' : normalized
-	if (normalized === 'shutdown') return 'shutdown'
-	return 'unknown'
-}
-
-function setFtsState(id, value) {
-	const element = document.getElementById(id)
-	if (!element) return
-	element.textContent = displayValue(value)
-	element.className = `fts-state ${ftsStateClass(value)}`
+	return !normalized || ['unknown', '-', '--'].includes(normalized) ? 'unknown' : 'reported'
 }
 
 function ftsMetric(label, value, unit = '') {
@@ -387,9 +374,6 @@ function renderFtsStatus(status) {
 	const tecLed = document.getElementById('fts-tec-led')
 	if (tecLed) tecLed.className = `fts-led ${ftsStateClass(tecState)}`
 
-	const power = status.power || {}
-	setFtsState('fts-power-a', firstValue(power, ['power_a'], '--'))
-	setFtsState('fts-power-b', firstValue(power, ['power_b'], '--'))
 	const inventory = [
 		...(status.uplink ? [{ module: status.uplink, index: 0, uplink: true }] : []),
 		...(status.ports || []).map((module, index) => ({ module, index, uplink: false })),

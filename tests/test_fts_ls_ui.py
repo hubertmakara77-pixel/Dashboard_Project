@@ -57,11 +57,34 @@ class FtsLsUiTests(unittest.TestCase):
         script = dashboard_scripts()
 
         self.assertIn('id="fts-modules"', template)
+        self.assertNotIn("fts-power-a", template)
+        self.assertNotIn("fts-power-b", template)
+        self.assertNotIn("status.power", script)
         self.assertNotIn("UL + 7 modular ports", template)
         self.assertIn("const inventory = [", script)
         self.assertIn("...(status.ports || []).map", script)
         self.assertIn("syncFtsModuleTargets(inventory)", script)
         self.assertIn("data-fts-module-target", script)
+        self.assertNotIn('id="fts-warning-count"', template)
+
+    def test_laser_states_are_neutral_and_laser_warnings_are_not_exposed(self):
+        template = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+        script = dashboard_scripts()
+
+        self.assertIn("? 'unknown' : 'reported'", script)
+        self.assertNotIn("['locked', 'on', 'ok'", script)
+        self.assertIn(
+            'class="nav-link profile-amplifier-only" data-tab="warnings"',
+            template,
+        )
+        self.assertIn(
+            'class="tab-panel profile-amplifier-only" data-tab="warnings"',
+            template,
+        )
+        self.assertNotIn("min: -65", script)
+        self.assertNotIn("max: -33", script)
+        self.assertNotIn("max: 100", script)
+        self.assertNotIn("max: 50", script)
 
     def test_module_cards_open_the_selected_port_settings(self):
         template = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")

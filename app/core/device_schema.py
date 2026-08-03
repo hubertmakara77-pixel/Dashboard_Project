@@ -30,7 +30,7 @@ AMPLIFIER_FIELDS = (
     FieldSpec("PP", "PP"),
     FieldSpec("SPP", "SPP"),
     FieldSpec("gain_set", "Gain setpoint", "dB"),
-    FieldSpec("gain_actual", "Gain actual", "dB"),
+    FieldSpec("gain_actual", "Actual gain", "dB"),
     FieldSpec("gain_delta", "Gain delta", "dB"),
     FieldSpec("temperature", "Temperature", "°C"),
     FieldSpec("seq_nr", "Sequence number"),
@@ -96,7 +96,6 @@ def empty_fts_ls_status() -> FtsStatus:
         ],
         "synth": {},
         "tec": {},
-        "power": {"power_a": None, "power_b": None},
         "system": {},
         "last_command": None,
     }

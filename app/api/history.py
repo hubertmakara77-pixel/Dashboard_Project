@@ -29,7 +29,7 @@ def _parse_iso_datetime(value: str | None):
     return parsed.astimezone(datetime.timezone.utc)
 
 
-def _normalize_request(
+def normalize_history_request(
     range_value: str,
     start: str | None,
     end: str | None,
@@ -66,7 +66,7 @@ def history(
         api_security.require_roles("Administrator", "Operator", "Viewer")
     ),
 ):
-    range, start, end = _normalize_request(range, start, end)
+    range, start, end = normalize_history_request(range, start, end)
     result = _read_history(range, start, end)
     return {
         "source": "sqlite",
@@ -86,7 +86,7 @@ def statistics(
         api_security.require_roles("Administrator", "Operator", "Viewer")
     ),
 ):
-    range, start, end = _normalize_request(range, start, end)
+    range, start, end = normalize_history_request(range, start, end)
     result = database_service.query_statistics(range, start, end)
     if result is None:
         raise fastapi.HTTPException(status_code=503, detail="Local database is unavailable")
@@ -109,7 +109,7 @@ def export_history_csv(
         api_security.require_roles("Administrator", "Operator", "Viewer")
     ),
 ):
-    range, start, end = _normalize_request(range, start, end)
+    range, start, end = normalize_history_request(range, start, end)
     if not CSV_EXPORT_LOCK.acquire(blocking=False):
         raise fastapi.HTTPException(status_code=429, detail="Another CSV export is in progress")
 

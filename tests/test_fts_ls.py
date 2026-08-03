@@ -2,10 +2,13 @@ import unittest
 
 from app.core import state
 from app.protocols import fts_ls as fts_protocol
-from app.services import fts_ls
 
 
 class FtsLsTests(unittest.TestCase):
+    def test_status_contract_does_not_invent_station_power_supplies(self):
+        self.assertNotIn("power", state.empty_fts_ls_status())
+        self.assertNotIn("power", fts_protocol.DETAIL_SECTIONS)
+
     def test_documented_commands_are_built_with_validation(self):
         self.assertEqual(
             fts_protocol.build_command("laser_central_frequency", {"value": 194397.7}),
@@ -112,22 +115,11 @@ Power Usage: 31 %
         self.assertNotIn("temperature_read", status["tec"])
         self.assertNotIn("current_frequency", status["laser"])
 
-    def test_manual_quality_indicators_create_alarm_candidates(self):
+    def test_status_text_is_preserved_without_alarm_interpretation(self):
         status = state.empty_fts_ls_status()
-        status["ports"][0].update(
-            {
-                "state": "UNLOCKED",
-                "noise_lf": 101,
-                "jitter": 51,
-                "optical_power_display": "LOW",
-            }
-        )
-        warnings = fts_ls._warning_candidates(status, "2026-08-02T12:00:00+00:00")
+        fts_protocol.apply_detailed_output(status, "laser", "Status: warming up")
 
-        self.assertIn(("P1", "lock_state"), warnings)
-        self.assertIn(("P1", "noise_lf"), warnings)
-        self.assertIn(("P1", "jitter"), warnings)
-        self.assertIn(("P1", "optical_power"), warnings)
+        self.assertEqual(status["laser"]["state"], "WARMING UP")
 
 
 if __name__ == "__main__":

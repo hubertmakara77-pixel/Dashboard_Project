@@ -38,6 +38,17 @@ command -v tar >/dev/null 2>&1 || {
     exit 1
 }
 
+if ! build_dependency_error="$(cd "${project_dir}" && dpkg-checkbuilddeps 2>&1)"; then
+    echo "The Debian package build dependencies are not installed:" >&2
+    echo "${build_dependency_error}" >&2
+    echo >&2
+    echo "On Debian, install them as root with:" >&2
+    echo "  apt update" >&2
+    echo "  apt install build-essential debhelper git python3 python3-pip" >&2
+    echo "Use sudo before apt when running from a non-root account." >&2
+    exit 1
+fi
+
 changelog_version="$(
     cd "${project_dir}" &&
         dpkg-parsechangelog --show-field Version
@@ -51,6 +62,11 @@ chmod +x \
     "${project_dir}/packaging/prepare_vendor.sh"
 
 if [ ! -d "${project_dir}/packaging/vendor/fastapi" ]; then
+    python3 -m pip --version >/dev/null 2>&1 || {
+        echo "python3-pip is required to prepare packaging/vendor." >&2
+        echo "Install it as root with: apt install python3-pip" >&2
+        exit 1
+    }
     "${project_dir}/packaging/prepare_vendor.sh"
 fi
 

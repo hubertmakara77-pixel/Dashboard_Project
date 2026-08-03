@@ -1298,40 +1298,14 @@ body[data-device-profile="fts-ls"] .profile-amplifier-only {
     text-transform: uppercase;
 }
 
-.fts-power-summary {
-    display: flex;
-    gap: 10px;
-}
-
-.fts-power-summary > span {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 10px;
-    color: #a9b9b2;
-    border: 1px solid #2d4038;
-    border-radius: 6px;
-    background: #111a17;
-}
-
-.fts-state,
-.fts-port-state {
+.fts-state {
     font-size: 11px;
     font-weight: 850;
     letter-spacing: 0.04em;
 }
 
-.fts-state.locked,
-.fts-state.on,
-.fts-state.ok,
-.fts-port-state.locked { color: #72dfa8; }
-.fts-state.unlocked,
-.fts-state.off,
-.fts-port-state.unlocked { color: #ff8585; }
-.fts-state.shutdown,
-.fts-port-state.shutdown { color: #e4d392; }
-.fts-state.unknown,
-.fts-port-state.unknown { color: #8fa59b; }
+.fts-state.reported { color: #d7e2dd; }
+.fts-state.unknown { color: #8fa59b; }
 
 .fts-controller-rack {
     display: grid;
@@ -1420,11 +1394,7 @@ body[data-device-profile="fts-ls"] .profile-amplifier-only {
     box-shadow: 0 0 0 3px rgb(104 117 111 / 14%);
 }
 
-.fts-led.locked,
-.fts-led.on,
-.fts-led.ok { background: #36d484; box-shadow: 0 0 10px rgb(54 212 132 / 55%); }
-.fts-led.unlocked { background: #ff6262; box-shadow: 0 0 10px rgb(255 98 98 / 45%); }
-.fts-led.shutdown { background: #d2aa4d; }
+.fts-led.reported { background: #8fa59b; }
 
 .fts-metrics {
     display: grid;

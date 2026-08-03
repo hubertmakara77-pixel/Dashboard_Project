@@ -445,18 +445,15 @@ function ftsStatisticsFields() {
 			key: `${name}_power`,
 			label: `${name} Optical Power`,
 			unit: 'dBm',
-			min: -65,
-			max: -33,
 		})
 		fields.push({
 			key: `${name}_noise_lf`,
 			label: `${name} Low-frequency Noise`,
 			unit: '',
-			max: 100,
 		})
 		fields.push({ key: `${name}_noise_hf`, label: `${name} High-frequency Noise`, unit: '' })
 		if (name !== 'UL')
-			fields.push({ key: `${name}_jitter`, label: `${name} Jitter`, unit: '%', max: 50 })
+			fields.push({ key: `${name}_jitter`, label: `${name} Jitter`, unit: '%' })
 	})
 	fields.push({ key: 'laser_frequency', label: 'Laser Frequency', unit: 'GHz' })
 	fields.push({ key: 'tec_set', label: 'TEC Setpoint', unit: '°C' })

@@ -29,8 +29,6 @@ FTS_OID_MAP = {
     f"{OID_BASE_STR}.3.2.0": ("laser", "state"),
     f"{OID_BASE_STR}.3.3.0": ("laser", "optical_frequency"),
     f"{OID_BASE_STR}.3.4.0": ("tec", "temperature_read_c"),
-    f"{OID_BASE_STR}.3.5.0": ("power", "power_a"),
-    f"{OID_BASE_STR}.3.6.0": ("power", "power_b"),
 }
 for _index in range(0, 8):
     _prefix = f"{OID_BASE_STR}.3.10.{_index}"

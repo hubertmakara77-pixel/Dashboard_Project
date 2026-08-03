@@ -45,6 +45,5 @@ class FtsStatus(TypedDict):
     ports: list[FtsModule]
     synth: dict[str, Any]
     tec: dict[str, Any]
-    power: dict[str, Any]
     system: dict[str, Any]
     last_command: FtsCommandResult | None

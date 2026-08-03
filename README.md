@@ -1,33 +1,53 @@
-# Amp Panel
+# Optical equipment control panel
 
-Amp Panel is a local web dashboard for monitoring and controlling one of two
+The optical equipment control panel is a local web dashboard for monitoring and controlling one of two
 device profiles:
 
 - `amplifier` — an optical amplifier with line-oriented telemetry;
 - `fts-ls` — a Frequency Transfer System laser station controlled through an
   authenticated serial console.
 
-User, administrator, and developer documentation is available in the
-[`docs`](docs/index.md) directory. Key entry points:
+## Building the Debian package
 
-- [quick start](docs/manual/quick-start.md),
-- [operator manual](docs/manual/operator.md),
-- [administrator manual](docs/manual/administrator.md),
-- [Debian package installation](docs/operations/installation.md),
-- [troubleshooting](docs/operations/troubleshooting.md),
-- [architecture](docs/technical/architecture.md),
-- [HTTP API reference](docs/technical/http-api.md).
-
-## Previewing the documentation locally
+Install the build tools once on a clean Debian system:
 
 ```console
-python -m pip install -r requirements-dev.txt
-mkdocs serve
+sudo apt update
+sudo apt install build-essential debhelper git python3 python3-pip
 ```
 
-The site will be available at `http://127.0.0.1:8000`. Check the configuration
-and documentation links with:
+When already logged in as `root`, omit `sudo` from these commands.
+
+The `debhelper` package provides the required `debhelper-compat (= 13)` build
+dependency. Build the package from the project root:
 
 ```console
-mkdocs build --strict
+./packaging/build_deb.sh
+```
+
+The script checks the Debian build dependencies before starting and prints the
+required installation command when one is missing. The resulting `.deb` file is
+written to the parent directory of the project.
+
+## Documentation
+
+The complete operating, administration, and maintenance manual is maintained in
+LaTeX:
+
+- source: [`docs/AMP_PANEL_MANUAL.tex`](docs/AMP_PANEL_MANUAL.tex);
+- printable output: `docs/AMP_PANEL_MANUAL.pdf`.
+
+Compile it twice so the table of contents and references are updated:
+
+```console
+cd docs
+pdflatex -interaction=nonstopmode -halt-on-error AMP_PANEL_MANUAL.tex
+pdflatex -interaction=nonstopmode -halt-on-error AMP_PANEL_MANUAL.tex
+```
+
+The program-operation diagram is generated from code rather than captured from
+the interface:
+
+```console
+python tools/generate_program_flow_diagram.py
 ```

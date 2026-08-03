@@ -15,7 +15,6 @@ except ModuleNotFoundError:  # Allows parser/unit tests without runtime extras.
 from app.core import config, state
 from app.protocols import fts_ls as fts_protocol
 from app.services import database as database_service
-from app.services import syslog as syslog_service
 
 
 @dataclasses.dataclass
@@ -28,136 +27,11 @@ class PendingCommand:
 
 
 command_queue: queue.Queue[PendingCommand] = queue.Queue(maxsize=32)
-FTS_WARNING_KINDS = {"lock_state", "noise_lf", "jitter", "optical_power", "power_supply"}
 SERIAL_ERRORS = (
     (RuntimeError, OSError, ValueError)
     if serial is None
     else (RuntimeError, serial.SerialException, OSError, ValueError)
 )
-
-# Compatibility exports for callers of the former service-level parser API. The
-# runtime and new code use the protocol adapter directly; firmware knowledge lives
-# in one module even while these import names remain stable.
-build_command = fts_protocol.build_command
-parse_key_values = fts_protocol.parse_key_values
-parse_show_status = fts_protocol.parse_show_status
-apply_detailed_output = fts_protocol.apply_detailed_output
-
-
-def _warning_candidates(status: dict, now: str) -> dict[tuple[str, str], dict]:
-    candidates = {}
-    for module in [status["uplink"], *status["ports"]]:
-        module_state = str(module.get("state", "UNKNOWN")).upper()
-        name = module["name"]
-        if module_state == "UNLOCKED":
-            candidates[(name, "lock_state")] = {
-                "time": now,
-                "field": name,
-                "kind": "lock_state",
-                "label": f"{name} lock",
-                "value": module_state,
-                "target": "LOCKED",
-                "delta": None,
-                "allowed": None,
-                "message": f"{name} is unlocked",
-            }
-        noise_lf = module.get("noise_lf")
-        if isinstance(noise_lf, (int, float)) and noise_lf > 100:
-            candidates[(name, "noise_lf")] = {
-                "time": now,
-                "field": name,
-                "kind": "noise_lf",
-                "label": f"{name} LF noise",
-                "value": noise_lf,
-                "target": 100,
-                "delta": noise_lf - 100,
-                "allowed": 0,
-                "message": f"{name} low-frequency noise is unusually high",
-            }
-        jitter = module.get("jitter")
-        if isinstance(jitter, (int, float)) and jitter > 50:
-            candidates[(name, "jitter")] = {
-                "time": now,
-                "field": name,
-                "kind": "jitter",
-                "label": f"{name} jitter",
-                "value": jitter,
-                "target": 50,
-                "delta": jitter - 50,
-                "allowed": 0,
-                "message": f"{name} jitter indicates possible massive cycle slips",
-            }
-        optical_display = str(module.get("optical_power_display", "")).upper()
-        if optical_display in {"LOW", "HIGH"}:
-            candidates[(name, "optical_power")] = {
-                "time": now,
-                "field": name,
-                "kind": "optical_power",
-                "label": f"{name} optical power",
-                "value": optical_display,
-                "target": "-65…-33 dBm",
-                "delta": None,
-                "allowed": None,
-                "message": f"{name} estimated optical power is {optical_display}",
-            }
-    power = status.get("power", {})
-    for side in ("a", "b"):
-        value = power.get(f"power_{side}", power.get(side))
-        normalized = str(value).strip().lower()
-        if value is False or normalized in {"off", "absent", "failed", "failure"}:
-            label = f"Power {side.upper()}"
-            candidates[(label, "power_supply")] = {
-                "time": now,
-                "field": label,
-                "kind": "power_supply",
-                "label": label,
-                "value": value,
-                "target": "ON",
-                "delta": None,
-                "allowed": None,
-                "message": f"{label} is unavailable",
-            }
-    return candidates
-
-
-def _update_warnings(status: dict, now: str) -> None:
-    current = _warning_candidates(status, now)
-    opened = []
-    cleared = []
-    with state.state_lock:
-        managed_previous = {key for key in state.active_warnings if key[1] in FTS_WARNING_KINDS}
-        for key in managed_previous - set(current):
-            warning = dict(state.active_warnings.pop(key))
-            state.acknowledged_warning_keys.discard(key)
-            warning.update({"event": "CLEARED", "event_time": now, "cleared_at": now})
-            cleared.append(warning)
-        for key, warning in current.items():
-            if key in state.active_warnings:
-                original = state.active_warnings[key]
-                warning.update(
-                    {
-                        "event": "OPEN",
-                        "event_time": original["event_time"],
-                        "opened_at": original["opened_at"],
-                        "acknowledged": key in state.acknowledged_warning_keys,
-                    }
-                )
-            else:
-                warning.update(
-                    {"event": "OPEN", "event_time": now, "opened_at": now, "acknowledged": False}
-                )
-                opened.append(dict(warning))
-            state.active_warnings[key] = warning
-    for warning in opened:
-        syslog_service.send_warning_event("OPEN", warning)
-        try:
-            from app.services import snmp as snmp_service
-
-            snmp_service.send_trap(warning)
-        except Exception as exc:
-            print("SNMP trap send failed:", exc)
-    for warning in cleared:
-        syslog_service.send_warning_event("CLEARED", warning)
 
 
 class SerialCliSession:
@@ -330,7 +204,6 @@ def _poll(session: SerialCliSession) -> None:
         state.serial_connected = True
         state.serial_error = None
     database_service.write_device_snapshot("fts-ls", status, now)
-    _update_warnings(status, now)
 
 
 def reader_loop() -> None:

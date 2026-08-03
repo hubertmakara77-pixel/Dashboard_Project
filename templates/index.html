@@ -38,7 +38,7 @@
                     <span class="nav-group-title">Monitor</span>
                     <button type="button" class="nav-link" data-tab="overview" data-title="Overview">Overview</button>
                     <button type="button" class="nav-link" data-tab="statistics" data-title="Statistics">Statistics</button>
-                    <button type="button" class="nav-link" data-tab="warnings" data-title="Warnings">Warnings</button>
+                    <button type="button" class="nav-link profile-amplifier-only" data-tab="warnings" data-title="Warnings">Warnings</button>
                 </div>
 
                 <div class="nav-group" data-admin-only>
@@ -109,7 +109,7 @@
 
                             <div class="metric-strip">
                                 <div class="metric-item metric-primary">
-                                    <span>Actual Gain</span>
+                                    <span>Actual gain</span>
                                     <strong id="gain-actual">-- dB</strong>
                                 </div>
                                 <div class="metric-secondary-row">
@@ -138,10 +138,6 @@
                                 <span class="fts-eyebrow">Frequency Transfer System</span>
                                 <h2>Modular optical station</h2>
                                 <p id="fts-rack-summary" class="fts-rack-summary">Waiting for the port layout...</p>
-                            </div>
-                            <div class="fts-power-summary">
-                                <span>Power A <strong id="fts-power-a" class="fts-state unknown">--</strong></span>
-                                <span>Power B <strong id="fts-power-b" class="fts-state unknown">--</strong></span>
                             </div>
                         </div>
                         <div class="fts-controller-rack" aria-label="Station controller modules">
@@ -183,7 +179,6 @@
                             <div id="fts-modules" class="fts-module-grid" aria-live="polite"></div>
                         </section>
                         <div class="fts-live-footer">
-                            <span>Active alarms <strong id="fts-warning-count">0</strong></span>
                             <span id="fts-module-inventory">No module inventory received</span>
                         </div>
                     </div>
@@ -411,7 +406,7 @@
                     </div>
                 </section>
 
-                <section class="tab-panel" data-tab="warnings">
+                <section class="tab-panel profile-amplifier-only" data-tab="warnings">
                     <div class="data-panel warnings-panel">
                         <div class="table-header">
                             <div>
@@ -466,7 +461,7 @@
                                     <option value="PiB">PiB</option>
                                     <option value="PoB">PoB</option>
                                     <option value="temperature">Temperature</option>
-                                    <option value="gain_actual">Gain actual</option>
+                                    <option value="gain_actual">Actual gain</option>
                                     <option value="system">System</option>
                                 </select>
                             </label>

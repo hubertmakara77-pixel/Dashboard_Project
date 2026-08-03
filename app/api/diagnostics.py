@@ -105,7 +105,7 @@ async def update_service_diagnostics_settings(
             detail="Database limit must be 0 (unlimited) or between 1 and 10000000 records",
         )
     serial_port = request.serial_port.strip()
-    if not re.fullmatch(r"/(?:host/)?dev/tty(?:ACM|USB)[0-9]+", serial_port):
+    if not re.fullmatch(r"/dev/tty(?:ACM|USB)[0-9]+", serial_port):
         raise fastapi.HTTPException(status_code=400, detail="Select an available USB serial port")
     if serial_port not in serial_reader.available_serial_ports():
         raise fastapi.HTTPException(

@@ -165,15 +165,6 @@ def merge_service_settings(saved_settings: dict | None) -> dict:
                     pass
         if isinstance(saved_settings.get("serial_port"), str):
             settings["serial_port"] = saved_settings["serial_port"]
-        # Preserve the limit selected with the previous InfluxDB-buffer version.
-        if (
-            "database_max_records" not in saved_settings
-            and "influx_buffer_max_records" in saved_settings
-        ):
-            try:
-                settings["database_max_records"] = int(saved_settings["influx_buffer_max_records"])
-            except (TypeError, ValueError):
-                pass
     settings["syslog_heartbeat_seconds"] = max(0, settings["syslog_heartbeat_seconds"])
     settings["database_max_records"] = max(0, settings["database_max_records"])
     return settings

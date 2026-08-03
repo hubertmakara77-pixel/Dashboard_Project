@@ -165,7 +165,7 @@ async function updateDashboard() {
 		}
 
 		setTextIfExists('status-last-update', formatTime(json.last_update))
-		setTextIfExists('status-system-time', new Date().toLocaleTimeString())
+		setTextIfExists('status-system-time', formatTime(json.system_time))
 		updateDatabaseStatus(json.database)
 
 		const statusEl = document.getElementById('status-connection')
@@ -189,7 +189,6 @@ async function updateDashboard() {
 function renderActiveWarnings(warnings) {
 	const body = document.getElementById('active-warnings-table-body')
 	setTextIfExists('warning-count', String(warnings.length))
-	setTextIfExists('fts-warning-count', String(warnings.length))
 	if (!body) return
 	if (!warnings.length) {
 		body.innerHTML = '<tr><td colspan="7">No active warnings</td></tr>'
