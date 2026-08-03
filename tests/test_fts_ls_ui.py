@@ -52,6 +52,21 @@ class FtsLsUiTests(unittest.TestCase):
         self.assertIn("syncFtsModuleTargets(inventory)", script)
         self.assertIn("data-fts-module-target", script)
 
+    def test_module_cards_open_the_selected_port_settings(self):
+        template = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "static" / "js" / "dashboard.js").read_text(encoding="utf-8")
+        stylesheet = (ROOT / "static" / "css" / "style.css").read_text(encoding="utf-8")
+
+        self.assertNotIn("phase-stabilized optical carrier", template)
+        self.assertNotIn("fts-signal-bus", template)
+        self.assertNotIn(".fts-signal-bus", stylesheet)
+        self.assertNotIn(".fts-pluggable-module:not(.unequipped):hover", stylesheet)
+        rack_rule = stylesheet.split(".fts-optical-rack {", 1)[1].split("}", 1)[0]
+        self.assertNotIn("border:", rack_rule)
+        self.assertNotIn("background:", rack_rule)
+        self.assertIn("setActiveTab('device-settings')", script)
+        self.assertIn("document.getElementById('fts-port-settings-form')?.scrollIntoView", script)
+
     def test_fts_settings_and_service_diagnostics_are_flat_section_panels(self):
         template = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
 
@@ -78,6 +93,16 @@ class FtsLsUiTests(unittest.TestCase):
 
         self.assertIn("const ftsInputBaselines = new Map()", script)
         self.assertIn("input.value === ftsInputBaselines.get(input.id)", script)
+
+    def test_administration_tabs_use_service_diagnostics_layout(self):
+        template = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+        stylesheet = (ROOT / "static" / "css" / "style.css").read_text(encoding="utf-8")
+
+        self.assertEqual(template.count('class="data-panel administration-panel'), 4)
+        self.assertEqual(template.count('class="administration-list"'), 4)
+        self.assertNotIn('class="access-grid"', template)
+        self.assertIn(".administration-section", stylesheet)
+        self.assertIn(".administration-panel .network-status-grid", stylesheet)
 
 
 if __name__ == "__main__":

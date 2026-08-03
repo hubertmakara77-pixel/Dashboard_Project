@@ -2333,6 +2333,7 @@ function setupFtsControls() {
 			.some(input => ftsDirtyInputs.has(input.id))
 		if (hasChanges && !window.confirm('Discard unsaved changes for the selected module?')) {
 			event.target.value = ftsFormTarget || 'ul'
+			event.preventDefault()
 			return
 		}
 		clearFtsFormChanges(form)
@@ -2348,9 +2349,16 @@ function setupFtsControls() {
 		if (event.type === 'keydown') event.preventDefault()
 		const select = document.getElementById('fts-target')
 		if (!select) return
-		select.value = module.dataset.ftsModuleTarget
-		select.dispatchEvent(new Event('change', { bubbles: true }))
+		const requestedTarget = module.dataset.ftsModuleTarget
+		select.value = requestedTarget
+		const accepted = select.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }))
+		if (!accepted || select.value !== requestedTarget) return
 		highlightSelectedFtsModule()
+		if (!setActiveTab('device-settings')) return
+		history.replaceState(null, '', `${window.location.pathname}${window.location.search}#device-settings`)
+		window.requestAnimationFrame(() => {
+			document.getElementById('fts-port-settings-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+		})
 	}
 	moduleRack?.addEventListener('click', selectModule)
 	moduleRack?.addEventListener('keydown', selectModule)

@@ -277,6 +277,71 @@ select {
     padding: 22px;
 }
 
+.administration-panel {
+    padding: 22px;
+}
+
+.administration-list {
+    display: grid;
+}
+
+.administration-section {
+    min-width: 0;
+    padding: 20px 0;
+    border-bottom: 1px solid #263a32;
+}
+
+.administration-section:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+}
+
+.administration-section > .settings-header:first-child {
+    margin-bottom: 14px;
+}
+
+.administration-fields,
+.access-form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px 24px;
+}
+
+.administration-fields .toggle-field {
+    grid-column: 1 / -1;
+}
+
+.access-form > .settings-header {
+    grid-column: 1 / -1;
+}
+
+.administration-panel .network-status-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 28px;
+    margin: 0;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+}
+
+.administration-panel .network-status-grid > div {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 10px 0;
+    border-right: 0;
+    border-bottom: 1px solid #20352d;
+}
+
+.administration-panel .network-status-grid strong {
+    text-align: right;
+}
+
+.administration-panel .network-form > .settings-header {
+    grid-column: 1 / -1;
+}
+
 .service-diagnostics-list {
     display: grid;
 }
@@ -816,7 +881,7 @@ select {
     color: #dfe8e3;
 }
 
-.network-panel { max-width: 1000px; }
+.network-panel { max-width: none; }
 .network-status-grid { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid #20352d; border-radius: 8px; overflow: hidden; margin-bottom: 18px; }
 .network-status-grid > div { display: grid; gap: 6px; padding: 14px; border-right: 1px solid #20352d; border-bottom: 1px solid #20352d; }
 .network-status-grid span { color: #8fa59b; font-size: 12px; font-weight: 700; }
@@ -1093,31 +1158,10 @@ select {
     background: rgba(0, 106, 60, 0.08);
 }
 
-.access-grid {
-    display: grid;
-    grid-template-columns: 360px minmax(640px, 1fr);
-    gap: 24px;
-    align-items: start;
-}
-
-.access-form {
-    position: sticky;
-    top: 24px;
-}
-
-.audit-export-panel {
-    grid-column: 1;
-}
-
 .audit-export-panel p {
     color: #a9b9b2;
     font-size: 13px;
     line-height: 1.45;
-}
-
-.access-grid > .data-panel {
-    grid-column: 2;
-    grid-row: 1 / span 2;
 }
 
 .form-field {
@@ -1308,10 +1352,6 @@ body[data-device-profile="fts-ls"] .profile-amplifier-only {
 
 .fts-optical-rack {
     min-width: 0;
-    padding: 16px;
-    border: 1px solid #2a4037;
-    border-radius: 8px;
-    background: #0e1713;
 }
 
 .fts-rack-header {
@@ -1413,30 +1453,6 @@ body[data-device-profile="fts-ls"] .profile-amplifier-only {
     overflow-wrap: anywhere;
 }
 
-.fts-signal-bus {
-    position: relative;
-    height: 24px;
-    color: #71c99e;
-    font-size: 11px;
-    text-align: center;
-}
-
-.fts-signal-bus::before {
-    content: "";
-    position: absolute;
-    top: 11px;
-    right: 1.5%;
-    left: 1.5%;
-    border-top: 2px solid #ad5656;
-}
-
-.fts-signal-bus span {
-    position: relative;
-    z-index: 1;
-    padding: 0 10px;
-    background: #141f1b;
-}
-
 .fts-module-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -1447,15 +1463,12 @@ body[data-device-profile="fts-ls"] .profile-amplifier-only {
     position: relative;
     padding-top: 12px;
     cursor: pointer;
-    transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
 }
 
-.fts-pluggable-module:not(.unequipped):hover,
 .fts-pluggable-module:not(.unequipped):focus-visible {
     border-color: #68d19b;
-    background: #16251f;
-    outline: none;
-    transform: translateY(-1px);
+    outline: 2px solid #68d19b;
+    outline-offset: 2px;
 }
 
 .fts-pluggable-module.selected {
@@ -1609,16 +1622,6 @@ body[data-device-profile="fts-ls"] .profile-amplifier-only {
 @media (max-width: 1100px) {
     .standard-grid,
     .charts-grid,
-    .access-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .audit-export-panel,
-    .access-grid > .data-panel {
-        grid-column: 1;
-        grid-row: auto;
-    }
-
     .standard-grid {
         min-width: 0;
     }
@@ -1714,7 +1717,9 @@ body[data-device-profile="fts-ls"] .profile-amplifier-only {
         border-top: 0;
     }
 
-    .access-form {
-        position: static;
+    .administration-fields,
+    .access-form,
+    .administration-panel .network-status-grid {
+        grid-template-columns: 1fr;
     }
 }

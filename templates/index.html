@@ -180,7 +180,6 @@
                                 </div>
                                 <span id="fts-equipped-count" class="fts-equipped-count">0 / 7 positions equipped</span>
                             </div>
-                            <div class="fts-signal-bus" aria-hidden="true"><span>phase-stabilized optical carrier</span></div>
                             <div id="fts-modules" class="fts-module-grid" aria-live="polite"></div>
                         </section>
                         <div class="fts-live-footer">
@@ -599,8 +598,15 @@
                 </section>
 
                 <section class="tab-panel" data-tab="access-control" data-admin-only>
-                    <div class="access-grid">
-                        <form id="access-user-form" class="control-strip access-form">
+                    <div class="data-panel administration-panel">
+                        <div class="service-page-header">
+                            <div>
+                                <h2>Access Control</h2>
+                                <p>Manage panel users and download the security audit log.</p>
+                            </div>
+                        </div>
+                        <div class="administration-list">
+                        <form id="access-user-form" class="administration-section access-form">
                             <div class="settings-header control-save-header">
                                 <h2>Add User</h2>
                                 <button type="submit">Add</button>
@@ -626,15 +632,7 @@
                             </label>
                         </form>
 
-                        <div class="control-strip audit-export-panel">
-                            <div class="settings-header control-save-header">
-                                <h2>Syslog</h2>
-                                <button id="download-syslog-button" type="button">Download</button>
-                            </div>
-                            <p>Download warnings and all recorded user actions, including parameter changes.</p>
-                        </div>
-
-                        <div class="data-panel">
+                        <section class="administration-section">
                             <div class="table-header">
                                 <h2>Users</h2>
                                 <span id="access-users-count">--</span>
@@ -652,36 +650,60 @@
                                     <tr><td colspan="4">No users</td></tr>
                                 </tbody>
                             </table>
+                        </section>
+
+                        <section class="administration-section audit-export-panel">
+                            <div class="settings-header control-save-header">
+                                <div><h2>Syslog</h2><p class="settings-description">Warnings and recorded user actions, including parameter changes.</p></div>
+                                <button id="download-syslog-button" type="button">Download</button>
+                            </div>
+                        </section>
                         </div>
                     </div>
                 </section>
 
                 <section class="tab-panel" data-tab="snmp-settings" data-admin-only>
-                    <div class="access-grid">
-                        <form id="snmp-settings-form" class="control-strip access-form">
-                            <div class="settings-header control-save-header">
+                    <div class="data-panel administration-panel">
+                        <div class="service-page-header">
+                            <div>
                                 <h2>SNMP Configuration</h2>
+                                <p>Configure the SNMP agent, trap destination and community.</p>
+                            </div>
+                        </div>
+                        <div class="administration-list">
+                        <form id="snmp-settings-form" class="administration-section administration-form">
+                            <div class="settings-header control-save-header">
+                                <h2>Agent Settings</h2>
                                 <button type="submit">Save</button>
                             </div>
-                            <label class="toggle-field"><input id="snmp-enabled-input" type="checkbox"> Enable SNMP agent</label>
-                            <label class="form-field">SNMP port<input id="snmp-port-input" type="number" value="1161" readonly required></label>
-                            <label class="form-field">Community<input id="snmp-community-input" type="text" value="public" required></label>
-                            <label class="form-field">Trap target IP<input id="snmp-trap-host-input" type="text" value="127.0.0.1" required></label>
-                            <label class="form-field">Trap target port<input id="snmp-trap-port-input" type="number" value="162" required></label>
+                            <div class="administration-fields">
+                                <label class="toggle-field"><input id="snmp-enabled-input" type="checkbox"> Enable SNMP agent</label>
+                                <label class="form-field">SNMP port<input id="snmp-port-input" type="number" value="1161" readonly required></label>
+                                <label class="form-field">Community<input id="snmp-community-input" type="text" value="public" required></label>
+                                <label class="form-field">Trap target IP<input id="snmp-trap-host-input" type="text" value="127.0.0.1" required></label>
+                                <label class="form-field">Trap target port<input id="snmp-trap-port-input" type="number" value="162" required></label>
+                            </div>
                         </form>
-                        <div class="data-panel">
-                            <div class="table-header"><h2>SNMP Live Status</h2></div>
-                            <div id="snmp-live-values" class="control-strip"><p>Waiting for SNMP data...</p></div>
+                        <section class="administration-section">
+                            <div class="settings-header"><h2>SNMP Live Status</h2></div>
+                            <div id="snmp-live-values"><p>Waiting for SNMP data...</p></div>
+                        </section>
                         </div>
                     </div>
                 </section>
 
                 <section class="tab-panel" data-tab="network-settings" data-admin-only>
-                    <div class="data-panel network-panel">
-                        <div class="settings-header">
-                            <h2>Network Configuration</h2>
+                    <div class="data-panel administration-panel network-panel">
+                        <div class="service-page-header">
+                            <div>
+                                <h2>Network Configuration</h2>
+                                <p>Review the active connection and configure IPv4 addressing.</p>
+                            </div>
                             <button id="refresh-network-button" type="button">Refresh</button>
                         </div>
+                        <div class="administration-list">
+                        <section class="administration-section">
+                            <div class="settings-header"><h2>Current Connection</h2></div>
                         <div class="network-status-grid">
                             <div><span>Status</span><strong id="network-link-state">--</strong></div>
                             <div><span>IP address</span><strong id="network-current-ip">--</strong></div>
@@ -692,7 +714,9 @@
                             <div><span>Stable Amp Panel address</span><strong><a id="network-mdns-url" href="#">--</a></strong></div>
                         </div>
                         <p id="network-message" class="network-message" role="status"></p>
-                        <form id="network-form" class="network-form">
+                        </section>
+                        <form id="network-form" class="network-form administration-section">
+                            <div class="settings-header"><h2>IPv4 Settings</h2></div>
                             <label>Interface<select name="interface" id="network-interface" required></select></label>
                             <label>IPv4 mode<select name="mode" id="network-mode" required><option value="dhcp">Dynamic (DHCP)</option><option value="static">Static</option></select></label>
                             <div id="network-static-fields" class="network-static-fields" aria-hidden="true">
@@ -704,15 +728,22 @@
                             <p class="network-warning">For safe validation, you can only change the interface currently carrying this Amp Panel session. Applying settings reloads that connection and may temporarily disconnect this panel.</p>
                             <button id="save-network-button" type="submit" data-admin-only>Save network settings</button>
                         </form>
+                        </div>
                     </div>
                 </section>
 
                 <section class="tab-panel" data-tab="ntp-settings" data-admin-only>
-                    <div class="data-panel network-panel">
-                        <div class="settings-header">
-                            <h2>Time Diagnostics</h2>
+                    <div class="data-panel administration-panel network-panel">
+                        <div class="service-page-header">
+                            <div>
+                                <h2>Time Diagnostics</h2>
+                                <p>Inspect NTP reachability and the current synchronization state.</p>
+                            </div>
                             <button id="refresh-ntp-button" type="button">Refresh</button>
                         </div>
+                        <div class="administration-list">
+                        <section class="administration-section">
+                            <div class="settings-header"><h2>NTP Status</h2></div>
                         <p id="ntp-message" class="network-message" role="status"></p>
                         <div class="network-status-grid">
                             <div><span>Time server</span><strong id="ntp-server">--</strong></div>
@@ -726,6 +757,8 @@
                             <div><span>Root delay / dispersion</span><strong id="ntp-root-delay">--</strong></div>
                             <div><span>Poll interval</span><strong id="ntp-poll-interval">--</strong></div>
                             <div><span>Last checked</span><strong id="ntp-checked-at">--</strong></div>
+                        </div>
+                        </section>
                         </div>
                     </div>
                 </section>
