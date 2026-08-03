@@ -127,9 +127,7 @@ class SyslogServiceTests(unittest.TestCase):
 
             with mock.patch.object(config, "SYSLOG_EXPORT_FILE", str(log_path)):
                 history = syslog_service.read_warning_history(
-                    start=datetime.datetime(
-                        2026, 7, 25, 11, 0, tzinfo=datetime.timezone.utc
-                    ),
+                    start=datetime.datetime(2026, 7, 25, 11, 0, tzinfo=datetime.timezone.utc),
                     status="cleared",
                 )
 
@@ -140,7 +138,7 @@ class SyslogServiceTests(unittest.TestCase):
     def test_legacy_warning_line_remains_visible(self):
         event = syslog_service.parse_warning_log_line(
             "2026-07-25T12:00:00+00:00 amp-dashboard: "
-            'device=test; warning; WARNING field=PiA kind=min value=-30 '
+            "device=test; warning; WARNING field=PiA kind=min value=-30 "
             'threshold=-25 delta=-5 message="PiA below limit"\n'
         )
 

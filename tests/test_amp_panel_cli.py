@@ -140,7 +140,7 @@ class AmpPanelCliTests(unittest.TestCase):
         self.assertEqual(values["RADIUS_SECRET"], secret)
 
     def test_fts_ls_installer_answers_select_profile_and_serial_defaults(self):
-        password = 'adm!n with spaces'
+        password = "adm!n with spaces"
         values = amp_panel_cli.default_configuration()
         answers = {
             "device_profile_b64": base64.b64encode(b"fts-ls").decode(),

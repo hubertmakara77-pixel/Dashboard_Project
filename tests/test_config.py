@@ -14,9 +14,7 @@ class ConfigParsingTests(unittest.TestCase):
 
     def test_env_float_rejects_non_finite_values(self):
         for value in ("nan", "inf", "-inf", "invalid"):
-            with self.subTest(value=value), mock.patch.dict(
-                os.environ, {"TEST_FLOAT": value}
-            ):
+            with self.subTest(value=value), mock.patch.dict(os.environ, {"TEST_FLOAT": value}):
                 self.assertEqual(config._env_float("TEST_FLOAT", 3.5), 3.5)
 
     def test_gain_bounds_fail_closed_when_configured_values_are_invalid(self):
@@ -28,9 +26,7 @@ class ConfigParsingTests(unittest.TestCase):
             ("nan", "30"),
             ("0", "inf"),
         ):
-            with self.subTest(minimum=minimum, maximum=maximum), self.assertRaises(
-                RuntimeError
-            ):
+            with self.subTest(minimum=minimum, maximum=maximum), self.assertRaises(RuntimeError):
                 config._gain_bounds(minimum, maximum)
 
     def test_initial_admin_username_is_validated(self):

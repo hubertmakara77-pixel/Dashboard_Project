@@ -9,7 +9,6 @@ from app.api import security as api_security
 from app.core import config, state
 from app.services import radius as radius_service
 
-
 router = fastapi.APIRouter()
 
 
@@ -45,7 +44,9 @@ def login(
         failures[:] = [timestamp for timestamp in failures if timestamp >= cutoff]
         if len(failures) >= config.LOGIN_MAX_ATTEMPTS:
             api_security.audit_event(request, "login_rate_limited", username)
-            raise fastapi.HTTPException(status_code=429, detail="Too many login attempts. Try again later")
+            raise fastapi.HTTPException(
+                status_code=429, detail="Too many login attempts. Try again later"
+            )
         user = api_security.find_access_user(username)
         if user is None or not user["active"]:
             failures.append(now)

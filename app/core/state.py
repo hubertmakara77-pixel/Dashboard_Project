@@ -3,8 +3,8 @@ import json
 import pathlib
 import threading
 
-from app.core import config, validation
-
+from app.core import config, device_schema, validation
+from app.core.fts_types import FtsStatus
 
 persist_lock = threading.Lock()
 
@@ -12,11 +12,7 @@ persist_lock = threading.Lock()
 DEFAULT_DASHBOARD_SETTINGS = {
     "gain_tolerance": 0.25,
     "warn_limits": {
-        "PiA": {"min": None, "max": None},
-        "PoA": {"min": None, "max": None},
-        "PiB": {"min": None, "max": None},
-        "PoB": {"min": None, "max": None},
-        "temperature": {"min": None, "max": None},
+        field: {"min": None, "max": None} for field in device_schema.AMPLIFIER_WARNING_FIELDS
     },
 }
 
@@ -35,31 +31,14 @@ DEFAULT_SERVICE_SETTINGS = {
 }
 
 
-def empty_fts_ls_status() -> dict:
-    return {
-        "profile": "fts-ls",
-        "laser": {},
-        "uplink": {
-            "name": "UL",
-            "type": "Uplink",
-            "state": "UNKNOWN",
-            "connectors": ["O", "BN", "BNA"],
-        },
-        "ports": [
-            {
-                "name": f"P{number}",
-                "type": "Unknown",
-                "state": "UNKNOWN",
-                "connectors": ["O", "BN", "TR"],
-            }
-            for number in range(1, 8)
-        ],
-        "synth": {},
-        "tec": {},
-        "power": {"a": None, "b": None},
-        "system": {},
-        "last_command": None,
-    }
+def empty_fts_ls_status() -> FtsStatus:
+    """Return a complete, independent snapshot for an unpolled FTS-LS station.
+
+    Keeping all seven physical slots in the initial value gives the API and UI a
+    stable shape before the first successful serial poll.
+    """
+    return device_schema.empty_fts_ls_status()
+
 
 def load_persisted_state() -> dict:
     path = pathlib.Path(config.PERSISTED_STATE_FILE)
@@ -144,21 +123,25 @@ def merge_access_users(saved_users: list[dict] | None) -> list[dict]:
         if not username or username in seen_usernames:
             continue
 
-        merged_users.append({
-            "username": username,
-            "role": str(user.get("role", "Operator")).strip() or "Operator",
-            "active": bool(user.get("active", True)),
-        })
+        merged_users.append(
+            {
+                "username": username,
+                "role": str(user.get("role", "Operator")).strip() or "Operator",
+                "active": bool(user.get("active", True)),
+            }
+        )
         seen_usernames.add(username)
 
     if merged_users:
         return merged_users
 
-    return [{
-        "username": config.INITIAL_ADMIN_USERNAME,
-        "role": "Administrator",
-        "active": True,
-    }]
+    return [
+        {
+            "username": config.INITIAL_ADMIN_USERNAME,
+            "role": "Administrator",
+            "active": True,
+        }
+    ]
 
 
 def merge_snmp_settings(saved_settings: dict | None) -> dict:
@@ -183,7 +166,10 @@ def merge_service_settings(saved_settings: dict | None) -> dict:
         if isinstance(saved_settings.get("serial_port"), str):
             settings["serial_port"] = saved_settings["serial_port"]
         # Preserve the limit selected with the previous InfluxDB-buffer version.
-        if "database_max_records" not in saved_settings and "influx_buffer_max_records" in saved_settings:
+        if (
+            "database_max_records" not in saved_settings
+            and "influx_buffer_max_records" in saved_settings
+        ):
             try:
                 settings["database_max_records"] = int(saved_settings["influx_buffer_max_records"])
             except (TypeError, ValueError):
@@ -233,13 +219,11 @@ def save_persisted_access_users() -> None:
 
 latest_data = {}
 latest_snmp_data = {}
-fts_ls_status = empty_fts_ls_status()
+fts_ls_status: FtsStatus = empty_fts_ls_status()
 serial_connected = False
 serial_error = None
 last_update = None
-last_known_gain_set = merge_last_known_gain_set(
-    persisted_state.get("last_known_gain_set", 15.0)
-)
+last_known_gain_set = merge_last_known_gain_set(persisted_state.get("last_known_gain_set", 15.0))
 
 serial_port = None
 
@@ -259,8 +243,8 @@ access_users = merge_access_users(persisted_state.get("access_users"))
 snmp_settings = merge_snmp_settings(persisted_state.get("snmp_settings"))
 service_settings = merge_service_settings(persisted_state.get("service_settings"))
 
-# Usuń stare lokalne hashe haseł. Od tej wersji hasła przechowuje i sprawdza
-# wyłącznie RADIUS, a Dashboard zapisuje tylko role i dostęp do aplikacji.
+# Remove legacy local password hashes. RADIUS is now the sole password store and
+# verifier; the dashboard persists only roles and application access.
 _saved_access_users = persisted_state.get("access_users")
 if isinstance(_saved_access_users, list) and any(
     isinstance(user, dict) and ("password_hash" in user or "password_salt" in user)

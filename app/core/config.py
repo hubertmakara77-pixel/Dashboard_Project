@@ -95,9 +95,7 @@ GAIN_SET_MIN, GAIN_SET_MAX = _gain_bounds(
 )
 
 DEVICE_NAME = os.getenv("DEVICE_NAME", "unconfigured-device")
-INITIAL_ADMIN_USERNAME = _initial_admin_username(
-    os.getenv("INITIAL_ADMIN_USERNAME")
-)
+INITIAL_ADMIN_USERNAME = _initial_admin_username(os.getenv("INITIAL_ADMIN_USERNAME"))
 
 DATABASE_FILE = os.getenv("DATABASE_FILE", "/var/lib/amp-panel/measurements.db")
 DATABASE_MAX_RECORDS = max(0, _env_int("DATABASE_MAX_RECORDS", 0))
@@ -134,7 +132,7 @@ REMOTE_SYSLOG_PROTOCOL = os.getenv("REMOTE_SYSLOG_PROTOCOL", "tcp")
 SNMP_PORT = _env_int("SNMP_PORT", 1161)
 SNMP_COMMUNITY = os.getenv("SNMP_COMMUNITY", "")
 
-# Główny Urząd Miar - krajowy serwer czasu (NTP/SNTP)
+# Central Office of Measures (GUM) — Polish national NTP/SNTP time server.
 NTP_SERVER = os.getenv("NTP_SERVER", "tempus1.gum.gov.pl")
 NTP_SERVER_FALLBACK_IP = os.getenv("NTP_SERVER_FALLBACK_IP", "194.146.251.100")
 NTP_PORT = _env_int("NTP_PORT", 123)

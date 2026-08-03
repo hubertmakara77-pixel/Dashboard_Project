@@ -22,9 +22,7 @@ def normalize_username(username: str) -> str:
 
 def count_active_administrators() -> int:
     return sum(
-        1
-        for user in state.access_users
-        if user["role"] == "Administrator" and user["active"]
+        1 for user in state.access_users if user["role"] == "Administrator" and user["active"]
     )
 
 

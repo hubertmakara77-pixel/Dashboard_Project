@@ -1,9 +1,9 @@
 import logging
 import os
 
+import pyrad.packet
 from pyrad.client import Client, Timeout
 from pyrad.dictionary import Dictionary
-import pyrad.packet
 
 from app.core import config
 
@@ -14,15 +14,15 @@ _dictionary = Dictionary(_DICTIONARY_PATH)
 
 
 class RadiusUnavailableError(RuntimeError):
-    """Serwer RADIUS nie odpowiedział lub wystąpił błąd komunikacji."""
+    """The RADIUS server did not respond or a communication error occurred."""
 
 
 def authenticate(username: str, password: str) -> bool:
-    """Weryfikuje username/hasło przez RADIUS (PAP).
+    """Verify a username and password through RADIUS PAP.
 
-    Zwraca True przy Access-Accept, False przy Access-Reject.
-    Podnosi RadiusUnavailableError jeśli serwer nie odpowiada / błąd sieci -
-    to rozróżnienie jest ważne, żeby nie mylić "złego hasła" z "RADIUS padł".
+    Return ``True`` for Access-Accept and ``False`` for Access-Reject. Raise
+    ``RadiusUnavailableError`` for a timeout or network error so callers can
+    distinguish invalid credentials from an unavailable authentication service.
     """
     client = Client(
         server=config.RADIUS_SERVER,
@@ -37,13 +37,15 @@ def authenticate(username: str, password: str) -> bool:
     request["User-Password"] = request.PwCrypt(password)
     request["NAS-Identifier"] = config.RADIUS_NAS_IDENTIFIER
     # Modern RADIUS servers require Message-Authenticator in Access-Request.
-    # pyrad oblicza HMAC-MD5 z uzyciem wspoldzielonego sekretu.
+    # pyrad calculates HMAC-MD5 with the shared secret.
     request.add_message_authenticator()
 
     try:
         reply = client.SendPacket(request)
     except Timeout as exc:
-        raise RadiusUnavailableError(f"RADIUS server did not respond ({config.RADIUS_SERVER}:{config.RADIUS_PORT})") from exc
+        raise RadiusUnavailableError(
+            f"RADIUS server did not respond ({config.RADIUS_SERVER}:{config.RADIUS_PORT})"
+        ) from exc
     except OSError as exc:
         raise RadiusUnavailableError(f"RADIUS communication error: {exc}") from exc
 

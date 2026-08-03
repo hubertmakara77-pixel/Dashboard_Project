@@ -1,47 +1,34 @@
 import unittest
 
 from app.core import state
+from app.protocols import fts_ls as fts_protocol
 from app.services import fts_ls
 
 
 class FtsLsTests(unittest.TestCase):
     def test_documented_commands_are_built_with_validation(self):
         self.assertEqual(
-            fts_ls.build_command(
-                "laser_central_frequency", {"value": 194397.7}
-            ),
+            fts_protocol.build_command("laser_central_frequency", {"value": 194397.7}),
             "set laser central frequency 194397.7",
         )
         self.assertEqual(
-            fts_ls.build_command(
-                "laser_central_frequency", {"value": 194400}
-            ),
+            fts_protocol.build_command("laser_central_frequency", {"value": 194400}),
             "set laser central frequency 194400",
         )
         self.assertEqual(
-            fts_ls.build_command(
-                "downlink_distance", {"target": "P2", "value": 500}
-            ),
+            fts_protocol.build_command("downlink_distance", {"target": "P2", "value": 500}),
             "set port2 downlink distance 500",
         )
         self.assertEqual(
-            fts_ls.build_command(
-                "polarization_mode", {"target": "ul", "value": "triggered"}
-            ),
+            fts_protocol.build_command("polarization_mode", {"target": "ul", "value": "triggered"}),
             "set ul polarization controller mode triggered",
         )
         with self.assertRaisesRegex(ValueError, "10 and 2000"):
-            fts_ls.build_command(
-                "downlink_distance", {"target": "port1", "value": 5000}
-            )
+            fts_protocol.build_command("downlink_distance", {"target": "port1", "value": 5000})
         with self.assertRaisesRegex(ValueError, "194392.6 and 194405.6"):
-            fts_ls.build_command(
-                "laser_central_frequency", {"value": 194500}
-            )
+            fts_protocol.build_command("laser_central_frequency", {"value": 194500})
         with self.assertRaisesRegex(ValueError, "no newlines"):
-            fts_ls.build_command(
-                "description", {"target": "port1", "value": "ok\nreboot"}
-            )
+            fts_protocol.build_command("description", {"target": "port1", "value": "ok\nreboot"})
 
     def test_status_parser_recognizes_modular_port_types_and_metrics(self):
         output = """
@@ -65,7 +52,7 @@ State: UNLOCKED
 Port5
 UNEQUIPPED
 """
-        result = fts_ls.parse_show_status(output, state.empty_fts_ls_status())
+        result = fts_protocol.parse_show_status(output, state.empty_fts_ls_status())
 
         self.assertEqual(result["uplink"]["optical_power"], -52)
         self.assertEqual(result["uplink"]["connectors"], ["O", "BN", "BNA"])
@@ -77,7 +64,7 @@ UNEQUIPPED
 
     def test_detailed_output_maps_values_used_by_live_view(self):
         status = state.empty_fts_ls_status()
-        fts_ls.apply_detailed_output(
+        fts_protocol.apply_detailed_output(
             status,
             "port1",
             """
@@ -94,17 +81,48 @@ Noise Cancellation Loop State: LOCKED
         self.assertEqual(port["additional_gain_db"], 12)
         self.assertEqual(port["state"], "LOCKED")
 
+    def test_firmware_aliases_do_not_escape_the_protocol_adapter(self):
+        status = state.empty_fts_ls_status()
+        fts_protocol.apply_detailed_output(
+            status,
+            "tec",
+            """
+Status: ON
+Temperature Set: 24.5 C
+Temperature Read: 24.2 C
+Power Usage: 31 %
+""",
+        )
+        fts_protocol.apply_detailed_output(
+            status,
+            "laser",
+            "Current Frequency: 194400.1 GHz",
+        )
+
+        self.assertEqual(
+            status["tec"],
+            {
+                "state": "ON",
+                "temperature_set_c": 24.5,
+                "temperature_read_c": 24.2,
+                "power_usage_percent": 31.0,
+            },
+        )
+        self.assertEqual(status["laser"]["optical_frequency"], 194400.1)
+        self.assertNotIn("temperature_read", status["tec"])
+        self.assertNotIn("current_frequency", status["laser"])
+
     def test_manual_quality_indicators_create_alarm_candidates(self):
         status = state.empty_fts_ls_status()
-        status["ports"][0].update({
-            "state": "UNLOCKED",
-            "noise_lf": 101,
-            "jitter": 51,
-            "optical_power_display": "LOW",
-        })
-        warnings = fts_ls._warning_candidates(
-            status, "2026-08-02T12:00:00+00:00"
+        status["ports"][0].update(
+            {
+                "state": "UNLOCKED",
+                "noise_lf": 101,
+                "jitter": 51,
+                "optical_power_display": "LOW",
+            }
         )
+        warnings = fts_ls._warning_candidates(status, "2026-08-02T12:00:00+00:00")
 
         self.assertIn(("P1", "lock_state"), warnings)
         self.assertIn(("P1", "noise_lf"), warnings)

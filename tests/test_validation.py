@@ -3,7 +3,6 @@ import unittest
 
 from app.core.validation import validate_gain_set, validated_dashboard_settings
 
-
 SETTINGS = {
     "gain_tolerance": 1.0,
     "warn_limits": {

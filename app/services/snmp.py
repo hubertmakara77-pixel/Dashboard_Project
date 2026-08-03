@@ -1,35 +1,27 @@
+import asyncio
 import threading
 import time
-import asyncio
 import traceback
 
-from pysnmp.hlapi.asyncio import *
-from pysnmp.entity import engine
-from pysnmp.entity import config as snmp_config
-from pysnmp.entity.rfc3413 import cmdrsp, context
 from pysnmp.carrier.asyncio.dgram import udp
+from pysnmp.entity import config as snmp_config
+from pysnmp.entity import engine
+from pysnmp.entity.rfc3413 import cmdrsp, context
+from pysnmp.hlapi.asyncio import *
 from pysnmp.proto import rfc1902
 
-from app.core import state
+from app.core import device_schema, state
 
-OID_BASE_STR = '1.3.6.1.4.1.99999'
+OID_BASE_STR = "1.3.6.1.4.1.99999"
 TRAP_OID = f"{OID_BASE_STR}.4.1"
 
-# Kompletna mapa OID -> pole z danych z Arduino.
-# .1.1.0        = status połączenia z portem szeregowym
+# Complete OID-to-Arduino-data-field map.
+# .1.1.0        = serial-port connection status
 # .2.<n>.0      = amplifier measurements (see tools/snmp_probe.py)
 STATUS_OID = f"{OID_BASE_STR}.1.1.0"
 
 FIELD_OID_MAP = {
-    f"{OID_BASE_STR}.2.1.0": "PiA",
-    f"{OID_BASE_STR}.2.2.0": "PoA",
-    f"{OID_BASE_STR}.2.3.0": "PiB",
-    f"{OID_BASE_STR}.2.4.0": "PoB",
-    f"{OID_BASE_STR}.2.5.0": "gain_actual",
-    f"{OID_BASE_STR}.2.6.0": "gain_set",
-    f"{OID_BASE_STR}.2.7.0": "gain_delta",
-    f"{OID_BASE_STR}.2.8.0": "temperature",
-    f"{OID_BASE_STR}.2.9.0": "seq_nr",
+    f"{OID_BASE_STR}.{suffix}": field for suffix, field in device_schema.AMPLIFIER_SNMP_FIELDS
 }
 
 FTS_OID_MAP = {
@@ -50,10 +42,10 @@ for _index in range(0, 8):
             ("uplink", _field) if _index == 0 else ("ports", _index - 1, _field)
         )
 
-# Kolejność OID-ów posortowana numerycznie - potrzebna do obsługi GETNEXT/snmpwalk
+# Numeric OID order required for GETNEXT/snmpwalk.
 ORDERED_OIDS = [STATUS_OID] + sorted(
     [*FIELD_OID_MAP.keys(), *FTS_OID_MAP.keys()],
-    key=lambda oid_str: [int(part) for part in oid_str.split(".")]
+    key=lambda oid_str: [int(part) for part in oid_str.split(".")],
 )
 
 snmp_thread = None
@@ -61,7 +53,7 @@ stop_event = threading.Event()
 
 
 def _read_value_for_oid(oid_str: str):
-    """Zwraca wartość (jako string) dla danego OID-a na podstawie aktualnych danych, albo None."""
+    """Return the current OID value as a string, or ``None`` if unsupported."""
     with state.state_lock:
         data = getattr(state, "latest_data", {}) or {}
         connected = getattr(state, "serial_connected", False)
@@ -90,9 +82,11 @@ def _read_value_for_oid(oid_str: str):
 
 
 def _refresh_live_snapshot():
-    """Buduje pełny słownik pole -> wartość i zapisuje go do state.latest_snmp_data,
-    tak żeby zakładka SNMP na dashboardzie mogła to pokazać bez potrzeby
-    odpytywania agenta z zewnątrz (np. snmpwalk)."""
+    """Store a complete field-to-value snapshot for the dashboard SNMP view.
+
+    This keeps the web view current without requiring an external SNMP query such
+    as ``snmpwalk``.
+    """
     snapshot = {}
 
     with state.state_lock:
@@ -128,7 +122,7 @@ class CustomInstrum:
             else:
                 results.append((oid, rfc1902.OctetString(value)))
 
-        # Każde zapytanie GET odświeża też snapshot do panelu na stronie
+        # Every GET also refreshes the snapshot displayed by the dashboard.
         _refresh_live_snapshot()
 
         return results
@@ -165,11 +159,11 @@ class CustomInstrum:
         return results
 
     def write_variables(self, *args, **kwargs):
-        # Zapis (SET) nieobsługiwany - zwracamy wartości bez zmian
+        # SET is unsupported; return values unchanged.
         vars_list = args[0] if len(args) > 0 else []
         return vars_list
 
-    # Alias na wypadek starszej nazwy metody używanej przez niektóre wersje pysnmp
+    # Alias for the legacy method name used by some pysnmp versions.
     def writeVars(self, vars_list, acInfo=(None, None)):
         return vars_list
 
@@ -200,15 +194,13 @@ async def _async_send_trap(error: dict):
             target,
             ContextData(),
             "trap",
-            NotificationType(
-                ObjectIdentity(TRAP_OID)
-            ).addVarBinds(
+            NotificationType(ObjectIdentity(TRAP_OID)).addVarBinds(
                 ("1.3.6.1.2.1.1.3.0", TimeTicks(int(time.time() * 100))),
                 ("1.3.6.1.6.3.1.1.4.1.0", ObjectIdentifier(TRAP_OID)),
                 (f"{TRAP_OID}.1", OctetString(error_message)),
             ),
         )
-        async for errorIndication, errorStatus, errorIndex, varBinds in iterator:
+        async for errorIndication, _errorStatus, _errorIndex, _varBinds in iterator:
             if errorIndication:
                 print(f"[SNMP TRAP FAIL]: {errorIndication}")
     except Exception as e:
@@ -221,7 +213,7 @@ def _snmp_agent_loop():
         port = int(snmp_settings.get("port", 1611))
         community = str(snmp_settings.get("community", "public"))
 
-    print(f"\n[SNMP AGENT] Uruchamianie agenta na 127.0.0.1:{port} z community '{community}'...")
+    print(f"\n[SNMP AGENT] Starting on 127.0.0.1:{port} with community '{community}'...")
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -250,28 +242,28 @@ def _snmp_agent_loop():
             agent_refs["responder"] = responder
             agent_refs["next_responder"] = next_responder
 
-            print("[SNMP AGENT] GOTOWY! Czekam na zapytania...")
+            print("[SNMP AGENT] Ready; waiting for requests...")
 
-            # Niezależnie od tego czy ktoś odpytuje agenta z zewnątrz,
-            # co sekundę odświeżamy snapshot dla panelu na dashboardzie.
+            # Refresh the dashboard snapshot every second, independently of
+            # whether an external client queries the agent.
             while not stop_event.is_set():
                 _refresh_live_snapshot()
                 await asyncio.sleep(1)
 
         except Exception as e:
-            print(f"\n[SNMP AGENT KRYTYCZNY BŁĄD]: {e}")
+            print(f"\n[SNMP AGENT CRITICAL ERROR]: {e}")
             traceback.print_exc()
 
     loop.run_until_complete(run_agent())
     loop.close()
-    print("[SNMP AGENT] Zatrzymano agenta.")
+    print("[SNMP AGENT] Stopped.")
 
 
 def init_snmp():
     with state.state_lock:
         snmp_settings = getattr(state, "snmp_settings", {})
         if not snmp_settings.get("enabled", False):
-            print("[SNMP] Usługa wyłączona w ustawieniach (enabled=False).")
+            print("[SNMP] Service disabled in settings (enabled=False).")
             return
 
     global snmp_thread

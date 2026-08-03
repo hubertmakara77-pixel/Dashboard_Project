@@ -16,7 +16,6 @@ from app.services import serial as serial_reader
 from app.services import snmp as snmp_service
 from app.services import syslog as syslog_service
 
-
 router = fastapi.APIRouter()
 heartbeat_settings_changed = asyncio.Event()
 
@@ -73,9 +72,7 @@ def service_diagnostics(
             "sample_rate_per_second": storage["sample_rate_per_second"],
             "estimated_retention_seconds": storage["estimated_retention_seconds"],
             "estimated_seconds_to_limit": storage["estimated_seconds_to_limit"],
-            "estimated_seconds_until_disk_full": storage[
-                "estimated_seconds_until_disk_full"
-            ],
+            "estimated_seconds_until_disk_full": storage["estimated_seconds_until_disk_full"],
         },
         "syslog": {
             "local_enabled": config.SYSLOG_ENABLED,
@@ -97,7 +94,9 @@ async def update_service_diagnostics_settings(
     current_user: dict = fastapi.Depends(api_security.require_roles("Administrator")),
 ):
     if request.syslog_heartbeat_seconds != 0 and request.syslog_heartbeat_seconds < 10:
-        raise fastapi.HTTPException(status_code=400, detail="Heartbeat must be 0 or at least 10 seconds")
+        raise fastapi.HTTPException(
+            status_code=400, detail="Heartbeat must be 0 or at least 10 seconds"
+        )
     if request.syslog_heartbeat_seconds > 86400:
         raise fastapi.HTTPException(status_code=400, detail="Heartbeat cannot exceed 86400 seconds")
     if not 0 <= request.database_max_records <= 10000000:
@@ -109,7 +108,9 @@ async def update_service_diagnostics_settings(
     if not re.fullmatch(r"/(?:host/)?dev/tty(?:ACM|USB)[0-9]+", serial_port):
         raise fastapi.HTTPException(status_code=400, detail="Select an available USB serial port")
     if serial_port not in serial_reader.available_serial_ports():
-        raise fastapi.HTTPException(status_code=400, detail="Selected serial port is not currently available")
+        raise fastapi.HTTPException(
+            status_code=400, detail="Selected serial port is not currently available"
+        )
 
     with state.state_lock:
         before = state.service_settings.copy()
@@ -245,7 +246,9 @@ def update_snmp_settings(
             detail=f"SNMP port is fixed by server configuration to {config.SNMP_PORT}",
         )
     if len(settings.community.strip()) < 12:
-        raise fastapi.HTTPException(status_code=400, detail="SNMP community must contain at least 12 characters")
+        raise fastapi.HTTPException(
+            status_code=400, detail="SNMP community must contain at least 12 characters"
+        )
     with state.state_lock:
         before = dict(state.snmp_settings)
         state.snmp_settings = settings.model_dump()

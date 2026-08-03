@@ -28,11 +28,13 @@ class StateSecurityTests(unittest.TestCase):
         self.assertEqual(settings["database_max_records"], 0)
 
     def test_temperature_thresholds_are_added_to_existing_settings(self):
-        settings = state.merge_dashboard_settings({
-            "warn_limits": {
-                "PiA": {"min": -20.0, "max": 5.0},
-            },
-        })
+        settings = state.merge_dashboard_settings(
+            {
+                "warn_limits": {
+                    "PiA": {"min": -20.0, "max": 5.0},
+                },
+            }
+        )
 
         self.assertEqual(settings["warn_limits"]["PiA"], {"min": -20.0, "max": 5.0})
         self.assertEqual(
@@ -41,12 +43,14 @@ class StateSecurityTests(unittest.TestCase):
         )
 
     def test_unsafe_persisted_dashboard_settings_fall_back_to_defaults(self):
-        settings = state.merge_dashboard_settings({
-            "gain_tolerance": -1,
-            "warn_limits": {
-                "temperature": {"min": 100.0, "max": 10.0},
-            },
-        })
+        settings = state.merge_dashboard_settings(
+            {
+                "gain_tolerance": -1,
+                "warn_limits": {
+                    "temperature": {"min": 100.0, "max": 10.0},
+                },
+            }
+        )
         self.assertEqual(settings, state.DEFAULT_DASHBOARD_SETTINGS)
 
     def test_unsafe_persisted_gain_set_is_not_restored_to_device(self):
@@ -66,18 +70,27 @@ class StateSecurityTests(unittest.TestCase):
         self.assertNotIn("password_salt", users[0])
 
     def test_legacy_password_hashes_are_removed(self):
-        users = state.merge_access_users([{
-            "username": "operator",
-            "role": "Operator",
-            "active": True,
-            "password_hash": "legacy-hash",
-            "password_salt": "legacy-salt",
-        }])
-        self.assertEqual(users, [{
-            "username": "operator",
-            "role": "Operator",
-            "active": True,
-        }])
+        users = state.merge_access_users(
+            [
+                {
+                    "username": "operator",
+                    "role": "Operator",
+                    "active": True,
+                    "password_hash": "legacy-hash",
+                    "password_salt": "legacy-salt",
+                }
+            ]
+        )
+        self.assertEqual(
+            users,
+            [
+                {
+                    "username": "operator",
+                    "role": "Operator",
+                    "active": True,
+                }
+            ],
+        )
 
     def test_persisted_state_is_written_atomically(self):
         with tempfile.TemporaryDirectory() as directory:

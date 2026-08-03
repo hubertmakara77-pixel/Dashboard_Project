@@ -11,7 +11,6 @@ from app.services import database as database_service
 from app.services import serial as serial_reader
 from app.services import syslog as syslog_service
 
-
 router = fastapi.APIRouter()
 
 
@@ -64,9 +63,7 @@ def get_settings(
 def update_settings(
     request: DashboardSettingsRequest,
     http_request: starlette.requests.Request,
-    current_user: dict = fastapi.Depends(
-        api_security.require_roles("Administrator", "Operator")
-    ),
+    current_user: dict = fastapi.Depends(api_security.require_roles("Administrator", "Operator")),
 ):
     with state.state_lock:
         before = json.loads(json.dumps(state.dashboard_settings))
@@ -136,9 +133,7 @@ def get_warnings(
         range_start = now - durations[range_value]
     elif range_value == "custom":
         try:
-            range_start = datetime.datetime.fromisoformat(
-                start.replace("Z", "+00:00")
-            )
+            range_start = datetime.datetime.fromisoformat(start.replace("Z", "+00:00"))
         except ValueError as exc:
             raise fastapi.HTTPException(
                 status_code=400, detail="A valid custom start time is required."
@@ -147,11 +142,7 @@ def get_warnings(
         raise fastapi.HTTPException(status_code=400, detail="Invalid warning range.")
 
     try:
-        range_end = (
-            datetime.datetime.fromisoformat(end.replace("Z", "+00:00"))
-            if end
-            else now
-        )
+        range_end = datetime.datetime.fromisoformat(end.replace("Z", "+00:00")) if end else now
     except ValueError as exc:
         raise fastapi.HTTPException(
             status_code=400, detail="The warning end time is invalid."
@@ -200,9 +191,7 @@ def get_warnings(
 @router.post("/api/warnings/acknowledge")
 def acknowledge_warnings(
     request: starlette.requests.Request,
-    current_user: dict = fastapi.Depends(
-        api_security.require_roles("Administrator", "Operator")
-    ),
+    current_user: dict = fastapi.Depends(api_security.require_roles("Administrator", "Operator")),
 ):
     with state.state_lock:
         keys = set(state.active_warnings)
@@ -222,9 +211,7 @@ def acknowledge_warnings(
 @router.post("/api/errors/clear")
 def clear_errors(
     request: starlette.requests.Request,
-    current_user: dict = fastapi.Depends(
-        api_security.require_roles("Administrator", "Operator")
-    ),
+    current_user: dict = fastapi.Depends(api_security.require_roles("Administrator", "Operator")),
 ):
     with state.state_lock:
         keys = set(state.active_warnings)
@@ -245,9 +232,7 @@ def clear_errors(
 def set_gain(
     request: GainSetRequest,
     http_request: starlette.requests.Request,
-    current_user: dict = fastapi.Depends(
-        api_security.require_roles("Administrator", "Operator")
-    ),
+    current_user: dict = fastapi.Depends(api_security.require_roles("Administrator", "Operator")),
 ):
     with state.state_lock:
         previous_gain_set = state.last_known_gain_set

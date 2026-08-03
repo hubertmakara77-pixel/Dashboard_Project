@@ -1,3 +1,5 @@
+"""Privileged agent for checkpointed NetworkManager configuration changes."""
+
 from __future__ import annotations
 
 import argparse
@@ -51,7 +53,9 @@ def _run(command: list[str], runner: Runner) -> str:
     except (OSError, subprocess.SubprocessError) as exc:
         raise NetworkAgentError(f"Could not run {command[0]}: {exc}") from exc
     if result.returncode != 0:
-        raise NetworkAgentError(result.stderr.strip() or result.stdout.strip() or "Unknown command error")
+        raise NetworkAgentError(
+            result.stderr.strip() or result.stdout.strip() or "Unknown command error"
+        )
     return result.stdout.strip()
 
 
@@ -108,8 +112,10 @@ def _create_checkpoint(interface: str, runner: Runner) -> str:
         runner,
     )
     parts = shlex.split(output)
-    if len(parts) != 2 or parts[0] != "o" or not parts[1].startswith(
-        "/org/freedesktop/NetworkManager/Checkpoint/"
+    if (
+        len(parts) != 2
+        or parts[0] != "o"
+        or not parts[1].startswith("/org/freedesktop/NetworkManager/Checkpoint/")
     ):
         raise NetworkAgentError("NetworkManager returned an invalid checkpoint.")
     return parts[1]
@@ -165,7 +171,11 @@ def _connection_details(interface: str, runner: Runner) -> dict[str, Any]:
         method = _nmcli(["-g", "ipv4.method", "connection", "show", connection], runner)
         dns_text = _nmcli(["-g", "IP4.DNS", "device", "show", interface], runner)
         mode = "dhcp" if method == "auto" else "static" if method == "manual" else method
-        return {"connection": connection, "mode": mode, "dns": [v.strip() for v in dns_text.splitlines() if v.strip()]}
+        return {
+            "connection": connection,
+            "mode": mode,
+            "dns": [v.strip() for v in dns_text.splitlines() if v.strip()],
+        }
     except NetworkAgentError:
         return {"connection": "", "mode": "unknown", "dns": []}
 
@@ -179,9 +189,7 @@ def _route_interface(client_ip: str, runner: Runner) -> str:
         ) from exc
     if address.is_loopback:
         return ""
-    routes = json.loads(
-        _run(["ip", "-j", "route", "get", str(address)], runner) or "[]"
-    )
+    routes = json.loads(_run(["ip", "-j", "route", "get", str(address)], runner) or "[]")
     interface = str(routes[0].get("dev", "")).strip() if routes else ""
     # Docker may replace the real browser address with its bridge gateway.
     # That address belongs to the host itself, so `ip route get` reports lo.
@@ -200,6 +208,7 @@ def get_network_state(
     runner: Runner | None = None,
     client_ip: str = "",
 ) -> dict[str, Any]:
+    """Read interfaces and identify the route used by the dashboard client."""
     runner = runner or _default_runner
     if runner is _default_runner and not shutil.which("ip"):
         raise NetworkAgentError("The host ip utility is unavailable.")
@@ -212,22 +221,40 @@ def get_network_state(
         name = str(item.get("ifname", ""))
         if not name or name == "lo":
             continue
-        ipv4 = next((entry for entry in item.get("addr_info", []) if entry.get("family") == "inet"), None)
+        ipv4 = next(
+            (entry for entry in item.get("addr_info", []) if entry.get("family") == "inet"), None
+        )
         prefix = int(ipv4.get("prefixlen", 0)) if ipv4 else None
-        details = _connection_details(name, runner) if nmcli_available else {"connection": "", "mode": "unknown", "dns": []}
-        interfaces.append({"name": name, "mac": item.get("address", ""), "state": str(item.get("operstate", "unknown")).lower(), "ip_address": ipv4.get("local", "") if ipv4 else "", "prefix": prefix, "netmask": str(ipaddress.IPv4Network(f"0.0.0.0/{prefix}").netmask) if prefix is not None else "", "gateway": default_routes.get(name, {}).get("gateway", ""), **details})
+        details = (
+            _connection_details(name, runner)
+            if nmcli_available
+            else {"connection": "", "mode": "unknown", "dns": []}
+        )
+        interfaces.append(
+            {
+                "name": name,
+                "mac": item.get("address", ""),
+                "state": str(item.get("operstate", "unknown")).lower(),
+                "ip_address": ipv4.get("local", "") if ipv4 else "",
+                "prefix": prefix,
+                "netmask": str(ipaddress.IPv4Network(f"0.0.0.0/{prefix}").netmask)
+                if prefix is not None
+                else "",
+                "gateway": default_routes.get(name, {}).get("gateway", ""),
+                **details,
+            }
+        )
     selected = next(iter(default_routes), "") or (interfaces[0]["name"] if interfaces else "")
     access_interface = _route_interface(client_ip, runner) if client_ip else ""
     if not nmcli_available:
-        backend, message = "read-only", "NetworkManager is unavailable on the host; settings are read-only."
+        backend, message = (
+            "read-only",
+            "NetworkManager is unavailable on the host; settings are read-only.",
+        )
     else:
         backend, message = "NetworkManager", ""
     hostname = socket.gethostname().strip().rstrip(".")
-    mdns_hostname = (
-        hostname
-        if hostname.lower().endswith(".local")
-        else f"{hostname}.local"
-    )
+    mdns_hostname = hostname if hostname.lower().endswith(".local") else f"{hostname}.local"
     return {
         "hostname": hostname,
         "mdns_hostname": mdns_hostname,
@@ -241,6 +268,7 @@ def get_network_state(
 
 
 def apply_network_settings(payload: dict[str, Any], runner: Runner | None = None) -> dict[str, Any]:
+    """Apply settings behind a checkpoint and return a confirmation token."""
     runner = runner or _default_runner
     if runner is _default_runner and not shutil.which("nmcli"):
         raise NetworkAgentError("NetworkManager (nmcli) is not installed on the host.")
@@ -270,20 +298,37 @@ def apply_network_settings(payload: dict[str, Any], runner: Runner | None = None
         connection = f"amp-{interface}"
     command = ["nmcli", "connection", "modify", connection]
     if mode == "dhcp":
-        command.extend(["ipv4.method", "auto", "ipv4.addresses", "", "ipv4.gateway", "", "ipv4.dns", ""])
+        command.extend(
+            ["ipv4.method", "auto", "ipv4.addresses", "", "ipv4.gateway", "", "ipv4.dns", ""]
+        )
     else:
         dns_values = payload.get("dns", [])
         if isinstance(dns_values, str):
             dns_values = [v.strip() for v in dns_values.replace(",", " ").split()]
         try:
-            address = ipaddress.IPv4Interface(f"{str(payload.get('ip_address', '')).strip()}/{_prefix(str(payload.get('netmask', '')))}")
+            address = ipaddress.IPv4Interface(
+                f"{str(payload.get('ip_address', '')).strip()}/{_prefix(str(payload.get('netmask', '')))}"
+            )
             gateway = ipaddress.IPv4Address(str(payload.get("gateway", "")).strip())
             dns = [str(ipaddress.IPv4Address(str(v).strip())) for v in dns_values if str(v).strip()]
         except ipaddress.AddressValueError as exc:
-            raise NetworkAgentError("The IP address, gateway, or DNS has an invalid format.") from exc
+            raise NetworkAgentError(
+                "The IP address, gateway, or DNS has an invalid format."
+            ) from exc
         if gateway not in address.network:
             raise NetworkAgentError("The gateway must be in the same subnet as the IP address.")
-        command.extend(["ipv4.method", "manual", "ipv4.addresses", str(address), "ipv4.gateway", str(gateway), "ipv4.dns", ",".join(dns)])
+        command.extend(
+            [
+                "ipv4.method",
+                "manual",
+                "ipv4.addresses",
+                str(address),
+                "ipv4.gateway",
+                str(gateway),
+                "ipv4.dns",
+                ",".join(dns),
+            ]
+        )
     checkpoint_path = _create_checkpoint(interface, runner)
     try:
         if create_connection:
@@ -325,14 +370,13 @@ def confirm_network_settings(
     runner: Runner | None = None,
     client_ip: str = "",
 ) -> dict[str, Any]:
+    """Commit a checkpoint after verifying that the confirming client route matches."""
     runner = runner or _default_runner
     _prune_expired_checkpoints()
     with _checkpoint_lock:
         checkpoint = _pending_checkpoints.get(str(token))
     if checkpoint is None:
-        raise NetworkAgentError(
-            "The network confirmation token is invalid or has expired."
-        )
+        raise NetworkAgentError("The network confirmation token is invalid or has expired.")
     access_interface = _route_interface(client_ip, runner)
     if access_interface and access_interface != checkpoint["interface"]:
         raise NetworkAgentError(

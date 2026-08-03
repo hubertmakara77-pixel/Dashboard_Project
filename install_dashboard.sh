@@ -280,8 +280,8 @@ prepare_environment_file() {
   prompt_radius_configuration
   prompt_remote_syslog_configuration
 
-  # Hasło Dashboardu z poprzednich wersji nie jest już używane. RADIUS jest
-  # jedynym źródłem haseł, więc usuń także pozostawioną wartość z .env.
+  # Dashboard passwords from earlier versions are no longer used. RADIUS is the
+  # sole password source, so remove any value left in .env.
   sed -i '/^INITIAL_ADMIN_PASSWORD=/d' .env
 
   set_env_value "SERIAL_PORT" "$([[ "$serial_device" == "/dev/null" ]] && printf '/host/dev/ttyACM0' || printf '/host%s' "$serial_device")"

@@ -1,0 +1,6 @@
+-r requirements.txt
+
+ruff>=0.6
+mypy>=1.11
+mkdocs>=1.6
+mkdocstrings[python]>=0.26

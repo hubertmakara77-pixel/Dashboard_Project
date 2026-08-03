@@ -8,6 +8,7 @@ try:
 except ModuleNotFoundError:
     dashboard = None
 
+
 @unittest.skipIf(dashboard is None, "FastAPI is not installed in this test runtime")
 class WarningApiTests(unittest.TestCase):
     def test_warning_history_uses_requested_filters(self):

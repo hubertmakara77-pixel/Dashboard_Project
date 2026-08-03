@@ -18,6 +18,11 @@ data/
 .vscode/
 .idea/
 
+node_modules/
+site/
+.mypy_cache/
+.ruff_cache/
+
 packaging/vendor/
 debian/.debhelper/
 debian/amp-panel/

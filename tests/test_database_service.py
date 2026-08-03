@@ -99,9 +99,7 @@ class DatabaseServiceTests(unittest.TestCase):
         self.assertGreater(storage["estimated_seconds_until_disk_full"], 0)
 
     def test_history_is_read_and_aggregated_from_sqlite(self):
-        database_service.write_measurement(
-            {"PiA": 1.0, "PoA": 3.0}, "2026-07-17T10:15:30+00:00"
-        )
+        database_service.write_measurement({"PiA": 1.0, "PoA": 3.0}, "2026-07-17T10:15:30+00:00")
         database_service.write_measurement(
             {"PiA": 3.0, "PoA": 5.0}, "2026-07-17T10:15:30.500000+00:00"
         )
@@ -144,9 +142,7 @@ class DatabaseServiceTests(unittest.TestCase):
         self.assertEqual(sum(point["PiA"] for point in points) / len(points), 2.0)
 
     def test_statistics_are_calculated_from_raw_samples(self):
-        database_service.write_measurement(
-            {"PiA": 1.0, "PoA": 10.0}, "2026-07-17T10:15:30+00:00"
-        )
+        database_service.write_measurement({"PiA": 1.0, "PoA": 10.0}, "2026-07-17T10:15:30+00:00")
         database_service.write_measurement(
             {"PiA": 9.0, "PoA": 12.0}, "2026-07-17T10:15:30.100000+00:00"
         )
@@ -164,12 +160,8 @@ class DatabaseServiceTests(unittest.TestCase):
         self.assertEqual(result["statistics"]["PiA"]["min"], 1.0)
         self.assertEqual(result["statistics"]["PiA"]["max"], 9.0)
         self.assertEqual(result["statistics"]["PiA"]["average"], 13 / 3)
-        self.assertAlmostEqual(
-            result["statistics"]["PiA"]["standard_deviation"], 3.39934634239519
-        )
-        self.assertAlmostEqual(
-            result["statistics"]["PoA"]["standard_deviation"], 2.494438257849294
-        )
+        self.assertAlmostEqual(result["statistics"]["PiA"]["standard_deviation"], 3.39934634239519)
+        self.assertAlmostEqual(result["statistics"]["PoA"]["standard_deviation"], 2.494438257849294)
 
     def test_statistics_combine_hourly_summaries_and_raw_boundaries(self):
         samples = (
@@ -221,17 +213,11 @@ class DatabaseServiceTests(unittest.TestCase):
         self.assertEqual(result["statistics"]["PiA"]["min"], 2.0)
         self.assertEqual(result["statistics"]["PiA"]["max"], 6.0)
         self.assertEqual(result["statistics"]["PiA"]["average"], 4.0)
-        self.assertAlmostEqual(
-            result["statistics"]["PiA"]["standard_deviation"], 1.632993161855452
-        )
+        self.assertAlmostEqual(result["statistics"]["PiA"]["standard_deviation"], 1.632993161855452)
 
     def test_existing_database_builds_hourly_summaries_once(self):
-        database_service.write_measurement(
-            {"PiA": 1.0}, "2026-07-17T10:00:00+00:00"
-        )
-        database_service.write_measurement(
-            {"PiA": 5.0}, "2026-07-17T11:00:00+00:00"
-        )
+        database_service.write_measurement({"PiA": 1.0}, "2026-07-17T10:00:00+00:00")
+        database_service.write_measurement({"PiA": 5.0}, "2026-07-17T11:00:00+00:00")
         database_service.connection.execute("DELETE FROM hourly_statistics")
         database_service.connection.execute("PRAGMA user_version=3")
         database_service.connection.commit()
@@ -256,11 +242,13 @@ class DatabaseServiceTests(unittest.TestCase):
     def test_fts_ls_snapshots_are_stored_pruned_and_queried(self):
         state.service_settings["database_max_records"] = 2
         for second in range(3):
-            self.assertTrue(database_service.write_device_snapshot(
-                "fts-ls",
-                {"laser": {"frequency": 194400 + second}},
-                f"2026-07-17T10:15:3{second}+00:00",
-            ))
+            self.assertTrue(
+                database_service.write_device_snapshot(
+                    "fts-ls",
+                    {"laser": {"frequency": 194400 + second}},
+                    f"2026-07-17T10:15:3{second}+00:00",
+                )
+            )
 
         self.assertEqual(database_service.get_device_snapshot_count("fts-ls"), 2)
         points = database_service.query_device_snapshots(
@@ -282,17 +270,13 @@ class DatabaseServiceTests(unittest.TestCase):
                 f"2026-07-17T10:15:{second:02d}+00:00",
             )
 
-        points = database_service.query_device_snapshots(
-            "fts-ls", "all", limit=3
-        )
+        points = database_service.query_device_snapshots("fts-ls", "all", limit=3)
         self.assertEqual(len(points), 3)
         self.assertEqual(points[0]["snapshot"]["sequence"], 0)
         self.assertEqual(points[-1]["snapshot"]["sequence"], 9)
 
     def test_raw_history_returns_every_sample_without_aggregation(self):
-        database_service.write_measurement(
-            {"PiA": 1.0, "PoA": 3.0}, "2026-07-17T10:15:30+00:00"
-        )
+        database_service.write_measurement({"PiA": 1.0, "PoA": 3.0}, "2026-07-17T10:15:30+00:00")
         database_service.write_measurement(
             {"PiA": 3.0, "PoA": 5.0}, "2026-07-17T10:15:30.500000+00:00"
         )
@@ -314,12 +298,8 @@ class DatabaseServiceTests(unittest.TestCase):
         )
 
     def test_raw_history_stream_does_not_block_writer_connection(self):
-        database_service.write_measurement(
-            {"PiA": 1.0}, "2026-07-17T10:15:30+00:00"
-        )
-        database_service.write_measurement(
-            {"PiA": 2.0}, "2026-07-17T10:15:31+00:00"
-        )
+        database_service.write_measurement({"PiA": 1.0}, "2026-07-17T10:15:30+00:00")
+        database_service.write_measurement({"PiA": 2.0}, "2026-07-17T10:15:31+00:00")
         points = database_service.stream_raw_history(
             "5m",
             start="2026-07-17T10:15:00+00:00",
@@ -330,9 +310,7 @@ class DatabaseServiceTests(unittest.TestCase):
         first = next(points)
         self.assertEqual(first["PiA"], 1.0)
         self.assertTrue(
-            database_service.write_measurement(
-                {"PiA": 3.0}, "2026-07-17T10:15:32+00:00"
-            )
+            database_service.write_measurement({"PiA": 3.0}, "2026-07-17T10:15:32+00:00")
         )
         self.assertEqual([point["PiA"] for point in points], [2.0])
 
@@ -383,20 +361,21 @@ class DatabaseServiceTests(unittest.TestCase):
         row = database_service.connection.execute(
             "SELECT timestamp_ms, PiA, PoA FROM samples"
         ).fetchone()
-        self.assertEqual(dict(row), {
-            "timestamp_ms": 1784283330000,
-            "PiA": 1.25,
-            "PoA": 4.5,
-        })
+        self.assertEqual(
+            dict(row),
+            {
+                "timestamp_ms": 1784283330000,
+                "PiA": 1.25,
+                "PoA": 4.5,
+            },
+        )
         old_table = database_service.connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='measurements'"
         ).fetchone()
         self.assertIsNone(old_table)
 
     def test_runtime_status_reports_ready_database(self):
-        database_service.write_measurement(
-            {"PiA": 1.0}, "2026-07-17T10:15:30+00:00"
-        )
+        database_service.write_measurement({"PiA": 1.0}, "2026-07-17T10:15:30+00:00")
         status = database_service.get_runtime_status()
         self.assertEqual(status["state"], "ready")
         self.assertTrue(status["ready"])

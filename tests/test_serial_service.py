@@ -11,11 +11,13 @@ from app.services import serial as serial_service
 
 class SerialWarningTests(unittest.TestCase):
     def test_temperature_threshold_creates_warning(self):
-        settings = state.merge_dashboard_settings({
-            "warn_limits": {
-                "temperature": {"min": 10.0, "max": 50.0},
-            },
-        })
+        settings = state.merge_dashboard_settings(
+            {
+                "warn_limits": {
+                    "temperature": {"min": 10.0, "max": 50.0},
+                },
+            }
+        )
 
         with mock.patch.object(state, "dashboard_settings", settings):
             errors = serial_service.build_limit_errors(

@@ -11,7 +11,6 @@ from app.core import config, state
 from app.services import database as database_service
 from app.services import fts_ls
 
-
 router = fastapi.APIRouter(prefix="/api/fts-ls")
 
 TRANSFER_AFFECTING_ACTIONS = {
@@ -54,12 +53,24 @@ def capabilities(
         "ports": 7,
         "module_types": ["Downlink", "Feedback Link", "Beat Detector", "Unequipped"],
         "controls": [
-            "laser_power", "laser_central_frequency", "laser_mode",
-            "laser_frequency_span", "laser_force_relock", "tec_power",
-            "tec_temperature", "external_reference", "description",
-            "optical_power", "downlink_distance", "downlink_gain",
-            "polarization_control", "polarization_speed",
-            "polarization_mode", "ping", "reboot", "power_reset",
+            "laser_power",
+            "laser_central_frequency",
+            "laser_mode",
+            "laser_frequency_span",
+            "laser_force_relock",
+            "tec_power",
+            "tec_temperature",
+            "external_reference",
+            "description",
+            "optical_power",
+            "downlink_distance",
+            "downlink_gain",
+            "polarization_control",
+            "polarization_speed",
+            "polarization_mode",
+            "ping",
+            "reboot",
+            "power_reset",
             "factory_default",
         ],
         "ranges": {
@@ -94,9 +105,7 @@ def get_status(
 def command(
     body: DeviceCommandRequest,
     request: starlette.requests.Request,
-    current_user: dict = fastapi.Depends(
-        api_security.require_roles("Administrator", "Operator")
-    ),
+    current_user: dict = fastapi.Depends(api_security.require_roles("Administrator", "Operator")),
 ):
     require_profile()
     action = body.action.strip().lower().replace("-", "_")

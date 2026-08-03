@@ -9,7 +9,6 @@ import zoneinfo
 
 from app.core import config
 
-
 FACILITY_LOCAL0 = config.SYSLOG_FACILITY
 SEVERITY_WARNING = 4
 SEVERITY_INFO = 6
@@ -216,8 +215,10 @@ def read_warning_history(
             events.append(event)
 
     events.sort(
-        key=lambda event: _parse_event_time(event.get("event_time"))
-        or datetime.datetime.min.replace(tzinfo=datetime.timezone.utc),
+        key=lambda event: (
+            _parse_event_time(event.get("event_time"))
+            or datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
+        ),
         reverse=True,
     )
     total = len(events)

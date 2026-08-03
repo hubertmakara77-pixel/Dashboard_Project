@@ -12,10 +12,9 @@ import starlette.requests
 from app.api import auth as auth_routes
 from app.api import dashboard as dashboard_routes
 from app.api import diagnostics as service_routes
-from app.api import history as history_routes
 from app.api import fts_ls as fts_ls_routes
-from app.core import config
-from app.core import state
+from app.api import history as history_routes
+from app.core import config, state
 from app.services import database as database_service
 from app.services import serial as serial_reader
 from app.services import snmp as snmp_service
@@ -81,8 +80,13 @@ templates = fastapi.templating.Jinja2Templates(directory="templates")
 
 
 def static_asset_version() -> str:
+    """Return one cache key covering every locally served frontend asset."""
     digest = hashlib.sha256()
-    for path in (pathlib.Path("static/css/style.css"), pathlib.Path("static/js/dashboard.js")):
+    asset_paths = [
+        pathlib.Path("static/css/style.css"),
+        *sorted(pathlib.Path("static/js").glob("dashboard*.js")),
+    ]
+    for path in asset_paths:
         digest.update(path.read_bytes())
     return digest.hexdigest()[:12]
 

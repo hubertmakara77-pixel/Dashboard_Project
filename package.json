@@ -1,0 +1,16 @@
+{
+	"name": "amp-panel-development",
+	"private": true,
+	"scripts": {
+		"check": "eslint static/js && prettier --check static/js",
+		"lint": "eslint static/js",
+		"format": "prettier --write static/js",
+		"format:check": "prettier --check static/js"
+	},
+	"devDependencies": {
+		"@eslint/js": "^9.0.0",
+		"eslint": "^9.0.0",
+		"globals": "^15.0.0",
+		"prettier": "^3.0.0"
+	}
+}

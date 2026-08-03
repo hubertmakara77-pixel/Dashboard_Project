@@ -1,16 +1,17 @@
+"""Thread-safe persistence facade for measurements, snapshots and history queries."""
+
 import datetime
 import json
 import logging
-import math
 import pathlib
 import shutil
 import sqlite3
 import threading
 from typing import Any
 
-from app.core import config, state
+from app.core import config, device_schema, state
+from app.services import database_schema, database_statistics
 from app.services import syslog as syslog_service
-
 
 logger = logging.getLogger(__name__)
 connection = None
@@ -19,22 +20,7 @@ last_error = None
 discarded_records = 0
 LEGACY_SETPOINT_MEASUREMENT = "optical_amp_setpoint"
 
-HISTORY_FIELDS = (
-    "M",
-    "PiA",
-    "PoA",
-    "PiB",
-    "PoB",
-    "G",
-    "SG",
-    "PP",
-    "SPP",
-    "gain_set",
-    "gain_actual",
-    "gain_delta",
-    "temperature",
-    "seq_nr",
-)
+HISTORY_FIELDS = device_schema.AMPLIFIER_HISTORY_FIELDS
 FIELD_COLUMNS = ", ".join(HISTORY_FIELDS)
 FIELD_PLACEHOLDERS = ", ".join("?" for _ in HISTORY_FIELDS)
 HOUR_MS = 60 * 60 * 1000
@@ -60,163 +46,15 @@ def _set_error(operation: str, error: Exception) -> None:
 
 
 def _create_schema(opened_connection: sqlite3.Connection) -> None:
-    opened_connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS samples (
-            id INTEGER PRIMARY KEY,
-            timestamp_ms INTEGER NOT NULL,
-            M REAL,
-            PiA REAL,
-            PoA REAL,
-            PiB REAL,
-            PoB REAL,
-            G REAL,
-            SG REAL,
-            PP REAL,
-            SPP REAL,
-            gain_set REAL,
-            gain_actual REAL,
-            gain_delta REAL,
-            temperature REAL,
-            seq_nr REAL
-        )
-        """
-    )
-    opened_connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_samples_timestamp ON samples (timestamp_ms)"
-    )
-    opened_connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS setpoint_events (
-            id INTEGER PRIMARY KEY,
-            timestamp_ms INTEGER NOT NULL,
-            gain_set REAL NOT NULL
-        )
-        """
-    )
-    opened_connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_setpoints_timestamp ON setpoint_events (timestamp_ms)"
-    )
-    opened_connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS database_metadata (
-            key TEXT PRIMARY KEY,
-            value INTEGER NOT NULL
-        ) WITHOUT ROWID
-        """
-    )
-    opened_connection.execute(
-        """
-        INSERT OR IGNORE INTO database_metadata (key, value)
-        VALUES ('sample_count', (SELECT COUNT(*) FROM samples))
-        """
-    )
-    opened_connection.execute(
-        """
-        CREATE TRIGGER IF NOT EXISTS samples_count_after_insert
-        AFTER INSERT ON samples
-        BEGIN
-            UPDATE database_metadata SET value = value + 1
-            WHERE key = 'sample_count';
-        END
-        """
-    )
-    opened_connection.execute(
-        """
-        CREATE TRIGGER IF NOT EXISTS samples_count_after_delete
-        AFTER DELETE ON samples
-        BEGIN
-            UPDATE database_metadata SET value = value - 1
-            WHERE key = 'sample_count';
-        END
-        """
-    )
-    opened_connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS hourly_statistics (
-            bucket_ms INTEGER PRIMARY KEY,
-            sample_count INTEGER NOT NULL,
-            statistics_json TEXT NOT NULL
-        )
-        """
-    )
-    opened_connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS device_snapshots (
-            id INTEGER PRIMARY KEY,
-            timestamp_ms INTEGER NOT NULL,
-            profile TEXT NOT NULL,
-            snapshot_json TEXT NOT NULL
-        )
-        """
-    )
-    opened_connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_device_snapshots_timestamp "
-        "ON device_snapshots (timestamp_ms)"
-    )
-    opened_connection.execute(
-        """
-        INSERT OR IGNORE INTO database_metadata (key, value)
-        VALUES ('device_snapshot_count', (SELECT COUNT(*) FROM device_snapshots))
-        """
-    )
-    opened_connection.execute(
-        """
-        CREATE TRIGGER IF NOT EXISTS device_snapshots_count_after_insert
-        AFTER INSERT ON device_snapshots
-        BEGIN
-            UPDATE database_metadata SET value = value + 1
-            WHERE key = 'device_snapshot_count';
-        END
-        """
-    )
-    opened_connection.execute(
-        """
-        CREATE TRIGGER IF NOT EXISTS device_snapshots_count_after_delete
-        AFTER DELETE ON device_snapshots
-        BEGIN
-            UPDATE database_metadata SET value = value - 1
-            WHERE key = 'device_snapshot_count';
-        END
-        """
-    )
+    database_schema.create_schema(opened_connection)
 
 
 def _empty_statistics_state() -> dict:
-    return {
-        field: {
-            "count": 0,
-            "sum": 0.0,
-            "sum_squares": 0.0,
-            "min": None,
-            "max": None,
-        }
-        for field in HISTORY_FIELDS
-    }
+    return database_statistics.empty_statistics_state(HISTORY_FIELDS)
 
 
-def _consume_statistics_row(
-    statistics: dict,
-    row: sqlite3.Row,
-) -> None:
-    for field in HISTORY_FIELDS:
-        value = row[field]
-        field_state = statistics[field]
-        if value is not None:
-            numeric_value = float(value)
-            field_state["count"] += 1
-            field_state["sum"] += numeric_value
-            field_state["sum_squares"] += numeric_value * numeric_value
-            field_state["min"] = (
-                numeric_value
-                if field_state["min"] is None
-                else min(field_state["min"], numeric_value)
-            )
-            field_state["max"] = (
-                numeric_value
-                if field_state["max"] is None
-                else max(field_state["max"], numeric_value)
-            )
+def _consume_statistics_row(statistics: dict, row: sqlite3.Row) -> None:
+    database_statistics.consume_statistics_row(statistics, row, HISTORY_FIELDS)
 
 
 def _store_hourly_statistics(
@@ -225,15 +63,8 @@ def _store_hourly_statistics(
     sample_count: int,
     statistics: dict,
 ) -> None:
-    opened_connection.execute(
-        """
-        INSERT INTO hourly_statistics (bucket_ms, sample_count, statistics_json)
-        VALUES (?, ?, ?)
-        ON CONFLICT(bucket_ms) DO UPDATE SET
-            sample_count = excluded.sample_count,
-            statistics_json = excluded.statistics_json
-        """,
-        (bucket_ms, sample_count, json.dumps(statistics, separators=(",", ":"))),
+    database_statistics.store_hourly_statistics(
+        opened_connection, bucket_ms, sample_count, statistics
     )
 
 
@@ -241,73 +72,15 @@ def _rebuild_hourly_bucket(
     opened_connection: sqlite3.Connection,
     bucket_ms: int,
 ) -> None:
-    rows = opened_connection.execute(
-        f"""
-        SELECT {FIELD_COLUMNS}
-        FROM samples
-        WHERE timestamp_ms >= ? AND timestamp_ms < ?
-        ORDER BY timestamp_ms ASC, id ASC
-        """,
-        (bucket_ms, bucket_ms + HOUR_MS),
+    database_statistics.rebuild_hourly_bucket(
+        opened_connection, bucket_ms, HISTORY_FIELDS, FIELD_COLUMNS, HOUR_MS
     )
-    statistics = _empty_statistics_state()
-    sample_count = 0
-    for row in rows:
-        _consume_statistics_row(statistics, row)
-        sample_count += 1
-    if sample_count:
-        _store_hourly_statistics(
-            opened_connection, bucket_ms, sample_count, statistics
-        )
-    else:
-        opened_connection.execute(
-            "DELETE FROM hourly_statistics WHERE bucket_ms = ?", (bucket_ms,)
-        )
 
 
 def _backfill_hourly_statistics(opened_connection: sqlite3.Connection) -> None:
-    """Build persistent summaries once for completed historical hours."""
-    bounds = opened_connection.execute(
-        "SELECT MIN(timestamp_ms), MAX(timestamp_ms) FROM samples"
-    ).fetchone()
-    if bounds[0] is None:
-        return
-    last_bucket_ms = (int(bounds[1]) // HOUR_MS) * HOUR_MS
-    summarized_buckets = {
-        row[0]
-        for row in opened_connection.execute(
-            "SELECT bucket_ms FROM hourly_statistics"
-        )
-    }
-    rows = opened_connection.execute(
-        f"""
-        SELECT timestamp_ms, {FIELD_COLUMNS}
-        FROM samples
-        WHERE timestamp_ms < ?
-        ORDER BY timestamp_ms ASC, id ASC
-        """,
-        (last_bucket_ms,),
+    database_statistics.backfill_hourly_statistics(
+        opened_connection, HISTORY_FIELDS, FIELD_COLUMNS, HOUR_MS
     )
-    current_bucket = None
-    current_count = 0
-    statistics = None
-    for row in rows:
-        bucket_ms = (int(row["timestamp_ms"]) // HOUR_MS) * HOUR_MS
-        if bucket_ms != current_bucket:
-            if current_bucket is not None and current_bucket not in summarized_buckets:
-                _store_hourly_statistics(
-                    opened_connection, current_bucket, current_count, statistics
-                )
-            current_bucket = bucket_ms
-            current_count = 0
-            statistics = _empty_statistics_state()
-        if bucket_ms not in summarized_buckets:
-            _consume_statistics_row(statistics, row)
-            current_count += 1
-    if current_bucket is not None and current_bucket not in summarized_buckets:
-        _store_hourly_statistics(
-            opened_connection, current_bucket, current_count, statistics
-        )
 
 
 def _legacy_measurements_exist(opened_connection: sqlite3.Connection) -> bool:
@@ -316,9 +89,7 @@ def _legacy_measurements_exist(opened_connection: sqlite3.Connection) -> bool:
     ).fetchone()
     if not table:
         return False
-    columns = {
-        row["name"] for row in opened_connection.execute("PRAGMA table_info(measurements)")
-    }
+    columns = {row["name"] for row in opened_connection.execute("PRAGMA table_info(measurements)")}
     return "fields_json" in columns and "timestamp_epoch" in columns
 
 
@@ -330,8 +101,7 @@ def _migrate_legacy_measurements(opened_connection: sqlite3.Connection) -> None:
         "SELECT measurement, timestamp_epoch, fields_json FROM measurements ORDER BY id"
     )
     sample_sql = (
-        f"INSERT INTO samples (timestamp_ms, {FIELD_COLUMNS}) "
-        f"VALUES (?, {FIELD_PLACEHOLDERS})"
+        f"INSERT INTO samples (timestamp_ms, {FIELD_COLUMNS}) VALUES (?, {FIELD_PLACEHOLDERS})"
     )
     for row in rows:
         try:
@@ -360,6 +130,11 @@ def _migrate_legacy_measurements(opened_connection: sqlite3.Connection) -> None:
 
 
 def init_database() -> None:
+    """Open SQLite, migrate legacy data and prepare persistent summaries.
+
+    Initialization is idempotent and serialized because API handlers and the serial
+    worker may reach the service concurrently during startup.
+    """
     global connection
     global last_error
 
@@ -377,9 +152,7 @@ def init_database() -> None:
             opened_connection.execute("PRAGMA journal_mode=WAL")
             opened_connection.execute("PRAGMA synchronous=NORMAL")
             with opened_connection:
-                schema_version = opened_connection.execute(
-                    "PRAGMA user_version"
-                ).fetchone()[0]
+                schema_version = opened_connection.execute("PRAGMA user_version").fetchone()[0]
                 _create_schema(opened_connection)
                 _migrate_legacy_measurements(opened_connection)
                 if schema_version < 4:
@@ -406,8 +179,7 @@ def close_database() -> None:
 def _field_values(fields: dict) -> list[float | None]:
     return [
         float(fields[field])
-        if isinstance(fields.get(field), (int, float))
-        and not isinstance(fields.get(field), bool)
+        if isinstance(fields.get(field), (int, float)) and not isinstance(fields.get(field), bool)
         else None
         for field in HISTORY_FIELDS
     ]
@@ -460,6 +232,11 @@ def _prune_device_snapshots(max_records: int, profile: str) -> int:
 
 
 def write_measurement(data: dict, timestamp: str | None = None) -> bool:
+    """Persist one amplifier sample and update affected summary buckets.
+
+    Returns ``False`` for a payload without supported numeric fields or when the
+    database is unavailable. Details remain available in runtime status.
+    """
     global last_error
     values = _field_values(data)
     if not any(value is not None for value in values):
@@ -486,9 +263,7 @@ def write_measurement(data: dict, timestamp: str | None = None) -> bool:
             )
             inserted_bucket_ms = (timestamp_value // HOUR_MS) * HOUR_MS
             if previous_last_timestamp is not None:
-                previous_bucket_ms = (
-                    int(previous_last_timestamp) // HOUR_MS
-                ) * HOUR_MS
+                previous_bucket_ms = (int(previous_last_timestamp) // HOUR_MS) * HOUR_MS
                 if inserted_bucket_ms > previous_bucket_ms:
                     _rebuild_hourly_bucket(connection, previous_bucket_ms)
                 elif inserted_bucket_ms < previous_bucket_ms:
@@ -547,6 +322,7 @@ def write_device_snapshot(
     snapshot: dict,
     timestamp: str | None = None,
 ) -> bool:
+    """Persist one complete profile-specific device snapshot as canonical JSON."""
     global last_error
     try:
         timestamp_value = _timestamp_ms(timestamp)
@@ -597,14 +373,17 @@ def get_device_snapshot_count(profile: str | None = None) -> int:
     with database_lock:
         try:
             if profile:
-                return int(connection.execute(
-                    "SELECT COUNT(*) FROM device_snapshots WHERE profile = ?",
-                    (profile,),
-                ).fetchone()[0])
-            return int(connection.execute(
-                "SELECT value FROM database_metadata "
-                "WHERE key = 'device_snapshot_count'"
-            ).fetchone()[0])
+                return int(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM device_snapshots WHERE profile = ?",
+                        (profile,),
+                    ).fetchone()[0]
+                )
+            return int(
+                connection.execute(
+                    "SELECT value FROM database_metadata WHERE key = 'device_snapshot_count'"
+                ).fetchone()[0]
+            )
         except sqlite3.Error as error:
             _set_error("device snapshot status", error)
             return 0
@@ -651,7 +430,9 @@ def get_storage_status() -> dict:
                 source_table = (
                     "device_snapshots" if config.DEVICE_PROFILE == "fts-ls" else "samples"
                 )
-                source_filter = "WHERE profile = 'fts-ls'" if source_table == "device_snapshots" else ""
+                source_filter = (
+                    "WHERE profile = 'fts-ls'" if source_table == "device_snapshots" else ""
+                )
                 latest_timestamp = connection.execute(
                     f"SELECT MAX(timestamp_ms) FROM {source_table} {source_filter}"
                 ).fetchone()[0]
@@ -675,9 +456,7 @@ def get_storage_status() -> dict:
                         else 0
                     )
                     if span_seconds > 0:
-                        sample_rate_per_second = (
-                            int(recent["sample_count"]) - 1
-                        ) / span_seconds
+                        sample_rate_per_second = (int(recent["sample_count"]) - 1) / span_seconds
             except sqlite3.Error as error:
                 _set_error("storage estimate", error)
 
@@ -692,9 +471,7 @@ def get_storage_status() -> dict:
     estimated_seconds_until_disk_full = None
     if record_limit and sample_rate_per_second:
         estimated_retention_seconds = record_limit / sample_rate_per_second
-        estimated_seconds_to_limit = (
-            max(0, record_limit - records) / sample_rate_per_second
-        )
+        estimated_seconds_to_limit = max(0, record_limit - records) / sample_rate_per_second
     if records > 0 and size_bytes > 0 and sample_rate_per_second:
         estimated_bytes_per_record = size_bytes / records
         estimated_seconds_until_disk_full = (
@@ -713,6 +490,7 @@ def get_storage_status() -> dict:
 
 
 def get_runtime_status() -> dict:
+    """Return readiness, record counts, retention estimate and the last SQL error."""
     init_database()
     records = (
         get_device_snapshot_count(config.DEVICE_PROFILE)
@@ -734,6 +512,7 @@ def query_device_snapshots(
     end: str | None = None,
     limit: int = 2000,
 ) -> list[dict] | None:
+    """Return evenly sampled snapshots for a profile and inclusive time range."""
     init_database()
     if connection is None:
         return None
@@ -831,6 +610,7 @@ def query_history(
     end: str | None = None,
     include_metadata: bool = False,
 ):
+    """Return bounded amplifier history using dynamic time-window aggregation."""
     init_database()
     if connection is None:
         return None
@@ -916,63 +696,13 @@ def _query_raw_statistics_segment(
     start_ms: int,
     end_ms: int,
 ) -> dict:
-    statistics = _empty_statistics_state()
-    sample_count = 0
-    rows = opened_connection.execute(
-        f"""
-        SELECT {FIELD_COLUMNS}
-        FROM samples
-        WHERE timestamp_ms >= ? AND timestamp_ms <= ?
-        ORDER BY timestamp_ms ASC, id ASC
-        """,
-        (start_ms, end_ms),
+    return database_statistics.query_raw_statistics_segment(
+        opened_connection, start_ms, end_ms, HISTORY_FIELDS, FIELD_COLUMNS
     )
-    for row in rows:
-        _consume_statistics_row(statistics, row)
-        sample_count += 1
-    return {"sample_count": sample_count, "statistics": statistics}
 
 
 def _merge_statistics_segments(segments: list[dict]) -> dict:
-    combined = _empty_statistics_state()
-    sample_count = 0
-    for segment in segments:
-        if not segment["sample_count"]:
-            continue
-        sample_count += segment["sample_count"]
-        for field in HISTORY_FIELDS:
-            source = segment["statistics"][field]
-            target = combined[field]
-            if source["count"]:
-                target["count"] += source["count"]
-                target["sum"] += source["sum"]
-                target["sum_squares"] += source["sum_squares"]
-                target["min"] = (
-                    source["min"]
-                    if target["min"] is None
-                    else min(target["min"], source["min"])
-                )
-                target["max"] = (
-                    source["max"]
-                    if target["max"] is None
-                    else max(target["max"], source["max"])
-                )
-
-    result = {}
-    for field, field_state in combined.items():
-        if field_state["count"]:
-            average = field_state["sum"] / field_state["count"]
-            variance = max(
-                0.0,
-                field_state["sum_squares"] / field_state["count"] - average * average,
-            )
-            result[field] = {
-                "min": field_state["min"],
-                "max": field_state["max"],
-                "average": average,
-                "standard_deviation": math.sqrt(variance),
-            }
-    return {"sample_count": sample_count, "statistics": result}
+    return database_statistics.merge_statistics_segments(segments, HISTORY_FIELDS)
 
 
 def query_statistics(range_value: str, start: str | None = None, end: str | None = None):
@@ -986,9 +716,7 @@ def query_statistics(range_value: str, start: str | None = None, end: str | None
         requested_start_ms = _parse_boundary(start)
         if requested_start_ms is None:
             range_start = _range_start(range_value)
-            requested_start_ms = (
-                round(range_start.timestamp() * 1000) if range_start else None
-            )
+            requested_start_ms = round(range_start.timestamp() * 1000) if range_start else None
         requested_end_ms = _parse_boundary(end)
 
         database_uri = pathlib.Path(config.DATABASE_FILE).resolve().as_uri() + "?mode=ro"
@@ -1024,15 +752,11 @@ def query_statistics(range_value: str, start: str | None = None, end: str | None
         last_full_bucket = (((end_ms + 1) // HOUR_MS) - 1) * HOUR_MS
         segments = []
         if first_full_bucket > last_full_bucket:
-            segments.append(
-                _query_raw_statistics_segment(read_connection, start_ms, end_ms)
-            )
+            segments.append(_query_raw_statistics_segment(read_connection, start_ms, end_ms))
         else:
             if start_ms < first_full_bucket:
                 segments.append(
-                    _query_raw_statistics_segment(
-                        read_connection, start_ms, first_full_bucket - 1
-                    )
+                    _query_raw_statistics_segment(read_connection, start_ms, first_full_bucket - 1)
                 )
 
             summaries = {
@@ -1063,9 +787,7 @@ def query_statistics(range_value: str, start: str | None = None, end: str | None
             suffix_start_ms = last_full_bucket + HOUR_MS
             if suffix_start_ms <= end_ms:
                 segments.append(
-                    _query_raw_statistics_segment(
-                        read_connection, suffix_start_ms, end_ms
-                    )
+                    _query_raw_statistics_segment(read_connection, suffix_start_ms, end_ms)
                 )
 
         result = _merge_statistics_segments(segments)
@@ -1132,7 +854,11 @@ def stream_raw_history(
     end: str | None = None,
     batch_size: int = 1000,
 ):
-    """Stream raw samples using a separate read-only WAL connection."""
+    """Yield raw samples from an independent read-only connection in batches.
+
+    The generator owns and closes its connection, preventing long CSV exports from
+    holding the writer lock.
+    """
     init_database()
     if connection is None:
         return None

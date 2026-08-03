@@ -18,9 +18,7 @@ def finite_float(value: Any, label: str) -> float:
 def validate_gain_set(value: Any, minimum: float, maximum: float) -> float:
     gain_set = finite_float(value, "Gain setpoint")
     if not minimum <= gain_set <= maximum:
-        raise ValueError(
-            f"Gain setpoint must be between {minimum:g} and {maximum:g}."
-        )
+        raise ValueError(f"Gain setpoint must be between {minimum:g} and {maximum:g}.")
     return gain_set
 
 
@@ -40,9 +38,7 @@ def validated_dashboard_settings(
         known_fields = set(candidate.get("warn_limits", {}))
         unknown_fields = set(warn_limits) - known_fields
         if unknown_fields:
-            raise ValueError(
-                "Unknown warning fields: " + ", ".join(sorted(unknown_fields)) + "."
-            )
+            raise ValueError("Unknown warning fields: " + ", ".join(sorted(unknown_fields)) + ".")
 
         for field, limits in warn_limits.items():
             if not isinstance(limits, dict):
@@ -50,9 +46,7 @@ def validated_dashboard_settings(
             unknown_sides = set(limits) - {"min", "max"}
             if unknown_sides:
                 raise ValueError(
-                    f"{field}: unknown limit keys: "
-                    + ", ".join(sorted(unknown_sides))
-                    + "."
+                    f"{field}: unknown limit keys: " + ", ".join(sorted(unknown_sides)) + "."
                 )
             for side in ("min", "max"):
                 if side not in limits:

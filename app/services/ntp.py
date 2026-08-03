@@ -6,8 +6,10 @@ import time
 
 from app.core import config
 
-NTP_EPOCH_OFFSET = 2_208_988_800  # seconds between 1900-01-01 (NTP epoch) and 1970-01-01 (Unix epoch)
-_PACKET = b"\x1b" + 47 * b"\0"  # LI=0, VN=3, Mode=3 (client), reszta pól wyzerowana
+NTP_EPOCH_OFFSET = (
+    2_208_988_800  # seconds between 1900-01-01 (NTP epoch) and 1970-01-01 (Unix epoch)
+)
+_PACKET = b"\x1b" + 47 * b"\0"  # LI=0, VN=3, Mode=3 (client); remaining fields are zero
 
 LEAP_INDICATOR_LABELS = {
     0: "No warning",
@@ -77,13 +79,17 @@ def _query_once(host: str) -> dict:
         "leap_indicator_label": LEAP_INDICATOR_LABELS.get(leap_indicator, "Unknown"),
         "version": version,
         "stratum": stratum,
-        "stratum_label": "Unsynchronized (kiss-o'-death)" if stratum == 0 else ("Primary reference" if stratum == 1 else f"Secondary reference (stratum {stratum})"),
-        "poll_interval_seconds": 2 ** poll if -20 <= poll <= 20 else None,
-        "precision_seconds": 2.0 ** precision if -64 <= precision <= 0 else None,
+        "stratum_label": "Unsynchronized (kiss-o'-death)"
+        if stratum == 0
+        else ("Primary reference" if stratum == 1 else f"Secondary reference (stratum {stratum})"),
+        "poll_interval_seconds": 2**poll if -20 <= poll <= 20 else None,
+        "precision_seconds": 2.0**precision if -64 <= precision <= 0 else None,
         "root_delay_ms": round(root_delay_signed / 65536 * 1000, 3),
         "root_dispersion_ms": round(root_dispersion_raw / 65536 * 1000, 3),
         "reference_id": _decode_reference_id(stratum, reference_id_raw),
-        "reference_time_utc": datetime.datetime.fromtimestamp(t3, tz=datetime.timezone.utc).isoformat(),
+        "reference_time_utc": datetime.datetime.fromtimestamp(
+            t3, tz=datetime.timezone.utc
+        ).isoformat(),
         "offset_ms": round(offset_seconds * 1000, 3),
         "round_trip_ms": round(round_trip_seconds * 1000, 3),
         "checked_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -94,7 +100,11 @@ def query_ntp_status(force: bool = False) -> dict:
     global _cached_result, _cached_at
 
     with _cache_lock:
-        if not force and _cached_result is not None and (time.monotonic() - _cached_at) < config.NTP_CACHE_SECONDS:
+        if (
+            not force
+            and _cached_result is not None
+            and (time.monotonic() - _cached_at) < config.NTP_CACHE_SECONDS
+        ):
             return _cached_result
 
     hosts_to_try = [config.NTP_SERVER]

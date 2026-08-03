@@ -12,7 +12,6 @@ import base64
 import datetime
 import getpass
 import html
-import json
 import math
 import os
 import pathlib
@@ -41,9 +40,7 @@ EXIT_NOT_CONFIGURED = 2
 
 ETC_DIR = pathlib.Path(os.getenv("AMP_PANEL_ETC_DIR", "/etc/amp-panel"))
 CONFIG_FILE = ETC_DIR / "amp-panel.env"
-DEFAULT_DATA_DIR = pathlib.Path(
-    os.getenv("AMP_PANEL_DEFAULT_DATA_DIR", "/var/lib/amp-panel")
-)
+DEFAULT_DATA_DIR = pathlib.Path(os.getenv("AMP_PANEL_DEFAULT_DATA_DIR", "/var/lib/amp-panel"))
 LOG_DIR = pathlib.Path(os.getenv("AMP_PANEL_LOG_DIR", "/var/log/amp-panel"))
 RUN_DIR = pathlib.Path(os.getenv("AMP_PANEL_RUN_DIR", "/run/amp-panel"))
 SYSTEMD_OVERRIDE_DIR = pathlib.Path(
@@ -52,12 +49,8 @@ SYSTEMD_OVERRIDE_DIR = pathlib.Path(
         "/etc/systemd/system/amp-panel.service.d",
     )
 )
-RSYSLOG_FILE = pathlib.Path(
-    os.getenv("AMP_PANEL_RSYSLOG_FILE", "/etc/rsyslog.d/30-amp-panel.conf")
-)
-LOGROTATE_FILE = pathlib.Path(
-    os.getenv("AMP_PANEL_LOGROTATE_FILE", "/etc/logrotate.d/amp-panel")
-)
+RSYSLOG_FILE = pathlib.Path(os.getenv("AMP_PANEL_RSYSLOG_FILE", "/etc/rsyslog.d/30-amp-panel.conf"))
+LOGROTATE_FILE = pathlib.Path(os.getenv("AMP_PANEL_LOGROTATE_FILE", "/etc/logrotate.d/amp-panel"))
 AVAHI_FILE = pathlib.Path(
     os.getenv("AMP_PANEL_AVAHI_FILE", "/etc/avahi/services/amp-panel.service")
 )
@@ -67,9 +60,7 @@ TIMESYNCD_FILE = pathlib.Path(
         "/etc/systemd/timesyncd.conf.d/amp-panel.conf",
     )
 )
-VERSION_FILE = pathlib.Path(
-    os.getenv("AMP_PANEL_VERSION_FILE", "/usr/lib/amp-panel/VERSION")
-)
+VERSION_FILE = pathlib.Path(os.getenv("AMP_PANEL_VERSION_FILE", "/usr/lib/amp-panel/VERSION"))
 
 CURRENT_SERVICE = "amp-panel.service"
 NETWORK_AGENT_SERVICE = "amp-panel-network-agent.service"
@@ -80,9 +71,7 @@ KEY_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$")
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9._@-]{1,128}$")
 HOST_PATTERN = re.compile(r"^[A-Za-z0-9._:-]+$")
 MDNS_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
-SERIAL_PATTERN = re.compile(
-    r"^/dev/(?:tty(?:ACM|USB|S|O)[0-9]+|serial/by-id/[A-Za-z0-9._:+-]+)$"
-)
+SERIAL_PATTERN = re.compile(r"^/dev/(?:tty(?:ACM|USB|S|O)[0-9]+|serial/by-id/[A-Za-z0-9._:+-]+)$")
 
 CONFIG_KEYS = (
     "AMP_PANEL_CONFIG_VERSION",
@@ -174,8 +163,7 @@ def _run(
     except subprocess.TimeoutExpired as exc:
         duration = f"{timeout:g}" if timeout is not None else "unknown"
         raise ConfigurationError(
-            f"Command did not finish within {duration} seconds: "
-            f"{' '.join(command)}"
+            f"Command did not finish within {duration} seconds: {' '.join(command)}"
         ) from exc
 
 
@@ -193,9 +181,7 @@ def _safe_int(value: object, name: str, minimum: int, maximum: int) -> int:
     except (TypeError, ValueError) as exc:
         raise ConfigurationError(f"{name} must be an integer.") from exc
     if not minimum <= parsed <= maximum:
-        raise ConfigurationError(
-            f"{name} must be between {minimum} and {maximum}."
-        )
+        raise ConfigurationError(f"{name} must be between {minimum} and {maximum}.")
     return parsed
 
 
@@ -232,9 +218,7 @@ def read_env_file(path: pathlib.Path) -> dict[str, str]:
         key, raw_value = line.split("=", 1)
         key = key.strip()
         if not KEY_PATTERN.fullmatch(key):
-            raise ConfigurationError(
-                f"Invalid configuration key on line {number} in {path}."
-            )
+            raise ConfigurationError(f"Invalid configuration key on line {number} in {path}.")
         value = raw_value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
             quote = value[0]
@@ -341,9 +325,7 @@ def _hardware_id() -> str:
         if re.fullmatch(r"[0-9A-Fa-f]{12}", value) and value != "000000000000":
             return value[-8:].lower()
     try:
-        machine_id = pathlib.Path("/etc/machine-id").read_text(
-            encoding="ascii"
-        ).strip()
+        machine_id = pathlib.Path("/etc/machine-id").read_text(encoding="ascii").strip()
     except OSError:
         machine_id = ""
     cleaned = re.sub(r"[^0-9A-Fa-f]", "", machine_id)
@@ -465,13 +447,12 @@ def _normalized_data_dir(value: str, source: pathlib.Path | None = None) -> path
         pathlib.Path("/media"),
         pathlib.Path("/srv"),
     )
-    allowed = any(
-        path == root or root in path.parents for root in application_roots
-    ) or any(root in path.parents for root in external_roots)
+    allowed = any(path == root or root in path.parents for root in application_roots) or any(
+        root in path.parents for root in external_roots
+    )
     if os.getenv("AMP_PANEL_ALLOW_ANY_DATA_DIR") != "1" and not allowed:
         raise ConfigurationError(
-            "The data directory must be /var/lib/amp-panel or below "
-            "/mnt, /media or /srv."
+            "The data directory must be /var/lib/amp-panel or below /mnt, /media or /srv."
         )
     return path
 
@@ -535,9 +516,7 @@ def translate_configuration(
     translated["SYSLOG_APP_NAME"] = "amp-panel"
     translated["SYSLOG_EXPORT_FILE"] = str(LOG_DIR / "amp-panel.log")
     translated["NETWORK_AGENT_SOCKET"] = str(RUN_DIR / "network-agent.sock")
-    translated["MDNS_HOSTNAME"] = translated["MDNS_HOSTNAME"].removesuffix(
-        ".local"
-    )
+    translated["MDNS_HOSTNAME"] = translated["MDNS_HOSTNAME"].removesuffix(".local")
     translated["AMP_PANEL_CONFIG_VERSION"] = "2"
     if source_path != CONFIG_FILE:
         translated["MIGRATED_FROM"] = str(source_path)
@@ -556,9 +535,7 @@ def validate_configuration(values: dict[str, str]) -> None:
         gain_min = _safe_float(values.get("GAIN_SET_MIN"), "Minimum safe gain")
         gain_max = _safe_float(values.get("GAIN_SET_MAX"), "Maximum safe gain")
         if gain_min >= gain_max:
-            raise ConfigurationError(
-                "Minimum safe gain must be lower than maximum safe gain."
-            )
+            raise ConfigurationError("Minimum safe gain must be lower than maximum safe gain.")
     else:
         if not USERNAME_PATTERN.fullmatch(values.get("FTS_LS_USERNAME", "")):
             raise ConfigurationError("The FTS-LS console username is invalid.")
@@ -706,9 +683,7 @@ def _apply_answers(values: dict[str, str], answers: dict[str, str]) -> None:
                     validate=True,
                 ).decode("utf-8")
             except (ValueError, UnicodeDecodeError) as exc:
-                raise ConfigurationError(
-                    f"Invalid encoded installer answer: {answer_key}"
-                ) from exc
+                raise ConfigurationError(f"Invalid encoded installer answer: {answer_key}") from exc
         else:
             answer = answers.get(answer_key)
         if answer is not None and answer != "":
@@ -778,13 +753,9 @@ def migrate_legacy_data(values: dict[str, str]) -> None:
             integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
             connection.close()
         except sqlite3.Error as exc:
-            raise ConfigurationError(
-                f"Could not validate legacy SQLite database: {exc}"
-            ) from exc
+            raise ConfigurationError(f"Could not validate legacy SQLite database: {exc}") from exc
         if integrity != "ok":
-            raise ConfigurationError(
-                f"Legacy SQLite integrity check failed: {integrity}"
-            )
+            raise ConfigurationError(f"Legacy SQLite integrity check failed: {integrity}")
     for name in ("measurements.db", "persisted_state.json"):
         source = source_dir / name
         destination = destination_dir / name
@@ -805,17 +776,14 @@ def write_system_configuration(values: dict[str, str]) -> None:
     data_dir = pathlib.Path(values["AMP_PANEL_DATA_DIR"])
     _write_text(
         SYSTEMD_OVERRIDE_DIR / "paths.conf",
-        "[Unit]\n"
-        f'RequiresMountsFor="{data_dir}"\n\n'
-        "[Service]\n"
-        f'ReadWritePaths="{data_dir}"\n',
+        f'[Unit]\nRequiresMountsFor="{data_dir}"\n\n[Service]\nReadWritePaths="{data_dir}"\n',
     )
     _write_text(
         AVAHI_FILE,
-        "<?xml version=\"1.0\" standalone=\"no\"?>\n"
-        "<!DOCTYPE service-group SYSTEM \"avahi-service.dtd\">\n"
+        '<?xml version="1.0" standalone="no"?>\n'
+        '<!DOCTYPE service-group SYSTEM "avahi-service.dtd">\n'
         "<service-group>\n"
-        "  <name replace-wildcards=\"yes\">%h Amp Panel</name>\n"
+        '  <name replace-wildcards="yes">%h Amp Panel</name>\n'
         "  <service>\n"
         "    <type>_http._tcp</type>\n"
         f"    <port>{_safe_int(values['AMP_PANEL_PORT'], 'Web port', 1024, 65535)}</port>\n"
@@ -826,47 +794,45 @@ def write_system_configuration(values: dict[str, str]) -> None:
     )
     _write_text(
         TIMESYNCD_FILE,
-        "[Time]\n"
-        f"NTP={values['NTP_SERVER']}\n"
-        f"FallbackNTP={values['NTP_SERVER_FALLBACK_IP']}\n",
+        f"[Time]\nNTP={values['NTP_SERVER']}\nFallbackNTP={values['NTP_SERVER_FALLBACK_IP']}\n",
     )
 
     remote_action = ""
     if values["REMOTE_SYSLOG_ENABLED"].lower() == "true":
         remote_action = (
             "        action(\n"
-            "            type=\"omfwd\"\n"
-            f"            target=\"{values['REMOTE_SYSLOG_HOST']}\"\n"
-            f"            port=\"{values['REMOTE_SYSLOG_PORT']}\"\n"
-            f"            protocol=\"{values['REMOTE_SYSLOG_PROTOCOL']}\"\n"
-            "            action.resumeRetryCount=\"-1\"\n"
-            "            queue.type=\"LinkedList\"\n"
-            "            queue.filename=\"ampPanelForward\"\n"
-            "            queue.saveOnShutdown=\"on\"\n"
+            '            type="omfwd"\n'
+            f'            target="{values["REMOTE_SYSLOG_HOST"]}"\n'
+            f'            port="{values["REMOTE_SYSLOG_PORT"]}"\n'
+            f'            protocol="{values["REMOTE_SYSLOG_PROTOCOL"]}"\n'
+            '            action.resumeRetryCount="-1"\n'
+            '            queue.type="LinkedList"\n'
+            '            queue.filename="ampPanelForward"\n'
+            '            queue.saveOnShutdown="on"\n'
             "        )\n"
         )
     log_file = LOG_DIR / "amp-panel.log"
     _write_text(
         RSYSLOG_FILE,
-        "module(load=\"imudp\")\n"
+        'module(load="imudp")\n'
         "$AllowedSender UDP, 127.0.0.1\n\n"
-        "template(name=\"ampPanelLine\" type=\"string\" "
-        "string=\"%timereported:::date-rfc3339% %msg:2:$%\\n\")\n\n"
-        "ruleset(name=\"ampPanel\") {\n"
-        "    if ($programname == \"amp-panel\") then {\n"
+        'template(name="ampPanelLine" type="string" '
+        'string="%timereported:::date-rfc3339% %msg:2:$%\\n")\n\n'
+        'ruleset(name="ampPanel") {\n'
+        '    if ($programname == "amp-panel") then {\n'
         "        action(\n"
-        "            type=\"omfile\"\n"
-        f"            file=\"{log_file}\"\n"
-        "            fileOwner=\"root\"\n"
-        "            fileGroup=\"adm\"\n"
-        "            fileCreateMode=\"0640\"\n"
-        "            template=\"ampPanelLine\"\n"
+        '            type="omfile"\n'
+        f'            file="{log_file}"\n'
+        '            fileOwner="root"\n'
+        '            fileGroup="adm"\n'
+        '            fileCreateMode="0640"\n'
+        '            template="ampPanelLine"\n'
         "        )\n"
         f"{remote_action}"
         "        stop\n"
         "    }\n"
         "}\n\n"
-        "input(type=\"imudp\" port=\"514\" ruleset=\"ampPanel\")\n",
+        'input(type="imudp" port="514" ruleset="ampPanel")\n',
     )
     _write_text(
         LOGROTATE_FILE,
@@ -979,9 +945,7 @@ def stop_legacy_installation(
         result = _run(["systemctl", "stop", LEGACY_SERVICE], capture=True)
         if result.returncode != 0:
             restore_legacy_installation(state)
-            raise ConfigurationError(
-                "Could not stop the legacy Amp Dashboard service safely."
-            )
+            raise ConfigurationError("Could not stop the legacy Amp Dashboard service safely.")
     if state["agent_active"]:
         result = _run(
             ["systemctl", "stop", LEGACY_NETWORK_AGENT_SERVICE],
@@ -989,16 +953,10 @@ def stop_legacy_installation(
         )
         if result.returncode != 0:
             restore_legacy_installation(state)
-            raise ConfigurationError(
-                "Could not stop the legacy network agent safely."
-            )
+            raise ConfigurationError("Could not stop the legacy network agent safely.")
     working_directory = source.parent
     compose_file = working_directory / "docker-compose.yml"
-    if (
-        not state["service_active"]
-        and compose_file.is_file()
-        and _command_exists("docker")
-    ):
+    if not state["service_active"] and compose_file.is_file() and _command_exists("docker"):
         running = _run(
             [
                 "docker",
@@ -1012,9 +970,7 @@ def stop_legacy_installation(
             ],
             capture=True,
         )
-        state["compose_active"] = (
-            running.returncode == 0 and bool(running.stdout.strip())
-        )
+        state["compose_active"] = running.returncode == 0 and bool(running.stdout.strip())
         if state["compose_active"]:
             stopped = _run(
                 ["docker", "compose", "-f", str(compose_file), "down"],
@@ -1022,9 +978,7 @@ def stop_legacy_installation(
             )
             if stopped.returncode != 0:
                 restore_legacy_installation(state)
-                raise ConfigurationError(
-                    "Could not stop the legacy Docker installation safely."
-                )
+                raise ConfigurationError("Could not stop the legacy Docker installation safely.")
     for legacy_file in (
         pathlib.Path("/etc/rsyslog.d/30-amp-dashboard.conf"),
         pathlib.Path("/etc/avahi/services/amp-dashboard.service"),
@@ -1032,9 +986,7 @@ def stop_legacy_installation(
     ):
         if not legacy_file.is_file():
             continue
-        disabled = legacy_file.with_name(
-            f"{legacy_file.name}.disabled-by-amp-panel"
-        )
+        disabled = legacy_file.with_name(f"{legacy_file.name}.disabled-by-amp-panel")
         if not disabled.exists():
             try:
                 os.replace(legacy_file, disabled)
@@ -1156,9 +1108,7 @@ def apply_hostname(values: dict[str, str]) -> None:
     )
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip()
-        raise ConfigurationError(
-            f"Could not set the mDNS hostname to {requested}: {detail}"
-        )
+        raise ConfigurationError(f"Could not set the mDNS hostname to {requested}: {detail}")
 
 
 def reload_services(*, start: bool) -> None:
@@ -1171,23 +1121,17 @@ def reload_services(*, start: bool) -> None:
             detail = validation.stderr.strip() or validation.stdout.strip()
             raise ConfigurationError(f"rsyslog configuration is invalid: {detail}")
     _configuration_progress("Reloading systemd configuration...")
-    daemon_reload = _run(
-        ["systemctl", "daemon-reload"], capture=True, timeout=30
-    )
+    daemon_reload = _run(["systemctl", "daemon-reload"], capture=True, timeout=30)
     if daemon_reload.returncode != 0:
         detail = daemon_reload.stderr.strip() or daemon_reload.stdout.strip()
         raise ConfigurationError(f"systemd daemon-reload failed: {detail}")
     for service in ("rsyslog.service", "avahi-daemon.service", "systemd-timesyncd.service"):
         if _service_exists(service):
             _configuration_progress(f"Restarting {service}...")
-            restarted = _run(
-                ["systemctl", "restart", service], capture=True, timeout=30
-            )
+            restarted = _run(["systemctl", "restart", service], capture=True, timeout=30)
             if restarted.returncode != 0:
                 detail = restarted.stderr.strip() or restarted.stdout.strip()
-                raise ConfigurationError(
-                    f"Could not restart {service}: {detail}"
-                )
+                raise ConfigurationError(f"Could not restart {service}: {detail}")
     if start:
         _configuration_progress("Enabling Amp Panel services...")
         enabled = _run(
@@ -1202,9 +1146,7 @@ def reload_services(*, start: bool) -> None:
         )
         if enabled.returncode != 0:
             detail = enabled.stderr.strip() or enabled.stdout.strip()
-            raise ConfigurationError(
-                f"Could not enable Amp Panel services: {detail}"
-            )
+            raise ConfigurationError(f"Could not enable Amp Panel services: {detail}")
         _configuration_progress("Restarting Amp Panel services...")
         restart = _run(
             ["systemctl", "restart", NETWORK_AGENT_SERVICE, CURRENT_SERVICE],
@@ -1226,10 +1168,10 @@ def _configuration_from_source(path: pathlib.Path | None) -> dict[str, str]:
 
 
 def configure_command(args: argparse.Namespace) -> int:
+    """Validate, migrate and atomically apply the requested host configuration."""
     if os.name == "posix" and os.geteuid() != 0:
         print(
-            "amp-panel: configuration changes require root; "
-            "run: sudo amp-panel configure",
+            "amp-panel: configuration changes require root; run: sudo amp-panel configure",
             file=sys.stderr,
         )
         return 1
@@ -1315,9 +1257,7 @@ def configure_command(args: argparse.Namespace) -> int:
 
 def load_current_configuration() -> dict[str, str]:
     if not CONFIG_FILE.is_file():
-        raise ConfigurationError(
-            f"Amp Panel is not configured. Run: sudo amp-panel configure"
-        )
+        raise ConfigurationError("Amp Panel is not configured. Run: sudo amp-panel configure")
     values = read_env_file(CONFIG_FILE)
     validate_configuration(values)
     return values
@@ -1329,7 +1269,7 @@ def paths_command(_args: argparse.Namespace) -> int:
         data_dir = values["AMP_PANEL_DATA_DIR"]
     except ConfigurationError:
         data_dir = str(DEFAULT_DATA_DIR)
-    print(f"Application:   /usr/lib/amp-panel")
+    print("Application:   /usr/lib/amp-panel")
     print(f"Configuration: {CONFIG_FILE}")
     print(f"Data:          {data_dir}")
     print(f"Logs:          {LOG_DIR}")
@@ -1378,6 +1318,7 @@ def _sqlite_integrity(database: pathlib.Path) -> tuple[bool, str]:
 
 
 def doctor_command(_args: argparse.Namespace) -> int:
+    """Run non-destructive configuration, service and database health checks."""
     failures = 0
     try:
         values = load_current_configuration()
@@ -1419,6 +1360,7 @@ def _update_data_paths(values: dict[str, str], data_dir: pathlib.Path) -> None:
 
 
 def data_dir_command(args: argparse.Namespace) -> int:
+    """Move managed persistent data to a validated directory and reload services."""
     try:
         values = load_current_configuration()
     except ConfigurationError as exc:
@@ -1463,9 +1405,7 @@ def data_dir_command(args: argparse.Namespace) -> int:
             integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
             connection.close()
             if integrity != "ok":
-                raise ConfigurationError(
-                    f"Source SQLite integrity check failed: {integrity}"
-                )
+                raise ConfigurationError(f"Source SQLite integrity check failed: {integrity}")
         destination.mkdir(parents=True, exist_ok=True)
         for name in ("measurements.db", "persisted_state.json"):
             source = source_dir / name
@@ -1477,9 +1417,7 @@ def data_dir_command(args: argparse.Namespace) -> int:
         if destination_database.exists():
             valid, detail = _sqlite_integrity(destination_database)
             if not valid:
-                raise ConfigurationError(
-                    f"Destination SQLite integrity check failed: {detail}"
-                )
+                raise ConfigurationError(f"Destination SQLite integrity check failed: {detail}")
         _update_data_paths(values, destination)
         prepare_data_directory(values)
         write_env_file(CONFIG_FILE, values)
