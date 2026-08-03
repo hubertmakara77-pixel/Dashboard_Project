@@ -64,6 +64,13 @@ class FtsLsUiTests(unittest.TestCase):
         rack_rule = stylesheet.split(".fts-optical-rack {", 1)[1].split("}", 1)[0]
         self.assertNotIn("border:", rack_rule)
         self.assertNotIn("background:", rack_rule)
+        station_rules = [
+            rule.split("}", 1)[0]
+            for rule in stylesheet.split(".fts-station {")[1:]
+        ]
+        self.assertTrue(station_rules)
+        self.assertTrue(all("border:" not in rule for rule in station_rules))
+        self.assertTrue(all("background:" not in rule for rule in station_rules))
         self.assertIn("setActiveTab('device-settings')", script)
         self.assertIn("document.getElementById('fts-port-settings-form')?.scrollIntoView", script)
 

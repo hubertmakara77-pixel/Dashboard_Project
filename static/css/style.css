@@ -1274,11 +1274,6 @@ body[data-device-profile="fts-ls"] .profile-amplifier-only {
 .fts-station {
     min-width: 0;
     width: 100%;
-    padding: 22px;
-    border: 1px solid #2f463d;
-    border-radius: 10px;
-    background: linear-gradient(145deg, #17231f, #101714);
-    box-shadow: 0 14px 34px rgb(0 0 0 / 25%);
 }
 
 .fts-station-header,
