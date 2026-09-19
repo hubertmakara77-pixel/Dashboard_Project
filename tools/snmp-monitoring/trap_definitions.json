@@ -1,0 +1,7 @@
+[
+    {"name": "PiaOutOfRange", "field": "PiA", "warn_limits_key": "PiA", "unit": "dBm"},
+    {"name": "PoaOutOfRange", "field": "PoA", "warn_limits_key": "PoA", "unit": "dBm"},
+    {"name": "PibOutOfRange", "field": "PiB", "warn_limits_key": "PiB", "unit": "dBm"},
+    {"name": "PobOutOfRange", "field": "PoB", "warn_limits_key": "PoB", "unit": "dBm"},
+    {"name": "TemperatureOutOfRange", "field": "temperature", "warn_limits_key": "temperature", "unit": "C"}
+]

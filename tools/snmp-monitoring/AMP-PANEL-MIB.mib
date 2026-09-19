@@ -1,0 +1,250 @@
+AMP-PANEL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, NOTIFICATION-TYPE, enterprises
+        FROM SNMPv2-SMI
+    DisplayString
+        FROM SNMPv2-TC
+    OBJECT-GROUP, NOTIFICATION-GROUP, MODULE-COMPLIANCE
+        FROM SNMPv2-CONF;
+
+ampPanelMIB MODULE-IDENTITY
+    LAST-UPDATED "202609120000Z"
+    ORGANIZATION "AGH WIEiT - Amp Panel internship project"
+    CONTACT-INFO "Hubert Makara <hubertmakara77-pixel>"
+    DESCRIPTION
+        "Private, lab/test MIB for the Amp Panel optical amplifier and
+         FTS-LS laser station monitoring device. This enterprise number
+         (99999) is not registered with IANA; do not use in production
+         without obtaining a real Private Enterprise Number."
+    REVISION    "202609120000Z"
+    DESCRIPTION "Initial version: config export objects, and the
+                 generic, config-driven alarm notification alongside
+                 the deprecated single-varbind legacy trap."
+    ::= { enterprises 99999 }
+
+-- ============================================================
+-- Live configuration exported from the web GUI (pass_persist)
+-- ============================================================
+
+ampConfig OBJECT IDENTIFIER ::= { ampPanelMIB 10 }
+
+ampGainTolerance OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Allowed deviation between the requested and actual gain
+         (dB), as configured in the GUI. 'unset' if not configured."
+    ::= { ampConfig 1 }
+
+ampPiaWarnMin OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Lower warning threshold for input power port A (dBm)."
+    ::= { ampConfig 2 }
+
+ampPiaWarnMax OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Upper warning threshold for input power port A (dBm)."
+    ::= { ampConfig 3 }
+
+ampPoaWarnMin OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Lower warning threshold for output power port A (dBm)."
+    ::= { ampConfig 4 }
+
+ampPoaWarnMax OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Upper warning threshold for output power port A (dBm)."
+    ::= { ampConfig 5 }
+
+ampPibWarnMin OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Lower warning threshold for input power port B (dBm)."
+    ::= { ampConfig 6 }
+
+ampPibWarnMax OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Upper warning threshold for input power port B (dBm)."
+    ::= { ampConfig 7 }
+
+ampPobWarnMin OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Lower warning threshold for output power port B (dBm)."
+    ::= { ampConfig 8 }
+
+ampPobWarnMax OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Upper warning threshold for output power port B (dBm)."
+    ::= { ampConfig 9 }
+
+ampTemperatureWarnMin OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Lower warning threshold for device temperature (deg C)."
+    ::= { ampConfig 10 }
+
+ampTemperatureWarnMax OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Upper warning threshold for device temperature (deg C)."
+    ::= { ampConfig 11 }
+
+ampSnmpEnabled OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Whether the built-in SNMP agent is enabled in the GUI."
+    ::= { ampConfig 12 }
+
+ampLastGainSet OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Last gain setpoint (dB) requested through the GUI or API."
+    ::= { ampConfig 13 }
+
+-- ============================================================
+-- Alarm/trap varbind payload objects (config-driven traps)
+-- ============================================================
+
+ampAlarmObjects OBJECT IDENTIFIER ::= { ampPanelMIB 21 }
+
+ampAlarmName OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION
+        "Name of the configured alarm definition that fired, e.g.
+         'PiaOutOfRange'. Defined per-device in the trap daemon's
+         declarative trap definitions file, not hardcoded."
+    ::= { ampAlarmObjects 1 }
+
+ampAlarmState OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION "Alarm transition: 'ACTIVE' or 'CLEAR'."
+    ::= { ampAlarmObjects 2 }
+
+ampAlarmValue OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION "Measured value that triggered or cleared the alarm."
+    ::= { ampAlarmObjects 3 }
+
+ampAlarmThresholdMin OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION "Configured lower threshold for this alarm ('unset' if none)."
+    ::= { ampAlarmObjects 4 }
+
+ampAlarmThresholdMax OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION "Configured upper threshold for this alarm ('unset' if none)."
+    ::= { ampAlarmObjects 5 }
+
+ampAlarmMessage OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION "Free-text human-readable summary of the alarm event."
+    ::= { ampAlarmObjects 6 }
+
+-- ============================================================
+-- Notifications
+-- ============================================================
+
+ampNotifications OBJECT IDENTIFIER ::= { ampPanelMIB 20 }
+
+ampThresholdEventLegacy NOTIFICATION-TYPE
+    OBJECTS     { ampAlarmMessage }
+    STATUS      deprecated
+    DESCRIPTION
+        "Original single-varbind threshold trap. Kept for backward
+         compatibility with earlier deployments; new integrations
+         should use ampThresholdEvent instead."
+    ::= { ampNotifications 1 }
+
+ampThresholdEvent NOTIFICATION-TYPE
+    OBJECTS     {
+                    ampAlarmName,
+                    ampAlarmState,
+                    ampAlarmValue,
+                    ampAlarmThresholdMin,
+                    ampAlarmThresholdMax,
+                    ampAlarmMessage
+                }
+    STATUS      current
+    DESCRIPTION
+        "Generic threshold-breach/clear notification. Carries the
+         configured alarm NAME as a varbind rather than encoding it
+         in the OID, so adding a new monitored parameter or device
+         only requires a new entry in the trap daemon's declarative
+         definitions file - no new OID and no code change."
+    ::= { ampNotifications 2 }
+
+-- ============================================================
+-- Conformance
+-- ============================================================
+
+ampConformance OBJECT IDENTIFIER ::= { ampPanelMIB 90 }
+ampGroups      OBJECT IDENTIFIER ::= { ampConformance 1 }
+ampCompliances OBJECT IDENTIFIER ::= { ampConformance 2 }
+
+ampConfigGroup OBJECT-GROUP
+    OBJECTS {
+                ampGainTolerance, ampPiaWarnMin, ampPiaWarnMax,
+                ampPoaWarnMin, ampPoaWarnMax, ampPibWarnMin, ampPibWarnMax,
+                ampPobWarnMin, ampPobWarnMax, ampTemperatureWarnMin,
+                ampTemperatureWarnMax, ampSnmpEnabled, ampLastGainSet
+            }
+    STATUS      current
+    DESCRIPTION "Live configuration objects exported from the GUI."
+    ::= { ampGroups 1 }
+
+ampAlarmGroup OBJECT-GROUP
+    OBJECTS {
+                ampAlarmName, ampAlarmState, ampAlarmValue,
+                ampAlarmThresholdMin, ampAlarmThresholdMax, ampAlarmMessage
+            }
+    STATUS      current
+    DESCRIPTION "Alarm/trap varbind payload objects."
+    ::= { ampGroups 2 }
+
+ampNotificationGroup NOTIFICATION-GROUP
+    NOTIFICATIONS { ampThresholdEventLegacy, ampThresholdEvent }
+    STATUS      current
+    DESCRIPTION "Threshold breach/clear notifications."
+    ::= { ampGroups 3 }
+
+ampCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION "Compliance statement for agents implementing this MIB."
+    MODULE
+        MANDATORY-GROUPS { ampConfigGroup, ampAlarmGroup, ampNotificationGroup }
+    ::= { ampCompliances 1 }
+
+END
